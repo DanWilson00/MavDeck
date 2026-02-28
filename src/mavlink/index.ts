@@ -5,3 +5,4 @@ export * from './frame';
 export * from './frame-parser';
 export * from './decoder';
 export * from './frame-builder';
+export * from './xml-parser';
