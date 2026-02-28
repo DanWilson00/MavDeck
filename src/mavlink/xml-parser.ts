@@ -193,6 +193,12 @@ function parseXmlRecursive(
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlContent, 'text/xml');
+
+  const parseError = doc.querySelector('parsererror');
+  if (parseError) {
+    throw new Error(`Malformed XML in ${fileName}: ${parseError.textContent}`);
+  }
+
   const root = doc.documentElement;
 
   if (root.tagName !== 'mavlink') {
@@ -285,9 +291,9 @@ function generateJson(dialect: ParsedDialect, dialectName: string): string {
 
     // Encoded length = sum of non-extension field sizes
     let encodedLength = 0;
-    for (const field of fieldsJson) {
-      if (!(field['extension'] as boolean)) {
-        encodedLength += (field['size'] as number) * (field['array_length'] as number);
+    for (const field of ordered) {
+      if (!field.isExtension) {
+        encodedLength += typeSize(field.baseType) * field.arrayLength;
       }
     }
 

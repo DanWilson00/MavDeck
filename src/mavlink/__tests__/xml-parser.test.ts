@@ -227,4 +227,10 @@ describe('parseFromFileMap', () => {
     const parsed = JSON.parse(json);
     expect(parsed.messages['1']).toBeDefined();
   });
+
+  it('throws on malformed XML', () => {
+    const badXml = `<?xml version="1.0"?><mavlink><unclosed`;
+    const files = new Map([['bad.xml', badXml]]);
+    expect(() => parseFromFileMap(files, 'bad.xml')).toThrow();
+  });
 });

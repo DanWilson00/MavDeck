@@ -704,7 +704,7 @@ export function parseFromFileMap(
    ```
    crc = new MavlinkCrc()
    crc.accumulateString(messageName + " ")
-   for each non-extension field (in ORIGINAL XML order, not reordered):
+   for each non-extension field (in wire order, sorted by type size descending):
      crc.accumulateString(fieldType + " ")
      crc.accumulateString(fieldName + " ")
      if arrayLength > 1: crc.accumulate(arrayLength)
