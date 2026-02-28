@@ -4,7 +4,30 @@
 
 MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visualization. It replaces the Flutter-based [js_dash](https://github.com/DanWilson00/js_dash) with a slicker, faster web architecture. The key feature is dynamic MAVLink message parsing driven by XML dialect definitions — no hardcoded message types.
 
-**Reference code**: `/tmp/js_dash/` — cloned Flutter project to port from. Key files in `lib/mavlink/`, `lib/services/`, `lib/views/telemetry/`.
+**Reference code**: `/tmp/js_dash/` — cloned Flutter project to port from.
+
+| Reference file | Porting to | Notes |
+|---------------|-----------|-------|
+| `lib/mavlink/parser/mavlink_crc.dart` | `src/mavlink/crc.ts` | Direct port, same algorithm |
+| `lib/mavlink/metadata/mavlink_metadata.dart` | `src/mavlink/metadata.ts` | Dart classes → TS interfaces |
+| `lib/mavlink/metadata/metadata_registry.dart` | `src/mavlink/registry.ts` | Direct port |
+| `lib/mavlink/parser/mavlink_xml_parser.dart` | `src/mavlink/xml-parser.ts` | Dart XML → browser DOMParser |
+| `lib/mavlink/parser/mavlink_frame.dart` | `src/mavlink/frame.ts` | Dart class → TS interface |
+| `lib/mavlink/parser/mavlink_frame_parser.dart` | `src/mavlink/frame-parser.ts` | Dart Stream → callback Set |
+| `lib/mavlink/parser/message_decoder.dart` | `src/mavlink/decoder.ts` | ByteData → DataView |
+| `lib/mavlink/parser/frame_builder.dart` | `src/mavlink/frame-builder.ts` | ByteData → DataView |
+| `lib/services/spoof_byte_source.dart` | `src/services/spoof-byte-source.ts` | Dart Stream → callback |
+| `lib/services/generic_message_tracker.dart` | `src/services/message-tracker.ts` | Dart Stream → callback |
+| `lib/services/timeseries_data_manager.dart` | `src/services/timeseries-manager.ts` | ListQueue → Float64Array ring buffer |
+| `lib/services/mavlink_service.dart` | `src/services/mavlink-service.ts` | Direct port |
+| `lib/services/connection_manager.dart` | `src/services/connection-manager.ts` | Dart sealed class → TS union |
+| `lib/services/serial/serial_byte_source_web.dart` | `src/services/webserial-byte-source.ts` | JS interop → direct Web Serial API |
+| `lib/views/telemetry/mavlink_message_monitor.dart` | `src/components/MessageMonitor.tsx` | Flutter → SolidJS |
+| `lib/views/telemetry/statustext_log_panel.dart` | `src/components/StatusTextLog.tsx` | Flutter → SolidJS |
+| `lib/views/telemetry/realtime_data_display.dart` | `src/components/TelemetryView.tsx` | Flutter → SolidJS |
+| `lib/views/telemetry/interactive_plot.dart` | `src/components/PlotChart.tsx` | fl_chart → uPlot |
+| `lib/views/telemetry/plot_grid.dart` | `src/components/GridLayout.tsx` | Custom canvas → gridstack |
+| `lib/views/telemetry/signal_selector_panel.dart` | `src/components/SignalSelector.tsx` | Flutter → SolidJS |
 
 **Target**: GitHub Pages PWA, offline-capable, light/dark mode.
 
@@ -22,7 +45,7 @@ MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visu
 | Layout | gridstack.js (12-column snap grid) |
 | Map | Leaflet + OpenStreetMap |
 | Storage | idb-keyval (IndexedDB) |
-| Testing | Vitest |
+| Testing | Vitest + Playwright MCP |
 | XML Parse | DOMParser (browser-native) |
 
 ---
@@ -38,152 +61,1668 @@ MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visu
 
 ---
 
-## Phase 0: CLAUDE.md and Project Setup
+## Dependency Graph
 
-- [x] Update CLAUDE.md with reference to `/tmp/js_dash/`, tech stack, build commands, architecture
-- [ ] Create `package.json`, `tsconfig.json`, `vite.config.ts`
-- [ ] Create `index.html`, `src/index.tsx`, `src/App.tsx`, `src/global.css`
-- [ ] Install dependencies: solid-js, idb-keyval, uplot, gridstack, leaflet
-- [ ] Install dev deps: typescript, vite, vite-plugin-solid, vite-plugin-pwa, @tailwindcss/vite, tailwindcss, vitest
+```
+Phase 0 (Setup)
+  └→ Phase 1 (MAVLink Engine)
+       └→ Phase 2 (Data Pipeline)
+            ├→ Phase 3 (UI Shell)
+            │    ├→ Phase 4 (Message Monitor)
+            │    │    └→ Phase 5 (Plotting) → Phase 6 (Layout)
+            │    └→ Phase 7 (Map View)
+            └→ Phase 8 (Web Serial)
+Phase 9 (Settings/PWA) — can start after Phase 3, integrates with all later phases
+Phase 10 (Polish) — after everything
+```
+
+---
+
+## Golden Test Data
+
+These are known-good values that lock down correctness. Use them in unit tests.
+
+### CRC-16-MCRF4XX
+
+```
+Algorithm: CRC-16-MCRF4XX (X.25)
+Polynomial: 0x1021
+Seed: 0xFFFF
+
+Input: "123456789" (ASCII bytes)
+Expected CRC: 0x6F91
+
+Input: empty
+Expected CRC: 0xFFFF (unchanged seed)
+```
+
+### HEARTBEAT Frame (v2)
+
+HEARTBEAT is message ID 0, CRC extra = 50, encoded length = 9.
+
+```
+Field layout (wire order, sorted by type size):
+  custom_mode:    uint32_t  offset=0  size=4
+  type:           uint8_t   offset=4  size=1
+  autopilot:      uint8_t   offset=5  size=1
+  base_mode:      uint8_t   offset=6  size=1
+  system_status:  uint8_t   offset=7  size=1
+  mavlink_version: uint8_t  offset=8  size=1
+
+Example payload (9 bytes):
+  custom_mode=0    → [0x00, 0x00, 0x00, 0x00]
+  type=2 (QUAD)    → [0x02]
+  autopilot=3      → [0x03]
+  base_mode=0x81   → [0x81]
+  system_status=4  → [0x04]
+  mavlink_version=3→ [0x03]
+  = [0x00, 0x00, 0x00, 0x00, 0x02, 0x03, 0x81, 0x04, 0x03]
+
+Complete v2 frame (sysid=1, compid=1, seq=0):
+  STX:        0xFD
+  LEN:        0x09
+  INCOMPAT:   0x00
+  COMPAT:     0x00
+  SEQ:        0x00
+  SYSID:      0x01
+  COMPID:     0x01
+  MSGID:      0x00, 0x00, 0x00  (ID 0)
+  PAYLOAD:    [9 bytes above]
+  CRC:        calculate over header[1..9] + payload + crcExtra(50)
+```
+
+### ATTITUDE Frame (v2)
+
+ATTITUDE is message ID 30, CRC extra = 39, encoded length = 28.
+
+```
+Field layout (wire order):
+  time_boot_ms:  uint32_t  offset=0   size=4
+  roll:          float     offset=4   size=4
+  pitch:         float     offset=8   size=4
+  yaw:           float     offset=12  size=4
+  rollspeed:     float     offset=16  size=4
+  pitchspeed:    float     offset=20  size=4
+  yawspeed:      float     offset=24  size=4
+```
+
+### Dialect JSON Format
+
+The registry loads JSON with this structure (from `common.json`):
+
+```json
+{
+  "schema_version": "1.0.0",
+  "dialect": { "name": "common", "version": 3 },
+  "enums": {
+    "MAV_TYPE": {
+      "name": "MAV_TYPE",
+      "description": "...",
+      "bitmask": false,
+      "entries": {
+        "0": { "name": "MAV_TYPE_GENERIC", "value": 0, "description": "..." },
+        "2": { "name": "MAV_TYPE_QUADROTOR", "value": 2, "description": "..." }
+      }
+    }
+  },
+  "messages": {
+    "0": {
+      "id": 0,
+      "name": "HEARTBEAT",
+      "description": "...",
+      "crc_extra": 50,
+      "encoded_length": 9,
+      "fields": [
+        {
+          "name": "custom_mode",
+          "type": "uint32_t",
+          "base_type": "uint32_t",
+          "offset": 0,
+          "size": 4,
+          "array_length": 1,
+          "units": "",
+          "enum": "",
+          "description": "...",
+          "extension": false
+        }
+      ]
+    }
+  }
+}
+```
+
+Key points for the registry:
+- Messages keyed by string ID (`"0"`, `"1"`, `"30"`, etc.)
+- Fields include pre-computed `offset` and `size`
+- `crc_extra` is pre-computed per message
+- `enum` field links to enum name for value resolution
+- `array_length` > 1 for array types (char arrays are strings)
+
+### MAVLink Type Sizes
+
+```
+int8_t:   1 byte    uint8_t:  1 byte    char:    1 byte
+int16_t:  2 bytes   uint16_t: 2 bytes
+int32_t:  4 bytes   uint32_t: 4 bytes   float:   4 bytes
+int64_t:  8 bytes   uint64_t: 8 bytes   double:  8 bytes
+```
+
+---
+
+## Interface Contracts
+
+These TypeScript interfaces define the API boundaries between modules. Implement them exactly — downstream modules depend on these shapes.
+
+### `src/mavlink/frame.ts`
+
+```typescript
+export const enum MavlinkVersion { V1 = 1, V2 = 2 }
+
+export interface MavlinkFrame {
+  version: MavlinkVersion;
+  payloadLength: number;       // 0-255
+  incompatFlags: number;       // v2 only (0 for v1)
+  compatFlags: number;         // v2 only (0 for v1)
+  sequence: number;            // 0-255
+  systemId: number;            // 1-255
+  componentId: number;         // 0-255
+  messageId: number;           // 0-255 (v1) or 0-16777215 (v2)
+  payload: Uint8Array;         // raw payload bytes
+  crcValid: boolean;           // receivedCrc === calculatedCrc
+}
+
+export const MAVLINK_V1_STX = 0xFE;
+export const MAVLINK_V2_STX = 0xFD;
+export const MAVLINK_V1_HEADER_LEN = 5;   // bytes after STX
+export const MAVLINK_V2_HEADER_LEN = 9;   // bytes after STX
+export const MAVLINK_CRC_LEN = 2;
+export const MAVLINK_MAX_PAYLOAD_LEN = 255;
+```
+
+### `src/mavlink/metadata.ts`
+
+```typescript
+export interface MavlinkFieldMetadata {
+  name: string;
+  type: string;           // "uint32_t", "float", "char", etc.
+  baseType: string;       // same as type for non-arrays
+  offset: number;         // byte offset in payload
+  size: number;           // type size in bytes (1, 2, 4, or 8)
+  arrayLength: number;    // 1 for scalars, >1 for arrays
+  units: string;          // "rad", "m/s", "degE7", etc.
+  enumType: string;       // enum name or "" if none
+  description: string;
+  isExtension: boolean;
+}
+
+export interface MavlinkMessageMetadata {
+  id: number;
+  name: string;
+  description: string;
+  crcExtra: number;           // 0-255
+  encodedLength: number;      // total non-extension payload bytes
+  fields: MavlinkFieldMetadata[];
+}
+
+export interface MavlinkEnumEntry {
+  name: string;
+  value: number;
+  description: string;
+}
+
+export interface MavlinkEnumMetadata {
+  name: string;
+  description: string;
+  isBitmask: boolean;
+  entries: Map<number, MavlinkEnumEntry>;
+}
+```
+
+### `src/mavlink/decoder.ts`
+
+```typescript
+export interface MavlinkMessage {
+  id: number;
+  name: string;
+  values: Record<string, number | string | number[]>;
+  systemId: number;
+  componentId: number;
+  sequence: number;
+}
+```
+
+`values` types by field base_type:
+- `int8_t`, `uint8_t`, `int16_t`, `uint16_t`, `int32_t`, `uint32_t` → `number`
+- `float`, `double` → `number`
+- `int64_t`, `uint64_t` → `number` (loses precision beyond 2^53, acceptable for telemetry)
+- `char[N]` → `string` (null-terminated, trailing nulls stripped)
+- Other arrays (e.g., `uint16_t[4]`) → `number[]`
+
+### `src/services/byte-source.ts`
+
+```typescript
+export type ByteCallback = (data: Uint8Array) => void;
+
+export interface IByteSource {
+  onData(callback: ByteCallback): () => void;  // returns unsubscribe function
+  connect(): Promise<void>;
+  disconnect(): void;
+  readonly isConnected: boolean;
+}
+```
+
+### `src/services/message-tracker.ts`
+
+```typescript
+export interface MessageStats {
+  count: number;
+  frequency: number;      // Hz, rolling 5s window
+  lastMessage: MavlinkMessage;
+  lastReceived: number;   // timestamp ms
+}
+
+// Tracker exposes:
+// onStats(callback: (stats: Map<string, MessageStats>) => void): () => void
+// trackMessage(msg: MavlinkMessage): void
+// startTracking(): void
+// stopTracking(): void
+```
+
+### `src/core/ring-buffer.ts`
+
+```typescript
+export class RingBuffer {
+  constructor(capacity: number);  // default 2000
+  push(timestamp: number, value: number): void;  // timestamp in epoch-ms
+  readonly length: number;
+  toUplotData(): [Float64Array, Float64Array];    // [timestamps_seconds, values]
+  getLatestValue(): number | undefined;
+  getLatestTimestamp(): number | undefined;
+  clear(): void;
+}
+```
+
+`toUplotData()` returns timestamps in **epoch-seconds** (uPlot's native format). Internally stored as epoch-ms for precision. The returned arrays must be contiguous (handle wrap-around by copying to fresh arrays).
+
+### `src/services/connection-manager.ts`
+
+```typescript
+export type ConnectionConfig =
+  | { type: 'spoof' }
+  | { type: 'webserial'; baudRate: number };
+
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+```
+
+### `src/models/plot-config.ts`
+
+```typescript
+export type ScalingMode = 'auto' | 'unified' | 'independent';
+export type TimeWindow = 5 | 10 | 30 | 60 | 120 | 300;  // seconds
+
+export interface PlotSignalConfig {
+  id: string;
+  messageType: string;    // "ATTITUDE"
+  fieldName: string;      // "roll"
+  fieldKey: string;       // "ATTITUDE.roll"
+  color: string;          // hex color
+  visible: boolean;
+}
+
+export interface PlotConfig {
+  id: string;
+  title: string;
+  signals: PlotSignalConfig[];
+  scalingMode: ScalingMode;
+  timeWindow: TimeWindow;
+  gridPos: { x: number; y: number; w: number; h: number };  // gridstack position
+}
+
+export interface PlotTab {
+  id: string;
+  name: string;
+  plots: PlotConfig[];
+}
+
+export const SIGNAL_COLORS = [
+  '#00d4ff', '#00ff88', '#ff6b6b', '#ffd93d', '#c084fc',
+  '#fb923c', '#38bdf8', '#4ade80', '#f472b6', '#a78bfa',
+];
+```
+
+---
+
+## Phase 0: Project Setup
+
+### Task 0.1: Scaffold project
+
+**Create files:**
+- `package.json` — name: "mavdeck", type: "module"
+- `tsconfig.json` — strict: true, jsx: "preserve", jsxImportSource: "solid-js", target: "ES2022", module: "ESNext", moduleResolution: "bundler"
+- `vite.config.ts` — plugins: [solidPlugin(), tailwindcss(), VitePWA(...)], base: "/MavDeck/"
+- `index.html` — minimal HTML shell with `<div id="root">`, links to `/src/index.tsx`
+- `src/index.tsx` — `render(() => <App />, document.getElementById('root')!)`
+- `src/App.tsx` — placeholder: `<div class="h-screen bg-gray-900 text-white">MavDeck</div>`
+- `src/global.css` — `@import "tailwindcss";` plus CSS custom properties for theming
+
+**Dependencies:**
+```
+solid-js, idb-keyval, uplot, gridstack, leaflet
+```
+
+**Dev dependencies:**
+```
+typescript, vite, vite-plugin-solid, vite-plugin-pwa, @tailwindcss/vite, tailwindcss,
+vitest, @types/leaflet
+```
+
+**Acceptance criteria:**
+- [ ] `npm install` succeeds
+- [ ] `npm run dev` starts server, page loads with "MavDeck" text
+- [ ] `npm run build` produces clean production build with no type errors
+- [ ] `npx vitest run` exits cleanly (no tests yet, but config works)
+
+**Playwright verification:**
+```
+browser_navigate → http://localhost:5173
+browser_snapshot → verify "MavDeck" text appears
+browser_console_messages(level="error") → empty
+```
 
 ---
 
 ## Phase 1: Core MAVLink Engine
 
-Port from `js_dash/lib/mavlink/`. Every file gets a corresponding test.
+Port from `/tmp/js_dash/lib/mavlink/`. Every file gets corresponding tests.
 
-### Files
+### Task 1.1: `src/mavlink/crc.ts`
 
-- [ ] `src/mavlink/crc.ts` — Port `mavlink_crc.dart`. X.25 CRC-16 (CRC-16-MCRF4XX). `accumulate(byte)`, `accumulateBytes()`, `accumulateString()`, `calculateFrameCrc()`.
-- [ ] `src/mavlink/metadata.ts` — Port `mavlink_metadata.dart`. TypeScript interfaces: `MavlinkFieldMetadata`, `MavlinkMessageMetadata`, `MavlinkEnumMetadata`, `MavlinkEnumEntry`, `MavlinkDialectInfo`. Factory functions.
-- [ ] `src/mavlink/registry.ts` — Port `metadata_registry.dart`. `MavlinkMetadataRegistry` with O(1) lookups by ID/name. `loadFromJsonString()`, `getMessageById()`, `getMessageByName()`, `getEnum()`, `resolveEnumValue()`.
-- [ ] `src/mavlink/xml-parser.ts` — Port `mavlink_xml_parser.dart` (critical). Browser `DOMParser`. `parseFromFileMap(files, mainFile)`. Handles `<include>`, `<extensions>`, field ordering, CRC extra, offsets. Returns JSON string.
-- [ ] `src/mavlink/frame.ts` — Port `mavlink_frame.dart`. `MavlinkFrame` interface, `MavlinkVersion` enum, `MavlinkConstants`.
-- [ ] `src/mavlink/frame-parser.ts` — Port `mavlink_frame_parser.dart`. State machine: `WaitingForStx` → ... → `ReadingCrcHigh`. Callback-based. Validates CRC.
-- [ ] `src/mavlink/decoder.ts` — Port `message_decoder.dart`. `MavlinkMessageDecoder` — decodes payload bytes using `DataView` with little-endian. Returns `MavlinkMessage`.
-- [ ] `src/mavlink/frame-builder.ts` — Port `frame_builder.dart`. Builds v2 frames from message name + values.
-- [ ] `src/mavlink/index.ts` — Barrel exports.
-- [ ] `public/dialects/common.json` — Copy from js_dash.
+**Port from**: `lib/mavlink/parser/mavlink_crc.dart`
 
-### Tests
+Implement CRC-16-MCRF4XX (X.25):
 
-- [ ] `src/mavlink/__tests__/crc.test.ts` — Known CRC values
-- [ ] `src/mavlink/__tests__/registry.test.ts` — Load common.json, lookup HEARTBEAT
-- [ ] `src/mavlink/__tests__/xml-parser.test.ts` — Parse XML, verify CRC extras match
-- [ ] `src/mavlink/__tests__/frame-parser.test.ts` — Build frame, feed through parser
-- [ ] `src/mavlink/__tests__/decoder.test.ts` — Decode payload, verify field values
+```typescript
+export class MavlinkCrc {
+  private crc = 0xFFFF;
+
+  accumulate(byte: number): void {
+    // X.25 CRC accumulate algorithm:
+    // tmp = byte ^ (crc & 0xFF)
+    // tmp = (tmp ^ ((tmp << 4) & 0xFF)) & 0xFF
+    // crc = ((crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4)) & 0xFFFF
+  }
+
+  accumulateBytes(bytes: Uint8Array): void;  // loop over accumulate()
+  accumulateString(str: string): void;        // accumulate each charCode
+  get value(): number;                        // return this.crc
+  reset(): void;                              // this.crc = 0xFFFF
+}
+
+// Convenience: calculate CRC for a complete frame
+export function calculateFrameCrc(
+  header: Uint8Array,     // header bytes (NOT including STX)
+  payload: Uint8Array,
+  crcExtra: number
+): number;
+```
+
+**Acceptance criteria:**
+- [ ] `MavlinkCrc` on ASCII "123456789" returns `0x6F91`
+- [ ] `MavlinkCrc` on empty input returns `0xFFFF`
+- [ ] `calculateFrameCrc` on HEARTBEAT header + payload + crcExtra(50) matches known value
+- [ ] Accumulating one byte at a time equals accumulating all at once
+
+### Task 1.2: `src/mavlink/metadata.ts`
+
+**Port from**: `lib/mavlink/metadata/mavlink_metadata.dart`
+
+Define TypeScript interfaces (see Interface Contracts section above). Add factory functions:
+
+```typescript
+export function createFieldMetadata(json: Record<string, unknown>): MavlinkFieldMetadata;
+export function createMessageMetadata(json: Record<string, unknown>): MavlinkMessageMetadata;
+export function createEnumMetadata(json: Record<string, unknown>): MavlinkEnumMetadata;
+```
+
+Factory functions parse the JSON format from `common.json` into typed interfaces. Handle field name mapping: `crc_extra` → `crcExtra`, `encoded_length` → `encodedLength`, `array_length` → `arrayLength`, `base_type` → `baseType`.
+
+**Acceptance criteria:**
+- [ ] `createMessageMetadata` parses HEARTBEAT JSON, returns correct `crcExtra: 50`, `encodedLength: 9`, 6 fields
+- [ ] `createFieldMetadata` correctly maps all JSON fields including `isExtension` from `extension`
+- [ ] `createEnumMetadata` creates `entries` Map with correct number→entry mapping
+
+### Task 1.3: `src/mavlink/registry.ts`
+
+**Port from**: `lib/mavlink/metadata/metadata_registry.dart`
+
+```typescript
+export class MavlinkMetadataRegistry {
+  loadFromJsonString(json: string): void;     // parse and populate maps
+  getMessageById(id: number): MavlinkMessageMetadata | undefined;
+  getMessageByName(name: string): MavlinkMessageMetadata | undefined;
+  getEnum(name: string): MavlinkEnumMetadata | undefined;
+  resolveEnumValue(enumName: string, value: number): string | undefined;
+  get messageCount(): number;
+  get enumCount(): number;
+}
+```
+
+Internally: `Map<number, MavlinkMessageMetadata>` for ID lookup, `Map<string, MavlinkMessageMetadata>` for name lookup, `Map<string, MavlinkEnumMetadata>` for enums.
+
+**Acceptance criteria (test with `common.json`):**
+- [ ] `loadFromJsonString` loads 200+ messages without error
+- [ ] `getMessageById(0)` returns HEARTBEAT with `crcExtra: 50`
+- [ ] `getMessageById(30)` returns ATTITUDE with `crcExtra: 39`, 7 fields
+- [ ] `getMessageByName("HEARTBEAT")` returns same as `getMessageById(0)`
+- [ ] `getEnum("MAV_TYPE")` has entry for value 2 = "MAV_TYPE_QUADROTOR"
+- [ ] `resolveEnumValue("MAV_TYPE", 2)` returns "MAV_TYPE_QUADROTOR"
+- [ ] `getMessageById(99999)` returns undefined (not throws)
+
+### Task 1.4: `src/mavlink/frame.ts`
+
+**Port from**: `lib/mavlink/parser/mavlink_frame.dart`
+
+Define `MavlinkFrame` interface and constants (see Interface Contracts). This is a pure types file — no logic.
+
+**Acceptance criteria:**
+- [ ] Types compile with no errors
+- [ ] Constants are exported and correct (STX values, header lengths)
+
+### Task 1.5: `src/mavlink/frame-parser.ts`
+
+**Port from**: `lib/mavlink/parser/mavlink_frame_parser.dart`
+
+State machine that processes raw bytes one at a time and emits complete `MavlinkFrame` objects.
+
+**Parser states** (enum):
+```
+WaitingForStx → ReadingLength → ReadingIncompatFlags (v2) → ReadingCompatFlags (v2) →
+ReadingSequence → ReadingSystemId → ReadingComponentId →
+ReadingMessageIdLow → ReadingMessageIdMid (v2) → ReadingMessageIdHigh (v2) →
+ReadingPayload → ReadingCrcLow → ReadingCrcHigh
+```
+
+For v1: skip IncompatFlags, CompatFlags, MessageIdMid, MessageIdHigh states.
+
+**Key behaviors:**
+- Byte-at-a-time processing (any chunk size input)
+- CRC validation using registry's crcExtra for the messageId
+- Unknown messageId → increment `unknownMessages` counter, discard frame
+- CRC mismatch → increment `crcErrors` counter, discard frame
+- CRC match → invoke `onFrame` callbacks with the `MavlinkFrame`
+
+```typescript
+export class MavlinkFrameParser {
+  constructor(registry: MavlinkMetadataRegistry);
+  parse(data: Uint8Array): void;           // feed bytes
+  onFrame(callback: (frame: MavlinkFrame) => void): () => void;  // returns unsubscribe
+  readonly framesReceived: number;
+  readonly crcErrors: number;
+  readonly unknownMessages: number;
+  reset(): void;
+}
+```
+
+**Acceptance criteria:**
+- [ ] Feed a valid HEARTBEAT v2 frame byte-by-byte → `onFrame` called once with correct fields
+- [ ] Feed the same frame in one chunk → same result
+- [ ] Feed a frame with bad CRC → `onFrame` NOT called, `crcErrors` incremented
+- [ ] Feed a frame with unknown messageId → `unknownMessages` incremented
+- [ ] Feed two valid frames concatenated → `onFrame` called twice
+- [ ] Feed garbage bytes then a valid frame → valid frame still parsed (re-syncs on STX)
+- [ ] Round-trip: FrameBuilder → FrameParser → original values match
+
+### Task 1.6: `src/mavlink/decoder.ts`
+
+**Port from**: `lib/mavlink/parser/message_decoder.dart`
+
+Decodes payload bytes into a `MavlinkMessage` using field metadata and `DataView`.
+
+```typescript
+export class MavlinkMessageDecoder {
+  constructor(registry: MavlinkMetadataRegistry);
+  decode(frame: MavlinkFrame): MavlinkMessage | null;
+}
+```
+
+**Decoding rules:**
+- Create `DataView` over payload `Uint8Array`
+- For each field in metadata, read at `field.offset` with little-endian:
+  - `uint8_t` / `int8_t` / `char` → `getUint8` / `getInt8`
+  - `uint16_t` / `int16_t` → `getUint16(offset, true)` / `getInt16(offset, true)`
+  - `uint32_t` / `int32_t` → `getUint32(offset, true)` / `getInt32(offset, true)`
+  - `float` → `getFloat32(offset, true)`
+  - `double` → `getFloat64(offset, true)`
+  - `uint64_t` / `int64_t` → read as two 32-bit, combine (or use BigInt → Number)
+- **Zero-padding**: If payload shorter than `encodedLength`, treat missing bytes as zero (MAVLink v2 zero-trimming)
+- **char arrays** (`arrayLength > 1` and `type === "char"`): read bytes, convert to string, strip trailing nulls
+- **Numeric arrays** (`arrayLength > 1`): read as `number[]`
+- Unknown messageId → return `null`
+
+**Acceptance criteria:**
+- [ ] Decode HEARTBEAT payload → `values.type === 2`, `values.custom_mode === 0`, `values.mavlink_version === 3`
+- [ ] Decode ATTITUDE payload → `values.roll` is a float, `values.time_boot_ms` is an integer
+- [ ] Decode zero-trimmed payload (shorter than encodedLength) → missing fields default to 0
+- [ ] Decode message with char array → `values.text` is a string with no null bytes
+- [ ] Decode message with numeric array → `values.xyz` is `number[]` of correct length
+- [ ] Unknown messageId → returns null
+
+### Task 1.7: `src/mavlink/frame-builder.ts`
+
+**Port from**: `lib/mavlink/parser/frame_builder.dart`
+
+Builds complete MAVLink v2 frames from message name + values.
+
+```typescript
+export class MavlinkFrameBuilder {
+  constructor(registry: MavlinkMetadataRegistry);
+  buildFrame(options: {
+    messageName: string;
+    values: Record<string, number | string | number[]>;
+    systemId?: number;     // default 1
+    componentId?: number;  // default 1
+    sequence?: number;     // default 0
+  }): Uint8Array;          // complete frame bytes
+}
+```
+
+**Encoding rules (reverse of decoder):**
+- Allocate `Uint8Array(10 + encodedLength + 2)` — header(10) + payload + CRC(2)
+- Write v2 header (STX=0xFD, len, flags=0, seq, sysid, compid, msgid 3 bytes LE)
+- For each field, write value at field.offset in payload using DataView with little-endian
+- Calculate CRC over header[1..9] + payload + crcExtra
+- Append CRC as two bytes (low, high)
+
+**Acceptance criteria:**
+- [ ] Build HEARTBEAT frame → feed to FrameParser → decoded values match input
+- [ ] Build ATTITUDE frame with known roll/pitch/yaw → round-trip matches
+- [ ] Build frame with default sysid/compid → header bytes correct
+- [ ] Built frame CRC validates in the parser
+
+### Task 1.8: `src/mavlink/index.ts`
+
+Barrel exports for all mavlink modules.
+
+```typescript
+export * from './crc';
+export * from './metadata';
+export * from './registry';
+export * from './frame';
+export * from './frame-parser';
+export * from './decoder';
+export * from './frame-builder';
+```
+
+### Task 1.9: `public/dialects/common.json`
+
+Copy from `/tmp/js_dash/assets/mavlink/common.json`. This is a ~37K line pre-generated JSON file.
+
+**Acceptance criteria:**
+- [ ] File exists at `public/dialects/common.json`
+- [ ] Parseable as JSON
+- [ ] Contains `schema_version`, `dialect`, `enums`, `messages` keys
+- [ ] `messages["0"]` is HEARTBEAT with `crc_extra: 50`
+
+### Task 1.10: `src/mavlink/xml-parser.ts`
+
+**Port from**: `lib/mavlink/parser/mavlink_xml_parser.dart`
+
+Parses MAVLink XML dialect definitions using browser `DOMParser`. This is what allows users to import custom dialects.
+
+```typescript
+export function parseFromFileMap(
+  files: Map<string, string>,  // filename → XML content
+  mainFile: string
+): string;                      // JSON string (same format as common.json)
+```
+
+**Key logic:**
+1. Parse main XML file with `new DOMParser().parseFromString(xml, 'text/xml')`
+2. Resolve `<include>` tags recursively from the `files` map
+3. Extract `<enums>` with `<entry>` children
+4. Extract `<messages>` with `<field>` children
+5. Detect `<extensions/>` marker — fields after it are extension fields
+6. **Field reordering**: Non-extension fields sorted by type size descending (largest first), extension fields keep original order
+7. **CRC extra calculation** per message:
+   ```
+   crc = new MavlinkCrc()
+   crc.accumulateString(messageName + " ")
+   for each non-extension field (in ORIGINAL XML order, not reordered):
+     crc.accumulateString(fieldType + " ")
+     crc.accumulateString(fieldName + " ")
+     if arrayLength > 1: crc.accumulate(arrayLength)
+   crcExtra = (crc.value & 0xFF) ^ (crc.value >> 8)
+   ```
+8. **Offset calculation**: After reordering, compute byte offset for each field based on type sizes
+9. Output JSON matching the `common.json` schema
+
+**Acceptance criteria:**
+- [ ] Parse a minimal XML with one message → JSON output matches expected structure
+- [ ] CRC extra for HEARTBEAT definition matches 50
+- [ ] Field reordering: uint32_t field sorts before uint8_t field
+- [ ] Extension fields come after non-extension fields with correct offsets
+- [ ] `<include>` resolution works (file A includes file B, both parsed)
+- [ ] Parse result loadable by `MavlinkMetadataRegistry`
+
+### Phase 1 Verification
+
+```bash
+npx vitest run src/mavlink/
+```
+All tests pass. Then integration check:
+
+```typescript
+// In a test: full round-trip
+const registry = new MavlinkMetadataRegistry();
+registry.loadFromJsonString(commonJson);
+const builder = new MavlinkFrameBuilder(registry);
+const parser = new MavlinkFrameParser(registry);
+const decoder = new MavlinkMessageDecoder(registry);
+
+const frame = builder.buildFrame({
+  messageName: 'HEARTBEAT',
+  values: { custom_mode: 0, type: 2, autopilot: 3, base_mode: 0x81, system_status: 4, mavlink_version: 3 }
+});
+
+let decoded: MavlinkMessage | null = null;
+parser.onFrame(f => { decoded = decoder.decode(f); });
+parser.parse(frame);
+
+expect(decoded!.name).toBe('HEARTBEAT');
+expect(decoded!.values.type).toBe(2);
+```
 
 ---
 
 ## Phase 2: Data Pipeline
 
-Port from `js_dash/lib/services/`.
+Port from `/tmp/js_dash/lib/services/`. Depends on Phase 1 being complete.
 
-- [ ] `src/services/byte-source.ts` — `IByteSource` interface with `onData(callback)`, `connect()`, `disconnect()`.
-- [ ] `src/services/spoof-byte-source.ts` — Port `spoof_byte_source.dart`. 10Hz ATTITUDE/GLOBAL_POSITION_INT/VFR_HUD, 1Hz SYS_STATUS/HEARTBEAT, periodic STATUSTEXT.
-- [ ] `src/core/ring-buffer.ts` — Two parallel `Float64Array` (timestamps, values). `push()`, `toUplotData()`. Handles wrap-around.
-- [ ] `src/services/message-tracker.ts` — Port `generic_message_tracker.dart`. 100ms stats timer, 5s frequency window, decay, stale removal.
-- [ ] `src/services/timeseries-manager.ts` — Port `timeseries_data_manager.dart`. `MessageName.FieldName` → RingBuffer. 60Hz throttle. Max 500 fields.
-- [ ] `src/services/mavlink-service.ts` — Wires byte source → frame parser → decoder → tracker.
-- [ ] `src/services/connection-manager.ts` — `ConnectionConfig` union type (spoof | webserial). Status management.
+### Task 2.1: `src/services/byte-source.ts`
 
-### Tests
+Interface definition (see Interface Contracts above). Pure types file.
 
-- [ ] `src/core/__tests__/ring-buffer.test.ts` — Wrap-around, uPlot data alignment
-- [ ] `src/services/__tests__/spoof-byte-source.test.ts` — Emits valid frames
-- [ ] `src/services/__tests__/message-tracker.test.ts` — Frequency calculation
-- [ ] `src/services/__tests__/timeseries-manager.test.ts` — Field extraction, throttling
+### Task 2.2: `src/core/ring-buffer.ts`
+
+**New design** (replaces js_dash `ListQueue<TimeSeriesPoint>`).
+
+```typescript
+export class RingBuffer {
+  private timestamps: Float64Array;   // epoch-ms
+  private values: Float64Array;
+  private head = 0;                   // next write position
+  private count = 0;                  // number of valid entries
+  private readonly capacity: number;
+
+  constructor(capacity = 2000);
+
+  push(timestamp: number, value: number): void;
+  // Write at head, increment head % capacity, increment count (max = capacity)
+
+  get length(): number;  // min(count, capacity)
+
+  toUplotData(): [Float64Array, Float64Array];
+  // Returns [timestamps_in_seconds, values] as contiguous arrays.
+  // Handles wrap-around: if head has wrapped, copy tail..end + start..head.
+  // Timestamps converted from epoch-ms to epoch-seconds (divide by 1000).
+  // Returns new Float64Array copies (uPlot needs stable references).
+
+  getLatestValue(): number | undefined;
+  getLatestTimestamp(): number | undefined;
+  clear(): void;
+}
+```
+
+**Why epoch-ms internally, epoch-seconds for uPlot:**
+- Epoch-ms gives sub-millisecond timestamp precision for ordering
+- uPlot expects epoch-seconds for its X axis
+- Conversion is a simple `/ 1000` in `toUplotData()`
+
+**Acceptance criteria:**
+- [ ] Push 10 items → length is 10, toUplotData returns 10-element arrays
+- [ ] Push capacity+5 items → length is capacity, oldest 5 are gone
+- [ ] Wrap-around: timestamps in toUplotData are monotonically increasing
+- [ ] toUplotData timestamps are in seconds (not ms)
+- [ ] getLatestValue returns most recently pushed value
+- [ ] clear() resets length to 0
+- [ ] Empty buffer → toUplotData returns empty arrays
+
+### Task 2.3: `src/services/spoof-byte-source.ts`
+
+**Port from**: `lib/services/spoof_byte_source.dart`
+
+Generates realistic MAVLink telemetry for testing without hardware.
+
+```typescript
+export class SpoofByteSource implements IByteSource {
+  constructor(registry: MavlinkMetadataRegistry);
+  // ... IByteSource implementation
+}
+```
+
+**Message generation schedule:**
+
+| Message | Rate | Fields |
+|---------|------|--------|
+| ATTITUDE (#30) | 10 Hz | time_boot_ms, roll, pitch, yaw, rollspeed, pitchspeed, yawspeed |
+| GLOBAL_POSITION_INT (#33) | 10 Hz | time_boot_ms, lat, lon, alt, relative_alt, vx, vy, vz, hdg |
+| VFR_HUD (#74) | 10 Hz | airspeed, groundspeed, heading, throttle, alt, climb |
+| SYS_STATUS (#1) | 1 Hz | voltage_battery, current_battery, battery_remaining, load, errors_count* |
+| HEARTBEAT (#0) | 1 Hz | type=2, autopilot=3, base_mode=0x81, system_status=4, mavlink_version=3 |
+| STATUSTEXT (#253) | Every 3-8s | severity (random 0-7), text (random message) |
+
+**Simulation model (from js_dash):**
+
+```
+Initial state:
+  latitude   = 34.0522      (Los Angeles)
+  longitude  = -118.2437
+  altitude   ∈ [50, 100]    meters, random walk ±0.05/tick
+  heading    = figure-8 pattern: baseHeading + 30° × sin(time × 0.5)
+  groundSpeed ∈ [5, 25]     m/s, random walk ±0.3/tick
+  roll       ∈ [-20°, 20°]  random walk ±0.05/tick (stored as radians)
+  pitch      ∈ [-15°, 15°]  random walk ±0.05/tick (stored as radians)
+  yaw        = heading in radians
+  batteryV   ∈ [10.0, 13.0] slow drain ~0.001V/tick
+  throttle   ∈ [0, 100]     %
+
+GPS position update per 100ms tick:
+  latitude  += groundSpeed × cos(heading_rad) × 0.1 / 111320
+  longitude += groundSpeed × sin(heading_rad) × 0.1 / (111320 × cos(lat_rad))
+
+GLOBAL_POSITION_INT encoding:
+  lat, lon: degrees × 1e7 (int32)
+  alt, relative_alt: meters × 1000 (int32, mm)
+  vx, vy, vz: m/s × 100 (int16, cm/s)
+  hdg: degrees × 100 (uint16, cdeg)
+
+STATUSTEXT messages (random selection):
+  "All systems nominal", "GPS lock acquired", "Battery voltage nominal",
+  "Telemetry link stable", "Altitude hold active", "Navigation mode enabled",
+  "Sensor calibration complete", "Low battery warning" (severity=4),
+  "Engine temperature high" (severity=3), "Critical: IMU failure" (severity=2)
+```
+
+Uses `MavlinkFrameBuilder` to construct valid binary frames. Emits frames via `onData` callbacks as `Uint8Array`.
+
+**Acceptance criteria:**
+- [ ] Connect → bytes emitted at expected intervals
+- [ ] Emitted bytes parse correctly through FrameParser + Decoder
+- [ ] HEARTBEAT decoded: `type=2`, `mavlink_version=3`
+- [ ] ATTITUDE decoded: roll, pitch, yaw are numbers in radian range
+- [ ] GLOBAL_POSITION_INT decoded: lat ≈ 340522000 (34.0522 × 1e7)
+- [ ] STATUSTEXT decoded: text is a non-empty string, severity is 0-7
+- [ ] Disconnect stops emission, reconnect resumes
+
+### Task 2.4: `src/services/message-tracker.ts`
+
+**Port from**: `lib/services/generic_message_tracker.dart`
+
+Tracks message statistics with rolling frequency calculation.
+
+```typescript
+export class GenericMessageTracker {
+  startTracking(): void;   // starts 100ms stats update timer
+  stopTracking(): void;    // stops timer
+  trackMessage(msg: MavlinkMessage): void;
+  onStats(callback: (stats: Map<string, MessageStats>) => void): () => void;
+  getStats(): Map<string, MessageStats>;
+}
+```
+
+**Frequency algorithm:**
+1. Store timestamps of recent messages per message name (in `_recentTimestamps` array)
+2. Every 100ms (stats update timer):
+   - Remove timestamps older than 5 seconds (sliding window)
+   - `frequency = (timestamps.length - 1) / (newest - oldest)` in seconds
+   - If only 1 timestamp, frequency = 0
+3. **Decay** (when no new messages received):
+   - If last message > 2 seconds ago: `decay = 1.0 - (timeSinceLastMsg - 2000) / 3000`
+   - `frequency *= clamp(decay, 0, 1)`
+   - If frequency < 0.01, set to 0
+4. **Stale removal**: Remove entries not received for 10+ seconds
+
+**Acceptance criteria:**
+- [ ] Track 10 messages at 100ms intervals → frequency ≈ 10 Hz (±1)
+- [ ] Stop sending messages → frequency decays to 0 within ~5 seconds
+- [ ] Track messages from two different types → both have independent frequencies
+- [ ] Stale entry removed after 10s of no messages
+- [ ] `getStats()` returns current snapshot without mutation risk
+
+### Task 2.5: `src/services/timeseries-manager.ts`
+
+**Port from**: `lib/services/timeseries_data_manager.dart`
+
+Extracts numeric fields from decoded messages and stores in ring buffers.
+
+```typescript
+export class TimeSeriesDataManager {
+  constructor(options?: { bufferCapacity?: number; maxFields?: number });
+  processMessage(msg: MavlinkMessage): void;
+  getBuffer(fieldKey: string): RingBuffer | undefined;  // "ATTITUDE.roll"
+  getAvailableFields(): string[];                        // all known field keys
+  onUpdate(callback: () => void): () => void;            // throttled at 60Hz
+  dispose(): void;
+}
+```
+
+**Field extraction rules:**
+- Key format: `"MESSAGE_NAME.field_name"` (e.g., `"ATTITUDE.roll"`)
+- `number` values → push directly to ring buffer
+- `number[]` values → expand to `"MESSAGE_NAME.field_name[0]"`, `"field_name[1]"`, etc.
+- `string` values → skip (not numeric)
+- Max 500 unique field keys (prevent unbounded growth)
+
+**Throttle**: Emit `onUpdate` callbacks at most every 16ms (60Hz). Use a pending flag + timer, not per-message emission.
+
+**Cleanup**: Every 5 seconds, optionally prune buffers with no new data (configurable).
+
+**Acceptance criteria:**
+- [ ] Process ATTITUDE message → creates ring buffers for "ATTITUDE.roll", "ATTITUDE.pitch", etc.
+- [ ] Process 100 ATTITUDE messages → ring buffer length is 100
+- [ ] `getAvailableFields()` returns all created field keys
+- [ ] `onUpdate` called at most 60 times/second under rapid input
+- [ ] String fields (STATUSTEXT.text) do NOT create ring buffers
+- [ ] Array fields create indexed sub-keys
+
+### Task 2.6: `src/services/mavlink-service.ts`
+
+**Port from**: `lib/services/mavlink_service.dart`
+
+Wires the pipeline: byte source → frame parser → decoder → tracker.
+
+```typescript
+export class MavlinkService {
+  constructor(
+    registry: MavlinkMetadataRegistry,
+    byteSource: IByteSource,
+    tracker: GenericMessageTracker,
+    timeseriesManager: TimeSeriesDataManager
+  );
+  connect(): Promise<void>;
+  disconnect(): void;
+  pause(): void;
+  resume(): void;
+  readonly isPaused: boolean;
+  onMessage(callback: (msg: MavlinkMessage) => void): () => void;
+}
+```
+
+**Wiring:**
+- `byteSource.onData` → `parser.parse(data)`
+- `parser.onFrame` → `decoder.decode(frame)` → if valid: `tracker.trackMessage(msg)`, `timeseriesManager.processMessage(msg)`, invoke `onMessage` callbacks
+- Pause: stop invoking onMessage callbacks and timeseriesManager, but keep tracker running
+
+**Acceptance criteria:**
+- [ ] Connect with SpoofByteSource → onMessage receives decoded MavlinkMessages
+- [ ] Messages include HEARTBEAT, ATTITUDE, GLOBAL_POSITION_INT, etc.
+- [ ] Pause → onMessage stops being called; resume → resumes
+- [ ] Disconnect → no more callbacks
+
+### Task 2.7: `src/services/connection-manager.ts`
+
+**Port from**: `lib/services/connection_manager.dart`
+
+```typescript
+export class ConnectionManager {
+  constructor(registry: MavlinkMetadataRegistry);
+  connect(config: ConnectionConfig): Promise<void>;
+  disconnect(): void;
+  pause(): void;
+  resume(): void;
+  onStatusChange(callback: (status: ConnectionStatus) => void): () => void;
+  readonly status: ConnectionStatus;
+  readonly mavlinkService: MavlinkService | null;
+  readonly tracker: GenericMessageTracker | null;
+  readonly timeseriesManager: TimeSeriesDataManager | null;
+}
+```
+
+Creates the appropriate byte source based on config type, wires up MavlinkService, manages lifecycle.
+
+**Acceptance criteria:**
+- [ ] `connect({ type: 'spoof' })` → status transitions: disconnected → connecting → connected
+- [ ] `disconnect()` → status becomes disconnected, cleans up all services
+- [ ] Only one connection at a time — connecting while connected disconnects first
+
+### Phase 2 Verification
+
+```bash
+npx vitest run
+```
+
+All Phase 1 + Phase 2 tests pass. Integration test:
+
+```typescript
+// Spoof → full pipeline → verify decoded messages
+const registry = new MavlinkMetadataRegistry();
+registry.loadFromJsonString(commonJson);
+const manager = new ConnectionManager(registry);
+await manager.connect({ type: 'spoof' });
+
+// Wait 2 seconds for messages to accumulate
+const stats = manager.tracker!.getStats();
+expect(stats.has('HEARTBEAT')).toBe(true);
+expect(stats.get('HEARTBEAT')!.frequency).toBeGreaterThan(0);
+
+const fields = manager.timeseriesManager!.getAvailableFields();
+expect(fields).toContain('ATTITUDE.roll');
+```
 
 ---
 
 ## Phase 3: Core UI Shell
 
-- [ ] `src/store/app-store.ts` — SolidJS `createStore` for connection status, message stats, theme, active tab, settings.
-- [ ] `src/App.tsx` — Root layout: toolbar, tabbed body (Telemetry, Map), status bar.
-- [ ] `src/components/Toolbar.tsx` — Connection button, status indicator, dialect selector, settings.
-- [ ] `src/components/ThemeProvider.tsx` — CSS custom properties dark/light. Persist to IndexedDB.
-- [ ] `src/components/TabBar.tsx` — Horizontal tabs for views.
+Depends on Phase 2. First UI code — use Playwright MCP for verification.
+
+### Task 3.1: `src/store/app-store.ts`
+
+SolidJS reactive store for global application state.
+
+```typescript
+import { createStore } from 'solid-js/store';
+
+export interface AppState {
+  connectionStatus: ConnectionStatus;
+  theme: 'dark' | 'light';
+  activeTab: string;           // 'telemetry' | 'map'
+  activeSubTab: string;        // plot tab ID
+  plotTabs: PlotTab[];
+  isPaused: boolean;
+}
+
+export const [appState, setAppState] = createStore<AppState>({
+  connectionStatus: 'disconnected',
+  theme: 'dark',
+  activeTab: 'telemetry',
+  activeSubTab: 'default',
+  plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
+  isPaused: false,
+});
+```
+
+Also export the `ConnectionManager` instance (created once, shared):
+
+```typescript
+export const connectionManager: ConnectionManager;  // initialized after registry loads
+```
+
+**Acceptance criteria:**
+- [ ] Store initializes with default values
+- [ ] `setAppState('theme', 'light')` updates reactively
+- [ ] Types compile with strict mode
+
+### Task 3.2: `src/components/ThemeProvider.tsx`
+
+CSS custom properties for dark/light mode. Wraps app with theme context.
+
+**Color palette:**
+
+```css
+/* Dark (default) */
+--bg-primary: #111217;
+--bg-panel: #181b1f;
+--bg-hover: #1e2128;
+--text-primary: #e4e4e7;
+--text-secondary: #a1a1aa;
+--accent: #00d4ff;
+--accent-green: #00ff88;
+--border: #2a2d35;
+
+/* Light */
+--bg-primary: #f8f9fa;
+--bg-panel: #ffffff;
+--bg-hover: #f0f0f0;
+--text-primary: #18181b;
+--text-secondary: #52525b;
+--accent: #0066cc;
+--accent-green: #059669;
+--border: #e4e4e7;
+```
+
+Persist preference to IndexedDB via `idb-keyval`. Apply `dark` class to `<html>` element for Tailwind.
+
+**Acceptance criteria:**
+- [ ] App renders with dark theme by default
+- [ ] Toggle switches to light theme (colors change)
+- [ ] Preference persists across page reload (idb-keyval)
+
+**Playwright verification:**
+```
+browser_navigate → localhost:5173
+browser_snapshot → verify dark theme class on html element
+browser_click → theme toggle
+browser_snapshot → verify light theme applied
+```
+
+### Task 3.3: `src/components/Toolbar.tsx`
+
+Top toolbar with connection controls and theme toggle.
+
+**Elements:**
+- "MavDeck" logo/title (left)
+- Connection button: "Connect Spoof" / "Disconnect" (toggles)
+- Connection status indicator: colored dot (gray=disconnected, yellow=connecting, green=connected, red=error)
+- Theme toggle button (sun/moon icon)
+- Pause/Resume button (visible when connected)
+
+**Acceptance criteria:**
+- [ ] Toolbar renders with all elements
+- [ ] Click "Connect Spoof" → calls connectionManager.connect({ type: 'spoof' })
+- [ ] Status dot turns green when connected
+- [ ] Theme toggle switches dark↔light
+
+**Playwright verification:**
+```
+browser_snapshot → verify toolbar elements exist (Connect, theme toggle)
+browser_click → "Connect Spoof"
+browser_wait_for → status indicator shows connected
+browser_snapshot → verify status changed
+```
+
+### Task 3.4: `src/components/TabBar.tsx`
+
+Horizontal tab bar below toolbar for switching views.
+
+**Tabs:**
+- Telemetry (default active)
+- Map
+
+Renders content based on active tab. Telemetry tab additionally shows sub-tabs for plot tabs (from `appState.plotTabs`).
+
+**Acceptance criteria:**
+- [ ] Two tabs render: Telemetry, Map
+- [ ] Clicking tab switches active content
+- [ ] Active tab has visual indicator (underline/highlight)
+
+### Task 3.5: `src/App.tsx`
+
+Wire everything together: ThemeProvider → Toolbar → TabBar → content area.
+
+Load dialect on mount:
+```typescript
+onMount(async () => {
+  const response = await fetch('/MavDeck/dialects/common.json');
+  const json = await response.text();
+  registry.loadFromJsonString(json);
+});
+```
+
+**Acceptance criteria:**
+- [ ] App loads, shows toolbar and tab bar
+- [ ] Dialect loads without errors (check console)
+- [ ] Connect Spoof → connection works end-to-end
+
+**Playwright verification (full Phase 3):**
+```
+browser_navigate → localhost:5173
+browser_snapshot → verify: toolbar, tabs, "MavDeck" title
+browser_console_messages(level="error") → empty
+browser_click → "Connect Spoof"
+browser_wait_for → time=2 (seconds, let messages accumulate)
+browser_snapshot → verify connected state
+browser_click → theme toggle
+browser_take_screenshot → verify visual appearance
+```
 
 ---
 
 ## Phase 4: Message Monitor Sidebar
 
-- [ ] `src/components/MessageMonitor.tsx` — Left sidebar (~350px). Messages sorted alphabetically. Frequency badges. Click to expand fields. Click field to add to plot.
-- [ ] `src/components/StatusTextLog.tsx` — STATUSTEXT messages with severity coloring.
+Depends on Phase 3.
+
+### Task 4.1: `src/components/MessageMonitor.tsx`
+
+**Port from**: `lib/views/telemetry/mavlink_message_monitor.dart`
+
+Left sidebar showing received MAVLink messages with live stats.
+
+**Layout:**
+- Width: ~350px (resizable via drag handle)
+- Top: header "Messages" with count
+- Middle: scrollable list of message cards, sorted alphabetically by name
+- Bottom: StatusTextLog panel
+
+**Message card (collapsed):**
+- Message name (monospace font)
+- Frequency badge: `"10.0 Hz"` (green background)
+- Expand chevron
+
+**Message card (expanded):**
+- All fields listed: `field_name: value [units]`
+- Numeric values formatted (2-4 decimal places for floats)
+- Fields with enum types show resolved name (e.g., `type: QUADROTOR`)
+- Click a numeric field → triggers "add to plot" action (callback prop)
+
+**Reactive data source**: Subscribe to `connectionManager.tracker.onStats()`. Create SolidJS signal from callback:
+
+```typescript
+const [messageStats, setMessageStats] = createSignal<Map<string, MessageStats>>(new Map());
+// In onMount: tracker.onStats(stats => setMessageStats(new Map(stats)));
+```
+
+**Acceptance criteria:**
+- [ ] With spoof connected: HEARTBEAT, ATTITUDE, SYS_STATUS, GLOBAL_POSITION_INT, VFR_HUD appear
+- [ ] Messages sorted alphabetically
+- [ ] Frequency badges show realistic Hz values (~10 for fast, ~1 for slow)
+- [ ] Click to expand shows field values
+- [ ] Field values update live (not frozen)
+- [ ] Enum fields show resolved names
+
+**Playwright verification:**
+```
+browser_navigate → localhost:5173
+browser_click → "Connect Spoof"
+browser_wait_for → text="HEARTBEAT"
+browser_snapshot → verify message names visible, Hz badges
+browser_click → ATTITUDE message (expand)
+browser_snapshot → verify roll, pitch, yaw fields visible with values
+```
+
+### Task 4.2: `src/components/StatusTextLog.tsx`
+
+**Port from**: `lib/views/telemetry/statustext_log_panel.dart`
+
+Shows STATUSTEXT messages with severity coloring at the bottom of the message monitor.
+
+**Severity colors:**
+```
+0-2 (EMERGENCY/ALERT/CRITICAL): red text, red-tinted background
+3   (ERROR):                     orange text
+4   (WARNING):                   yellow/amber text
+5   (NOTICE):                    cyan text
+6   (INFO):                      blue-gray text
+7   (DEBUG):                     gray text
+```
+
+**Layout:**
+- Collapsible panel (collapsed height ~36px, expanded ~180px)
+- Header: "Status" + message count badge + "NEW" indicator
+- Expanded: scrollable list, newest at bottom, auto-scroll
+- Each entry: `[HH:MM:SS] [SEVERITY] message text`
+- Max ~100 entries (oldest pruned)
+
+**Acceptance criteria:**
+- [ ] STATUSTEXT messages from spoof appear in log
+- [ ] Severity coloring applied correctly
+- [ ] Auto-scrolls to newest message
+- [ ] Collapse/expand toggle works
+- [ ] Count badge updates
+
+**Playwright verification:**
+```
+browser_click → "Connect Spoof"
+browser_wait_for → time=10 (let statustext messages accumulate)
+browser_snapshot → verify statustext entries visible with severity labels
+```
 
 ---
 
 ## Phase 5: Plotting System
 
-- [ ] `src/components/TelemetryView.tsx` — MessageMonitor + plot grid. Add plot, clear all, time window, pause/resume.
-- [ ] `src/components/PlotPanel.tsx` — uPlot wrapper in gridstack item. Header, close button, live numeric value.
-- [ ] `src/components/PlotChart.tsx` — uPlot integration with `uPlot.sync("telemetry")`, auto-scrolling, pause/resume.
-- [ ] `src/components/SignalSelector.tsx` — Browse signals by message type. Toggle on/off.
-- [ ] `src/models/plot-config.ts` — `PlotConfiguration`, `PlotSignalConfiguration`, `PlotTab` types.
+Depends on Phase 4. This is the core feature.
+
+### Task 5.1: `src/models/plot-config.ts`
+
+Type definitions (see Interface Contracts above). Pure types file with `PlotSignalConfig`, `PlotConfig`, `PlotTab`, `ScalingMode`, `TimeWindow`, `SIGNAL_COLORS`.
+
+### Task 5.2: `src/components/PlotChart.tsx`
+
+uPlot integration component.
+
+**Initialization:**
+```typescript
+const u = new uPlot({
+  ...opts,
+  cursor: { sync: { key: 'telemetry' } },  // synced crosshairs
+});
+```
+
+**Data format** (from RingBuffer):
+```typescript
+const [timestamps, values] = ringBuffer.toUplotData();
+u.setData([timestamps, values]);  // uPlot wants [xValues, ...ySeriesValues]
+```
+
+For multiple signals: `[timestamps, series1, series2, ...]` — all same length, all from same time range.
+
+**Live scrolling**: In a `requestAnimationFrame` loop (or 60Hz setInterval):
+1. Get fresh data from ring buffers via `toUplotData()`
+2. Call `u.setData(data)` with new arrays
+3. Set X axis range to `[now - timeWindow, now]` for auto-scrolling
+
+**Pause behavior:**
+- Stop auto-scrolling X axis
+- Continue writing data to ring buffers (don't lose data)
+- Call `u.setData(data, false)` — the `false` prevents axis recalculation
+- Show "RESUME LIVE" floating button overlay
+
+**Resize**: Use `ResizeObserver` on the container element. On resize, call `u.setSize({ width, height })` (debounced ~100ms).
+
+**Series styling:**
+- Line width: 1.5px
+- Colors from `SIGNAL_COLORS` palette
+- Optional gradient fill under traces
+
+**Acceptance criteria:**
+- [ ] Renders a uPlot chart with live data from a ring buffer
+- [ ] Multiple series render with different colors
+- [ ] Auto-scrolls in live mode
+- [ ] Pause stops scrolling, resume jumps to live
+- [ ] Crosshair sync works between multiple PlotChart instances
+- [ ] Resizes correctly when container changes size
+
+### Task 5.3: `src/components/PlotPanel.tsx`
+
+Wrapper for PlotChart inside a gridstack item.
+
+**Layout:**
+- Header bar: drag handle (left), signal names/title (center), close button (right)
+- Live value display: current numeric value of primary signal (large monospace text)
+- PlotChart fills remaining space
+
+**Interactions:**
+- Close button → removes plot from the grid
+- Header → drag handle for gridstack
+- Double-click header → open signal selector
+
+**Acceptance criteria:**
+- [ ] Renders header + chart
+- [ ] Close button removes the panel
+- [ ] Drag handle works with gridstack
+- [ ] Live value updates in real-time
+
+### Task 5.4: `src/components/SignalSelector.tsx`
+
+Dialog/dropdown for selecting which signals to plot.
+
+**UI:**
+- Groups available fields by message type (ATTITUDE, VFR_HUD, etc.)
+- Expandable groups showing individual fields
+- Checkbox/toggle per field
+- Color indicator per active signal
+- "Add selected" action
+
+**Data source**: `timeseriesManager.getAvailableFields()` — only shows fields that have actually been received.
+
+**Acceptance criteria:**
+- [ ] Shows all available fields grouped by message
+- [ ] Toggle adds/removes signal from the plot
+- [ ] Only numeric fields appear (no STATUSTEXT.text)
+- [ ] Color assignment from palette
+
+### Task 5.5: `src/components/TelemetryView.tsx`
+
+Main telemetry view: MessageMonitor on left, plot grid on right.
+
+**Layout:**
+- Left: MessageMonitor sidebar (~350px)
+- Right: Plot grid area (fills remaining width)
+- Top of plot area: "Add Plot" button, time window selector, pause/resume
+
+**Workflow for adding a signal to a plot:**
+1. User clicks a field in MessageMonitor → if no plot exists, create one
+2. Signal added to the selected (or new) plot
+3. Plot appears in the grid with live data
+
+**Acceptance criteria:**
+- [ ] MessageMonitor + plot area render side by side
+- [ ] "Add Plot" creates a new empty plot panel
+- [ ] Click field in monitor → signal appears in a plot
+- [ ] Time window selector changes all plots' X range
+- [ ] Pause/resume affects all plots
+
+**Playwright verification (full Phase 5):**
+```
+browser_navigate → localhost:5173
+browser_click → "Connect Spoof"
+browser_wait_for → text="ATTITUDE"
+browser_click → ATTITUDE (expand)
+browser_click → "roll" field
+browser_wait_for → time=2 (let plot render)
+browser_snapshot → verify plot panel exists with "roll" signal
+browser_take_screenshot → verify chart has visible trace
+browser_click → "pitch" field (add second signal)
+browser_snapshot → verify two signals in plot
+```
 
 ---
 
 ## Phase 6: Layout Management (Gridstack)
 
-- [ ] `src/components/GridLayout.tsx` — 12-column grid, serialize/deserialize to IndexedDB, tab system.
+Depends on Phase 5.
+
+### Task 6.1: `src/components/GridLayout.tsx`
+
+Gridstack integration for drag-and-drop plot layout.
+
+```typescript
+import { GridStack } from 'gridstack';
+import 'gridstack/dist/gridstack.css';
+```
+
+**Configuration:**
+```typescript
+const grid = GridStack.init({
+  column: 12,
+  animate: true,
+  cellHeight: 80,
+  margin: 4,
+  float: true,
+  removable: false,
+});
+```
+
+**SolidJS lifecycle:**
+- `onMount`: Initialize gridstack on container div
+- `onCleanup`: Destroy gridstack instance
+- When adding a plot: `grid.addWidget(element, gridPos)`
+- When removing: `grid.removeWidget(element)`
+- Listen to `change` event → update `PlotConfig.gridPos` in store
+- Listen to `resizestart`/`resizestop` → trigger uPlot resize
+
+**Serialization:**
+- On `change` event: save layout to IndexedDB via `idb-keyval`
+- On mount: restore layout from IndexedDB
+- Each widget identified by plot ID
+
+**Tab system:**
+- Only mount gridstack and uPlot instances for the active tab
+- Switching tabs: destroy old grid, create new one with saved layout
+- Prevents idle uPlot instances consuming memory
+
+**Acceptance criteria:**
+- [ ] Plots appear as gridstack items in a 12-column grid
+- [ ] Drag to reposition works
+- [ ] Resize updates uPlot chart size
+- [ ] Layout persists across page reload
+- [ ] Adding/removing plots updates grid correctly
+
+**Playwright verification:**
+```
+browser_navigate → localhost:5173
+# Connect and add a plot
+browser_click → "Connect Spoof"
+browser_wait_for → text="ATTITUDE"
+browser_click → ATTITUDE → roll field
+browser_wait_for → time=1
+browser_snapshot → verify gridstack item exists
+# Check layout persists
+browser_evaluate → "location.reload()"
+browser_wait_for → time=2
+browser_snapshot → verify plot panel still present after reload
+```
 
 ---
 
 ## Phase 7: Map View
 
-- [ ] `src/components/MapView.tsx` — Leaflet + OSM. Vehicle marker, trail line, heading indicator, auto-center, coordinate display.
+Depends on Phase 3. Can be done in parallel with Phases 4-6.
+
+### Task 7.1: `src/components/MapView.tsx`
+
+Leaflet + OpenStreetMap for vehicle position tracking.
+
+```typescript
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+```
+
+**Features:**
+- OpenStreetMap tile layer
+- Vehicle marker at GLOBAL_POSITION_INT lat/lon (converted from degE7: `lat / 1e7`)
+- Heading indicator: rotate marker icon by `hdg / 100` degrees
+- Trail line: polyline of recent positions (last ~200 points)
+- Auto-center toggle: when enabled, map pans to keep vehicle centered
+- Coordinate display overlay: lat, lon, alt, heading
+
+**Data source**: Subscribe to `timeseriesManager` for `GLOBAL_POSITION_INT.lat`, `.lon`, `.alt`, `.hdg`.
+
+**SolidJS lifecycle:**
+- `onMount`: Create Leaflet map, add tile layer
+- `onCleanup`: Remove map
+- Use `createEffect` to update marker position when signals change
+
+**Initial view**: Center on spoof start position (34.0522, -118.2437), zoom 15.
+
+**Acceptance criteria:**
+- [ ] Map renders with OSM tiles
+- [ ] Vehicle marker appears at correct position
+- [ ] Marker moves as new GPS data arrives
+- [ ] Trail line draws behind vehicle
+- [ ] Auto-center keeps vehicle in view
+- [ ] Heading indicator rotates correctly
+
+**Playwright verification:**
+```
+browser_navigate → localhost:5173
+browser_click → "Connect Spoof"
+browser_wait_for → time=3
+browser_click → "Map" tab
+browser_wait_for → time=2
+browser_snapshot → verify map container exists
+browser_take_screenshot → verify map tiles loaded, marker visible
+```
 
 ---
 
 ## Phase 8: Web Serial Integration
 
-- [ ] `src/services/webserial-byte-source.ts` — Port `serial_byte_source_web.dart`. `navigator.serial`, configurable baud rate, reconnect.
-- [ ] `src/components/SerialSettings.tsx` — Port picker, baud rate selector.
+Depends on Phase 2. Can be done in parallel with UI phases.
+
+### Task 8.1: `src/services/webserial-byte-source.ts`
+
+**Port from**: `lib/services/serial/serial_byte_source_web.dart`
+
+```typescript
+export class WebSerialByteSource implements IByteSource {
+  constructor(options: { baudRate: number });
+  requestPort(): Promise<void>;   // triggers browser's port selection dialog
+  connect(): Promise<void>;       // opens port, starts reading
+  disconnect(): void;             // closes port
+  onData(callback: ByteCallback): () => void;
+  readonly isConnected: boolean;
+}
+```
+
+**Web Serial API flow:**
+1. `requestPort()`: `navigator.serial.requestPort()` — browser shows device picker
+2. `connect()`: `port.open({ baudRate })` → get `port.readable` → pipe through reader
+3. Read loop: `reader.read()` → invoke `onData` callbacks with `Uint8Array` chunks
+4. `disconnect()`: `reader.cancel()` → `port.close()`
+
+**Config:** 8N1 (8 data bits, no parity, 1 stop bit) — Web Serial API default.
+
+**Baud rates to support:** 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600.
+
+**Error handling:**
+- Port disconnected unexpectedly → invoke status callback, clean up
+- Port already open → close and reopen
+- Browser doesn't support Web Serial → throw descriptive error
+
+**Acceptance criteria:**
+- [ ] TypeScript compiles (Web Serial types)
+- [ ] `navigator.serial` feature detection works
+- [ ] API matches `IByteSource` interface
+- [ ] Baud rate configurable
+- [ ] Graceful disconnect handling
+
+### Task 8.2: `src/components/SerialSettings.tsx`
+
+Serial port configuration UI.
+
+**Elements:**
+- "Connect Serial" button (triggers `requestPort()` → browser dialog)
+- Baud rate dropdown: 9600, 19200, 38400, 57600, **115200** (default), 230400, 460800, 921600
+- Connection status indicator
+- "Web Serial not supported" message for unsupported browsers
+
+**Acceptance criteria:**
+- [ ] Baud rate selector renders with all options
+- [ ] Connect button visible
+- [ ] Unsupported browser shows fallback message
 
 ---
 
 ## Phase 9: Settings & PWA
 
-- [ ] `src/services/settings-service.ts` — `idb-keyval` persistence for layout, tabs, baud, theme, dialect, performance settings.
-- [ ] `vite.config.ts` PWA config — VitePWA with workbox, manifest, GitHub Pages base.
+Can start after Phase 3, integrates with all later phases.
+
+### Task 9.1: `src/services/settings-service.ts`
+
+Persist application settings using `idb-keyval`.
+
+```typescript
+import { get, set } from 'idb-keyval';
+
+const SETTINGS_KEY = 'mavdeck-settings-v1';
+
+export interface MavDeckSettings {
+  theme: 'dark' | 'light';
+  plotTabs: PlotTab[];
+  baudRate: number;
+  autoConnect: boolean;
+  bufferCapacity: number;       // default 2000
+  dataRetentionMinutes: number; // default 10
+  updateIntervalMs: number;     // default 16 (60Hz)
+}
+
+export async function loadSettings(): Promise<MavDeckSettings>;
+export async function saveSettings(settings: MavDeckSettings): Promise<void>;
+```
+
+**Debounced save**: Don't save on every keystroke. Debounce 2 seconds.
+
+**Acceptance criteria:**
+- [ ] Settings save to IndexedDB
+- [ ] Settings load on app start
+- [ ] Missing keys use defaults (forward-compatible)
+- [ ] Theme persists across reload
+
+### Task 9.2: PWA Configuration in `vite.config.ts`
+
+```typescript
+import { VitePWA } from 'vite-plugin-pwa';
+
+VitePWA({
+  registerType: 'autoUpdate',
+  workbox: {
+    globPatterns: ['**/*.{js,css,html,json,svg,woff2}'],
+  },
+  manifest: {
+    name: 'MavDeck',
+    short_name: 'MavDeck',
+    description: 'Real-time MAVLink telemetry visualization',
+    theme_color: '#111217',
+    background_color: '#111217',
+    display: 'standalone',
+    icons: [
+      { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+  },
+})
+```
+
+Set `base: '/MavDeck/'` for GitHub Pages.
+
+**Acceptance criteria:**
+- [ ] `npm run build` generates service worker
+- [ ] Manifest serves correctly
+- [ ] App installable as PWA (check with Lighthouse)
 
 ---
 
 ## Phase 10: Polish
 
-- [ ] D-DIN font for numeric readouts
-- [ ] Dark mode neon cyan/green glows
-- [ ] Light mode clean palette
-- [ ] Loading skeleton while dialect loads
-- [ ] Responsive design (sidebar collapses)
-- [ ] Keyboard shortcuts (Space = pause/resume, Escape = deselect)
-- [ ] Custom MAVLink XML dialect import
+After all functional phases complete.
+
+### Task 10.1: Typography
+- D-DIN font (or similar monospace tabular lining font) for numeric readouts
+- Load via `@font-face` in `global.css`
+- Apply to: frequency badges, field values, plot axis labels, live values
+
+### Task 10.2: Dark mode styling
+- Neon cyan (`#00d4ff`) / green (`#00ff88`) glow effects on active traces
+- Subtle panel borders with `rgba(0,212,255,0.1)`
+- Chart grid lines: `rgba(255,255,255,0.05)`
+
+### Task 10.3: Light mode styling
+- Clean professional palette
+- Chart grid lines: `rgba(0,0,0,0.08)`
+- Trace colors: deeper, less neon (blue/indigo)
+
+### Task 10.4: Loading states
+- Skeleton UI while dialect JSON loads
+- Spinner on connection attempt
+
+### Task 10.5: Responsive design
+- Sidebar collapses to icon-only on viewports < 768px
+- Plots stack vertically on narrow screens
+
+### Task 10.6: Keyboard shortcuts
+- `Space` — pause/resume
+- `Escape` — deselect plot / close dialogs
+- `Tab` — cycle between plots
+
+### Task 10.7: Custom dialect import
+- File picker button in toolbar/settings
+- Accept `.xml` files
+- Parse with `parseFromFileMap()` → load into registry
+- Show success/error feedback
+
+**Playwright verification (full Polish):**
+```
+browser_navigate → localhost:5173
+browser_take_screenshot → verify dark mode aesthetic
+browser_click → theme toggle
+browser_take_screenshot → verify light mode aesthetic
+browser_press_key → " " (space)
+browser_snapshot → verify pause state
+browser_press_key → " " (space)
+browser_snapshot → verify resumed
+```
 
 ---
 
 ## Verification Plan
 
-| Phase | Verification |
-|-------|-------------|
-| 1 | `npx vitest run src/mavlink/` — all MAVLink engine tests pass |
-| 2 | `npx vitest run` — all tests pass; spoof source generates parseable frames |
-| 3 | `npx vite dev` — app renders, theme toggle works |
-| 4 | Spoof → messages appear in sidebar with Hz rates, fields expand |
-| 5 | Click field → plot appears → live updating trace |
-| 6 | Drag/resize panels, layout persists across reload |
-| 7 | GPS from spoof appears on map, trail draws |
-| 8 | Real hardware via Web Serial streams data |
-| 9 | Settings persist, PWA installs, works offline |
-| 10 | Visual polish matches aerospace aesthetic |
+| Phase | Automated | Playwright MCP |
+|-------|-----------|---------------|
+| 0 | `npm run build` | Navigate, verify "MavDeck" text |
+| 1 | `npx vitest run src/mavlink/` — all pass | N/A (no UI) |
+| 2 | `npx vitest run` — all pass | N/A (no UI) |
+| 3 | `npm run build` | Navigate, verify toolbar/tabs, connect spoof, toggle theme |
+| 4 | Build passes | Connect spoof, verify messages in sidebar with Hz, expand fields |
+| 5 | Build passes | Connect, click field, verify plot renders with live trace |
+| 6 | Build passes | Drag/resize plot, reload, verify layout persists |
+| 7 | Build passes | Connect, switch to Map tab, verify map renders with marker |
+| 8 | Build passes | Verify serial settings UI renders (can't test real serial in CI) |
+| 9 | Build passes | Verify settings persist across reload |
+| 10 | Build passes | Screenshot dark/light mode, verify keyboard shortcuts |
 
-### End-to-end smoke test
+### End-to-End Smoke Test (Playwright MCP)
 
-1. `npm run dev` → app loads
-2. Click "Spoof" → messages stream in sidebar
-3. Expand ATTITUDE → see roll/pitch/yaw values updating
-4. Click roll field → plot appears with live trace
-5. Add GLOBAL_POSITION_INT.lat to another plot → crosshairs sync
-6. Switch to Map tab → see vehicle moving
-7. Pause → drag-zoom on plot → resume
-8. Toggle theme → light/dark works
-9. Refresh → layout and settings persist
+```
+1. browser_navigate → http://localhost:5173
+2. browser_snapshot → verify app loaded (toolbar, tabs visible)
+3. browser_console_messages(level="error") → empty
+4. browser_click → "Connect Spoof"
+5. browser_wait_for → text="HEARTBEAT"
+6. browser_snapshot → messages streaming in sidebar with Hz badges
+7. browser_click → expand ATTITUDE
+8. browser_snapshot → roll, pitch, yaw fields visible with numeric values
+9. browser_click → "roll" field to add to plot
+10. browser_wait_for → time=2
+11. browser_take_screenshot → plot panel visible with live trace
+12. browser_click → "Map" tab
+13. browser_wait_for → time=2
+14. browser_take_screenshot → map with vehicle marker visible
+15. browser_click → "Telemetry" tab
+16. browser_click → theme toggle
+17. browser_take_screenshot → light mode applied
+18. browser_click → theme toggle (back to dark)
+19. browser_evaluate → "location.reload()"
+20. browser_wait_for → time=3
+21. browser_snapshot → layout and settings preserved after reload
+```

@@ -8,9 +8,18 @@ The **what** (task specs, phase details, acceptance criteria) lives in `PLAN.md`
 
 MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry visualization. Replaces the Flutter-based [js_dash](https://github.com/DanWilson00/js_dash) with a faster web architecture. Key feature: dynamic MAVLink message parsing driven by XML dialect definitions (no hardcoded message types).
 
-**Reference code**: `/tmp/js_dash/` — the Flutter project being ported. Key source in `lib/mavlink/`, `lib/services/`, `lib/views/telemetry/`.
+**Reference code**: `/tmp/js_dash/` — the Flutter project being ported. Key source in `lib/mavlink/`, `lib/services/`, `lib/views/telemetry/`. **This is ephemeral** — if missing, re-clone from `https://github.com/DanWilson00/js_dash`. PLAN.md has enough detail to implement without it but the source is useful for edge cases.
 
 **Target**: GitHub Pages PWA, offline-capable, light/dark mode.
+
+---
+
+## Environment Prerequisites
+
+- **Node.js**: v20+ (LTS)
+- **npm**: v10+
+- **Browser**: Chrome or Edge (Web Serial API requires Chromium). Firefox/Safari work for everything except serial.
+- **OS**: Any (Linux, macOS, Windows)
 
 ---
 
@@ -22,7 +31,8 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 4. Implement per the conventions in this file
 5. Write/run tests — all acceptance criteria must pass
 6. Run existing tests — nothing previously passing may break
-7. Commit with clear, descriptive message
+7. For UI work: verify with Playwright MCP (see Testing Strategy below)
+8. Commit with clear, descriptive message
 
 **If you get stuck**, explain clearly what's blocking you. Don't thrash — stop and re-plan.
 
@@ -52,16 +62,18 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 | Layout | gridstack.js (12-column snap grid) |
 | Map | Leaflet + OpenStreetMap |
 | Storage | idb-keyval (IndexedDB) |
-| Testing | Vitest |
+| Testing | Vitest + Playwright MCP |
 | XML Parse | DOMParser (browser-native) |
 
 ---
 
 ## Build & Development
 
+> **Note**: These commands require Phase 0 to be complete (project scaffolded with `package.json`). If `package.json` doesn't exist yet, Phase 0 is your first task.
+
 ```bash
 npm install          # Install dependencies
-npm run dev          # Vite dev server
+npm run dev          # Vite dev server (default: http://localhost:5173)
 npm run build        # Production build
 npm run preview      # Preview production build
 npx vitest run       # Run all tests
@@ -115,6 +127,26 @@ npx vitest run src/mavlink/  # Run MAVLink engine tests only
 - **Batch updates**: Throttle UI updates (60Hz max). Buffer data writes and flush on animation frame.
 - **No GC pressure in hot paths**: Avoid object creation in the frame parser / decoder inner loops.
 
+### SolidJS Gotchas
+- **Never destructure props**: `const { name } = props` kills reactivity. Use `props.name` or `splitProps()`/`mergeProps()`.
+- **`createEffect` cleanup**: Return a cleanup function or use `onCleanup` inside effects that create subscriptions/timers.
+- **`batch` for multiple updates**: When updating multiple signals or store fields in one handler, wrap in `batch(() => { ... })` to avoid intermediate renders.
+- **`For` vs `Index`**: Use `<For each={list}>` for keyed lists (items can reorder). Use `<Index each={list}>` for indexed access (items are positionally stable).
+- **Store updates must be immutable-style**: `setStore('plotTabs', tabs => [...tabs, newTab])`, not `appState.plotTabs.push(newTab)`.
+- **`Show` vs ternary**: Prefer `<Show when={cond}>` over `{cond && <Comp/>}` — Show properly handles cleanup.
+
+### .gitignore
+
+Ensure these are gitignored:
+```
+node_modules/
+dist/
+*.local
+.env
+```
+
+Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
+
 ---
 
 ## Architecture
@@ -147,10 +179,82 @@ ByteSource → FrameParser → Decoder → MessageTracker → TimeSeriesManager 
 
 ### MAVLink Protocol Notes
 
-- **CRC**: X.25 CRC-16 (CRC-16-MCRF4XX) with per-message CRC extra byte from dialect
-- **Frame v2**: STX(0xFD) → len → incompat → compat → seq → sysid → compid → msgid(3) → payload → crc(2)
+- **CRC**: X.25 CRC-16 (CRC-16-MCRF4XX), seed `0xFFFF`, per-message CRC extra byte from dialect
+- **Frame v2**: `STX(0xFD) | len | incompat | compat | seq | sysid | compid | msgid_lo | msgid_mid | msgid_hi | payload | crc_lo | crc_hi`
+- **Frame v1**: `STX(0xFE) | len | seq | sysid | compid | msgid | payload | crc_lo | crc_hi`
 - **Payload**: Little-endian, fields ordered by type size descending (for wire encoding), zero-trimmed in v2
 - **Dialect**: XML defines messages, fields, enums. `<include>` for dialect hierarchy. CRC extra computed from field types/names.
+
+---
+
+## Testing Strategy
+
+### Three-Tier Testing
+
+**Tier 1 — Vitest Unit Tests (fast, run always)**
+Pure logic with no DOM or browser dependencies. Target: <5 seconds total.
+
+| What to test | How | Example |
+|-------------|-----|---------|
+| CRC computation | Golden values — known inputs → known outputs | `crc.test.ts`: HEARTBEAT CRC extra = 50 |
+| Frame parsing | Build a frame with FrameBuilder, feed to FrameParser, verify round-trip | `frame-parser.test.ts` |
+| Payload decoding | Hand-craft payloads, decode, verify field values | `decoder.test.ts` |
+| Ring buffer | Push past capacity, verify wrap-around and data integrity | `ring-buffer.test.ts` |
+| Registry | Load `common.json`, verify lookups by ID and name | `registry.test.ts` |
+| Message tracker | Feed messages with known timestamps, verify frequency math | `message-tracker.test.ts` |
+
+**Golden data tests are the highest-value tests.** They lock down correctness with zero ambiguity. See PLAN.md "Golden Test Data" section for exact values.
+
+**Tier 2 — Vitest Integration Tests (medium, run always)**
+Tests that verify multi-module data flow without a browser.
+
+| What to test | How |
+|-------------|-----|
+| Spoof → Parser → Decoder | Create SpoofByteSource, connect to FrameParser + Decoder, verify decoded messages have correct names and field types |
+| TimeSeriesManager | Feed decoded messages, verify ring buffers are populated with correct `MessageName.FieldName` keys |
+
+**Tier 3 — Playwright MCP Visual Verification (targeted, UI phases only)**
+Use the Playwright MCP tools to autonomously verify UI behavior in the running dev server. This is NOT a test suite — it's an agent-driven verification loop.
+
+### Playwright MCP Autonomous Iteration
+
+For UI work (Phases 3+), use the Playwright MCP tools in an edit→verify loop:
+
+1. Start dev server in background: `npm run dev`
+2. `browser_navigate` → `browser_snapshot` → verify elements exist
+3. If wrong: edit code → Vite HMR reloads → `browser_snapshot` again
+4. `browser_click` / `browser_type` → test interactions
+5. `browser_console_messages(level="error")` → catch JS errors
+6. `browser_take_screenshot` → verify visual appearance
+7. Repeat until correct
+
+**Use Playwright MCP for**: UI rendering, data flow to UI, styling, live-update features, "looks wrong" debugging.
+**Don't use for**: Pure logic (use Vitest), type checking (use `npm run build`), performance profiling.
+
+See PLAN.md for phase-specific Playwright verification steps.
+
+### Test File Conventions
+
+```
+src/
+  mavlink/
+    __tests__/
+      crc.test.ts
+      registry.test.ts
+      xml-parser.test.ts
+      frame-parser.test.ts
+      decoder.test.ts
+  core/
+    __tests__/
+      ring-buffer.test.ts
+  services/
+    __tests__/
+      spoof-byte-source.test.ts
+      message-tracker.test.ts
+      timeseries-manager.test.ts
+```
+
+Tests import from the module under test. Use `describe`/`it` blocks. Prefer `expect` assertions over manual checks. Use `beforeEach` for setup, not shared mutable state.
 
 ---
 
@@ -174,11 +278,17 @@ Message tracker needs periodic cleanup. Verify the 5s decay window and stale-rem
 ### Gridstack items overlap or misbehave
 Ensure gridstack widget lifecycle is tied to SolidJS `onMount`/`onCleanup`. Don't manipulate DOM directly — use gridstack API.
 
+### Vite HMR not reflecting changes
+Check browser console for HMR errors. SolidJS HMR requires `vite-plugin-solid`. If state is stale, full-reload the page.
+
+### Playwright snapshot shows empty page
+Dev server may not be running. Check with `browser_console_messages(level="error")`. Ensure `npm run dev` is running in background.
+
 ---
 
 ## Git Workflow
 
-Write clear, concise commit messages that describe the change. Commit after each logical unit of work completes successfully. If working from `PLAN.md` tasks, reference the phase in the commit message.
+Write clear, concise commit messages that describe the change. Commit after each logical unit of work completes successfully. If working from `PLAN.md` tasks, reference the phase in the commit message (e.g., `Phase 1: implement CRC-16 with golden value tests`).
 
 ---
 
@@ -190,15 +300,21 @@ npx vitest run src/mavlink/           # MAVLink engine tests
 npx vitest run src/core/              # Core utility tests
 npx vitest run src/services/          # Service layer tests
 npm run build                         # Production build (catches type errors)
-npm run dev                           # Dev server for manual verification
+npm run dev                           # Dev server for manual/Playwright verification
 ```
 
 ### Typical Verification Workflow
 
-After any code change:
+**For logic changes (Phases 1-2):**
 1. `npx vitest run` — all tests must pass
-2. `npm run build` — no type errors, clean production build
-3. `npm run dev` — manual smoke test if UI was changed
+2. `npm run build` — no type errors
+
+**For UI changes (Phases 3+):**
+1. `npx vitest run` — all tests must pass
+2. `npm run build` — no type errors
+3. Start dev server → Playwright MCP: `browser_navigate` → `browser_snapshot` → verify
+4. `browser_console_messages(level="error")` — no JS errors
+5. `browser_take_screenshot` — visual check if needed
 
 ---
 
