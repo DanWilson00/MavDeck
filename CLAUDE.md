@@ -90,7 +90,7 @@ npx vitest run src/mavlink/  # Run MAVLink engine tests only
 - **Simplicity first**: Keep the codebase clean, minimal, and as simple as possible — the best part is no part. Reduce coupling. Make minimal-impact changes: touch only what's needed, don't reorganize unrelated code.
 - **No laziness**: Fix root causes, not symptoms. No temporary workarounds, no "fix later" comments. Hold yourself to senior engineer standards — if you wouldn't ship it in production, don't commit it.
 - **Single source of truth**: One source for configuration. Don't duplicate constants, types, or config across files. If a value exists in one place, reference it — don't copy it.
-- **Abstraction**: ALWAYS use a common function or class for common functionality. We only want one implementation. This is particularly important for shared utilities in `src/core/`.
+- **Abstraction**: When 3+ call sites share the same logic, extract a common function or class — we only want one implementation. This is particularly important for shared utilities in `src/core/`. Don't pre-abstract for fewer than 3 uses.
 - **Demand elegance**: For non-trivial changes, pause and ask "is there a cleaner way?" Step back from hacky fixes. (Skip this for simple/obvious changes — don't over-engineer.)
 
 ### Naming Conventions
@@ -134,6 +134,8 @@ npx vitest run src/mavlink/  # Run MAVLink engine tests only
 - **`For` vs `Index`**: Use `<For each={list}>` for keyed lists (items can reorder). Use `<Index each={list}>` for indexed access (items are positionally stable).
 - **Store updates must be immutable-style**: `setStore('plotTabs', tabs => [...tabs, newTab])`, not `appState.plotTabs.push(newTab)`.
 - **`Show` vs ternary**: Prefer `<Show when={cond}>` over `{cond && <Comp/>}` — Show properly handles cleanup.
+- **Store constraints**: ONLY put plain JSON-serializable data (strings, numbers, booleans, plain arrays/objects) inside `createStore`. NEVER put class instances (`RingBuffer`, `ConnectionManager`, `MavlinkMetadataRegistry`), `TypedArray`s, or third-party library instances (`uPlot`) in a SolidJS store. The store's deep proxy will wrap their internal properties, destroying zero-GC performance and breaking class methods. Use module-level variables or `createSignal(instance, { equals: false })` for complex objects.
+- **Gridstack integration**: Do NOT use `<For>` loops to render Gridstack items. Gridstack mutates the DOM directly, which conflicts with SolidJS's DOM ownership. Instead: use Gridstack's vanilla JS API (`grid.addWidget(containerDiv)`) to create the DOM node, then use SolidJS's `render(() => <PlotPanel />, containerDiv)` to mount the reactive component inside that unmanaged node. Handle cleanup with the `dispose` function returned by `render()`.
 
 ### .gitignore
 
@@ -153,11 +155,12 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
 
 ### Key Decisions
 
-1. **Gridstack for layout** — 12-column Grafana-style grid with snap
-2. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
-3. **Callback-based services** — Simple callback Sets instead of Dart StreamControllers; SolidJS signals consume them
-4. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
-5. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
+1. **Web Worker for MAVLink engine** — All parsing, CRC validation, decoding, and ring buffer writes run in a background Web Worker. The main thread is exclusively for rendering. Data is transferred via `postMessage` with Transferable `ArrayBuffer`s to avoid copies.
+2. **Gridstack for layout** — 12-column Grafana-style grid with snap
+3. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
+4. **Callback-based services** — Simple callback Sets instead of Dart StreamControllers; SolidJS signals consume them
+5. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
+6. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
 
 ### Module Structure
 
@@ -172,9 +175,16 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
 ### Data Flow
 
 ```
-ByteSource → FrameParser → Decoder → MessageTracker → TimeSeriesManager → uPlot
-                                          ↓
-                                    MessageMonitor (sidebar)
+┌─── Web Worker ──────────────────────────────────────────────┐
+│ ByteSource → FrameParser → Decoder → Tracker → RingBuffers  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ postMessage (Transferable ArrayBuffers)
+                           ↓
+┌─── Main Thread ──────────────────────────────────────────────┐
+│ AppStore signals → MessageMonitor (sidebar)                   │
+│                  → uPlot charts (Float64Array direct)         │
+│                  → Map view (lat/lon)                         │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### MAVLink Protocol Notes
@@ -190,6 +200,8 @@ ByteSource → FrameParser → Decoder → MessageTracker → TimeSeriesManager 
 ## Testing Strategy
 
 ### Three-Tier Testing
+
+**Vitest environment**: Configured with `environment: 'happy-dom'` in `vite.config.ts`. This provides `DOMParser`, `XMLSerializer`, and other browser APIs in Node.js. Without this, tests using `DOMParser` (XML parser) will throw `ReferenceError`. Install `happy-dom` as a dev dependency in Phase 0.
 
 **Tier 1 — Vitest Unit Tests (fast, run always)**
 Pure logic with no DOM or browser dependencies. Target: <5 seconds total.

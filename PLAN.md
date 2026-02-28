@@ -52,12 +52,13 @@ MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visu
 
 ## Architecture Decisions
 
-1. **Gridstack for layout** — 12-column Grafana-style grid with snap. Heavier than custom but gives polished UX out of the box.
-2. **Float64Array ring buffers** — Replace js_dash `ListQueue<TimeSeriesPoint>` with struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility.
-3. **Callback-based services** — Replace Dart StreamControllers with simple callback Sets. SolidJS signals consume them.
-4. **No 3D initially** — Skip Three.js attitude widget. Can add later.
-5. **Include map view** — Leaflet + OSM for vehicle position tracking, like js_dash.
-6. **uPlot sync** — All time-series charts in the same tab share cursor via `uPlot.sync()`.
+1. **Web Worker for MAVLink engine** — All parsing (FrameParser), CRC validation, decoding, message tracking, and ring buffer writes run in a background Web Worker. The main thread is exclusively for rendering. At 100Hz telemetry, parsing binary on the main thread causes micro-stutters in SolidJS and uPlot. Data is transferred via `postMessage` with Transferable `ArrayBuffer`s.
+2. **Gridstack for layout** — 12-column Grafana-style grid with snap. Heavier than custom but gives polished UX out of the box.
+3. **Float64Array ring buffers** — Replace js_dash `ListQueue<TimeSeriesPoint>` with struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility.
+4. **Callback-based services** — Replace Dart StreamControllers with simple callback Sets. SolidJS signals consume them.
+5. **No 3D initially** — Skip Three.js attitude widget. Can add later.
+6. **Include map view** — Leaflet + OSM for vehicle position tracking, like js_dash.
+7. **uPlot sync** — All time-series charts in the same tab share cursor via `uPlot.sync()`.
 
 ---
 
@@ -65,16 +66,21 @@ MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visu
 
 ```
 Phase 0 (Setup)
-  └→ Phase 1 (MAVLink Engine)
-       └→ Phase 2 (Data Pipeline)
-            ├→ Phase 3 (UI Shell)
-            │    ├→ Phase 4 (Message Monitor)
-            │    │    └→ Phase 5 (Plotting) → Phase 6 (Layout)
-            │    └→ Phase 7 (Map View)
-            └→ Phase 8 (Web Serial)
+  └→ Phase 1A (Binary Engine: CRC, Frame, Parser, Builder)
+       └→ Phase 1B (Data Dictionary: Metadata, Registry, Decoder, XML Parser)
+            └→ Phase 2 (Data Pipeline + Web Worker)
+                 ├→ Phase 3 (UI Shell)
+                 │    ├→ Phase 4 (Message Monitor)
+                 │    │    └→ Phase 5 (Plotting) → Phase 6 (Layout)
+                 │    └→ Phase 7 (Map View)
+                 └→ Phase 8 (Web Serial)
 Phase 9 (Settings/PWA) — can start after Phase 3, integrates with all later phases
 Phase 10 (Polish) — after everything
 ```
+
+**Why Phase 1 is split**: The MAVLink engine has 10 subtasks spanning binary math, state machines, and XML parsing. Splitting into 1A (binary/frame-level) and 1B (metadata/data-dictionary) forces a commit + test checkpoint in the middle, preventing context window exhaustion and ensuring the binary foundation is solid before building the data layer on top.
+
+**Phase completion tracking**: Each phase is complete when ALL its task acceptance criteria checkboxes pass AND (if applicable) its Playwright verification block runs without failure. Agents should use TodoWrite/task tracking to mark phases done. The "Depends on Phase X" annotations at each phase header are **hard gates** — do not start a phase until its dependencies are complete (all tests passing, committed).
 
 ---
 
@@ -399,7 +405,7 @@ export const SIGNAL_COLORS = [
 **Create files:**
 - `package.json` — name: "mavdeck", type: "module"
 - `tsconfig.json` — strict: true, jsx: "preserve", jsxImportSource: "solid-js", target: "ES2022", module: "ESNext", moduleResolution: "bundler"
-- `vite.config.ts` — plugins: [solidPlugin(), tailwindcss(), VitePWA(...)], base: "/MavDeck/"
+- `vite.config.ts` — plugins: [solidPlugin(), tailwindcss(), VitePWA(...)], base: process.env.GITHUB_ACTIONS ? "/MavDeck/" : "/", test: { environment: 'happy-dom' }
 - `index.html` — minimal HTML shell with `<div id="root">`, links to `/src/index.tsx`
 - `src/index.tsx` — `render(() => <App />, document.getElementById('root')!)`
 - `src/App.tsx` — placeholder: `<div class="h-screen bg-gray-900 text-white">MavDeck</div>`
@@ -413,14 +419,25 @@ solid-js, idb-keyval, uplot, gridstack, leaflet
 **Dev dependencies:**
 ```
 typescript, vite, vite-plugin-solid, vite-plugin-pwa, @tailwindcss/vite, tailwindcss,
-vitest, @types/leaflet
+vitest, happy-dom, @types/leaflet
 ```
+
+**Critical: Vitest environment config** in `vite.config.ts`:
+```typescript
+export default defineConfig({
+  // ...plugins, base, etc...
+  test: {
+    environment: 'happy-dom',  // Provides DOMParser, Canvas, etc. in Node.js
+  },
+});
+```
+Without this, any test using `DOMParser` (XML parser, Phase 1B) will throw `ReferenceError: DOMParser is not defined`. Do NOT install separate XML parsing libraries — `happy-dom` provides the browser-native APIs.
 
 **Acceptance criteria:**
 - [ ] `npm install` succeeds
 - [ ] `npm run dev` starts server, page loads with "MavDeck" text
 - [ ] `npm run build` produces clean production build with no type errors
-- [ ] `npx vitest run` exits cleanly (no tests yet, but config works)
+- [ ] `npx vitest run --passWithNoTests` exits 0 (no tests yet, but config + environment works)
 
 **Playwright verification:**
 ```
@@ -431,9 +448,9 @@ browser_console_messages(level="error") → empty
 
 ---
 
-## Phase 1: Core MAVLink Engine
+## Phase 1A: Binary Engine (CRC, Frames, Parser, Builder)
 
-Port from `/tmp/js_dash/lib/mavlink/`. Every file gets corresponding tests.
+Port from `/tmp/js_dash/lib/mavlink/parser/`. This phase covers the binary wire format: CRC math, frame structure, the byte-level state machine parser, and the frame builder. Commit and run tests after this phase before proceeding to Phase 1B.
 
 ### Task 1.1: `src/mavlink/crc.ts`
 
@@ -639,21 +656,21 @@ export class MavlinkFrameBuilder {
 - [ ] Build frame with default sysid/compid → header bytes correct
 - [ ] Built frame CRC validates in the parser
 
-### Task 1.8: `src/mavlink/index.ts`
+### Phase 1A Verification
 
-Barrel exports for all mavlink modules.
-
-```typescript
-export * from './crc';
-export * from './metadata';
-export * from './registry';
-export * from './frame';
-export * from './frame-parser';
-export * from './decoder';
-export * from './frame-builder';
+```bash
+npx vitest run src/mavlink/__tests__/crc.test.ts src/mavlink/__tests__/frame-parser.test.ts
 ```
 
-### Task 1.9: `public/dialects/common.json`
+At this point CRC, frame types, frame parser, and frame builder are complete and tested. The parser can parse frames and the builder can create them — verified via round-trip tests. **Commit this checkpoint before proceeding to Phase 1B.**
+
+---
+
+## Phase 1B: Data Dictionary (Metadata, Registry, Decoder, XML Parser)
+
+Port from `/tmp/js_dash/lib/mavlink/metadata/` and the decoder/XML parser. This phase builds the data dictionary layer that gives meaning to the binary frames from Phase 1A.
+
+### Task 1.8: `public/dialects/common.json`
 
 Copy from `/tmp/js_dash/assets/mavlink/common.json`. This is a ~37K line pre-generated JSON file.
 
@@ -663,7 +680,7 @@ Copy from `/tmp/js_dash/assets/mavlink/common.json`. This is a ~37K line pre-gen
 - [ ] Contains `schema_version`, `dialect`, `enums`, `messages` keys
 - [ ] `messages["0"]` is HEARTBEAT with `crc_extra: 50`
 
-### Task 1.10: `src/mavlink/xml-parser.ts`
+### Task 1.9: `src/mavlink/xml-parser.ts`
 
 **Port from**: `lib/mavlink/parser/mavlink_xml_parser.dart`
 
@@ -704,12 +721,27 @@ export function parseFromFileMap(
 - [ ] `<include>` resolution works (file A includes file B, both parsed)
 - [ ] Parse result loadable by `MavlinkMetadataRegistry`
 
-### Phase 1 Verification
+### Task 1.10: `src/mavlink/index.ts`
+
+Barrel exports for all mavlink modules.
+
+```typescript
+export * from './crc';
+export * from './metadata';
+export * from './registry';
+export * from './frame';
+export * from './frame-parser';
+export * from './decoder';
+export * from './frame-builder';
+export * from './xml-parser';
+```
+
+### Phase 1B Verification
 
 ```bash
 npx vitest run src/mavlink/
 ```
-All tests pass. Then integration check:
+All Phase 1A + 1B tests pass. Then integration check:
 
 ```typescript
 // In a test: full round-trip
@@ -748,10 +780,12 @@ Interface definition (see Interface Contracts above). Pure types file.
 
 ```typescript
 export class RingBuffer {
-  private timestamps: Float64Array;   // epoch-ms
-  private values: Float64Array;
-  private head = 0;                   // next write position
-  private count = 0;                  // number of valid entries
+  private timestamps: Float64Array;       // epoch-ms, circular storage
+  private values: Float64Array;           // circular storage
+  private viewTimestamps: Float64Array;   // pre-allocated contiguous view for output
+  private viewValues: Float64Array;       // pre-allocated contiguous view for output
+  private head = 0;                       // next write position
+  private count = 0;                      // number of valid entries
   private readonly capacity: number;
 
   constructor(capacity = 2000);
@@ -762,16 +796,24 @@ export class RingBuffer {
   get length(): number;  // min(count, capacity)
 
   toUplotData(): [Float64Array, Float64Array];
-  // Returns [timestamps_in_seconds, values] as contiguous arrays.
-  // Handles wrap-around: if head has wrapped, copy tail..end + start..head.
+  // Returns [timestamps_in_seconds, values] as contiguous subarrays of the
+  // pre-allocated view buffers. Uses Float64Array.set() to copy wrapped data
+  // into the view buffers, then returns subarray(0, length) slices.
   // Timestamps converted from epoch-ms to epoch-seconds (divide by 1000).
-  // Returns new Float64Array copies (uPlot needs stable references).
+  // CRITICAL: Do NOT allocate new Float64Array() on every call — that triggers
+  // GC at 60Hz. The view buffers are allocated once in the constructor.
 
   getLatestValue(): number | undefined;
   getLatestTimestamp(): number | undefined;
   clear(): void;
 }
 ```
+
+**Why pre-allocated view buffers:**
+- `toUplotData()` is called at 60Hz per signal. Allocating `new Float64Array()` each time would create massive GC pressure.
+- Instead, allocate two "view" `Float64Array`s in the constructor (same capacity as the ring).
+- On each call, use `.set()` to copy the wrapped circular data into the view buffers, then return `.subarray(0, length)` slices.
+- `.subarray()` creates a view over the same underlying `ArrayBuffer` — no allocation.
 
 **Why epoch-ms internally, epoch-seconds for uPlot:**
 - Epoch-ms gives sub-millisecond timestamp precision for ordering
@@ -874,8 +916,9 @@ export class GenericMessageTracker {
 1. Store timestamps of recent messages per message name (in `_recentTimestamps` array)
 2. Every 100ms (stats update timer):
    - Remove timestamps older than 5 seconds (sliding window)
-   - `frequency = (timestamps.length - 1) / (newest - oldest)` in seconds
-   - If only 1 timestamp, frequency = 0
+   - Timestamps stored in milliseconds (epoch-ms). Formula:
+     `frequency = (timestamps.length - 1) / ((newestMs - oldestMs) / 1000)` → result in Hz
+   - If only 1 timestamp or `newestMs === oldestMs`, frequency = 0
 3. **Decay** (when no new messages received):
    - If last message > 2 seconds ago: `decay = 1.0 - (timeSinceLastMsg - 2000) / 3000`
    - `frequency *= clamp(decay, 0, 1)`
@@ -929,7 +972,7 @@ export class TimeSeriesDataManager {
 
 **Port from**: `lib/services/mavlink_service.dart`
 
-Wires the pipeline: byte source → frame parser → decoder → tracker.
+Wires the pipeline: byte source → frame parser → decoder → tracker. This class runs **inside the Web Worker** (imported by `mavlink-worker.ts`). It is NOT instantiated on the main thread.
 
 ```typescript
 export class MavlinkService {
@@ -963,27 +1006,104 @@ export class MavlinkService {
 
 **Port from**: `lib/services/connection_manager.dart`
 
+Main-thread facade that delegates to `MavlinkWorkerBridge`. This is what the UI interacts with.
+
 ```typescript
 export class ConnectionManager {
-  constructor(registry: MavlinkMetadataRegistry);
+  constructor(workerBridge: MavlinkWorkerBridge);
   connect(config: ConnectionConfig): Promise<void>;
   disconnect(): void;
   pause(): void;
   resume(): void;
   onStatusChange(callback: (status: ConnectionStatus) => void): () => void;
   readonly status: ConnectionStatus;
-  readonly mavlinkService: MavlinkService | null;
-  readonly tracker: GenericMessageTracker | null;
-  readonly timeseriesManager: TimeSeriesDataManager | null;
 }
 ```
 
-Creates the appropriate byte source based on config type, wires up MavlinkService, manages lifecycle.
+Translates UI actions into worker messages. Tracks connection status locally on the main thread.
 
 **Acceptance criteria:**
 - [ ] `connect({ type: 'spoof' })` → status transitions: disconnected → connecting → connected
 - [ ] `disconnect()` → status becomes disconnected, cleans up all services
 - [ ] Only one connection at a time — connecting while connected disconnects first
+
+### Task 2.8: `src/workers/mavlink-worker.ts` (Web Worker)
+
+**This is the critical performance task.** Move the entire MAVLink pipeline off the main thread.
+
+**Worker file** (`src/workers/mavlink-worker.ts`):
+```typescript
+// Runs in a Web Worker. Imports MAVLink engine directly.
+// Receives: raw bytes from byte source, control messages (connect/disconnect/pause)
+// Sends: decoded message stats, ring buffer data (as Transferable ArrayBuffers)
+
+self.onmessage = (e: MessageEvent) => {
+  switch (e.data.type) {
+    case 'init':        // Load dialect JSON, create registry/parser/decoder
+    case 'bytes':       // Feed raw bytes to parser
+    case 'connect':     // Start spoof source (runs in worker)
+    case 'disconnect':  // Stop source
+    case 'pause':       // Pause message emission
+    case 'resume':      // Resume
+    case 'getBuffers':  // Request current ring buffer data for rendering
+  }
+};
+```
+
+**Main thread bridge** (`src/services/worker-bridge.ts`):
+```typescript
+export class MavlinkWorkerBridge {
+  private worker: Worker;
+
+  constructor();
+  // Create worker: new Worker(new URL('../workers/mavlink-worker.ts', import.meta.url), { type: 'module' })
+  // Vite handles the bundling automatically with this URL pattern.
+
+  init(dialectJson: string): Promise<void>;
+  connect(config: ConnectionConfig): void;
+  disconnect(): void;
+  pause(): void;
+  resume(): void;
+
+  // Called by UI at ~60Hz to get fresh data for rendering
+  onStats(callback: (stats: Map<string, MessageStats>) => void): () => void;
+  onUpdate(callback: (buffers: Map<string, { timestamps: Float64Array; values: Float64Array }>) => void): () => void;
+}
+```
+
+**Data transfer strategy:**
+- **Message stats** (small): Structured clone via `postMessage` (Map of strings → stats objects). Sent every 100ms from worker.
+- **Ring buffer data** (large): Worker copies ring buffer contents into fresh `ArrayBuffer`s and transfers them as Transferable objects (zero-copy transfer). Main thread wraps received buffers as `Float64Array` views and passes directly to uPlot.
+- **Control messages** (tiny): Simple `postMessage` with `{ type: string, ... }`.
+
+**Why not SharedArrayBuffer:**
+SharedArrayBuffer requires COOP/COEP headers which complicate GitHub Pages deployment. Transferable objects are simpler and fast enough for 60Hz updates.
+
+**What runs where:**
+
+| Component | Thread | Why |
+|-----------|--------|-----|
+| ByteSource (Spoof) | Worker | Generates bytes without touching main thread |
+| FrameParser | Worker | CPU-intensive CRC validation |
+| Decoder | Worker | DataView reads on binary payloads |
+| MessageTracker | Worker | Frequency math and timers |
+| TimeSeriesManager + RingBuffers | Worker | All buffer writes happen off-thread |
+| ConnectionManager | Main | Thin facade, delegates to worker |
+| SolidJS store/signals | Main | Reactivity is main-thread only |
+| uPlot | Main | Canvas rendering |
+| Gridstack | Main | DOM manipulation |
+
+**ByteSource for Web Serial special case:**
+Web Serial API must be called from the main thread (requires user gesture for `requestPort()`). For serial connections, the main thread reads bytes from the serial port and posts them to the worker for parsing. For spoof connections, the entire spoof source runs inside the worker.
+
+**Acceptance criteria:**
+- [ ] Worker loads and initializes with dialect JSON
+- [ ] Spoof connection runs entirely in worker — main thread receives decoded stats
+- [ ] `onStats` callback fires with message names and frequencies
+- [ ] `onUpdate` callback fires with Float64Array data for each field key
+- [ ] Disconnect cleans up worker timers
+- [ ] Main thread stays responsive during high-rate telemetry (no jank)
+- [ ] Vite bundles the worker correctly (`import.meta.url` pattern)
 
 ### Phase 2 Verification
 
@@ -991,23 +1111,12 @@ Creates the appropriate byte source based on config type, wires up MavlinkServic
 npx vitest run
 ```
 
-All Phase 1 + Phase 2 tests pass. Integration test:
+All Phase 1A + 1B + Phase 2 tests pass.
 
-```typescript
-// Spoof → full pipeline → verify decoded messages
-const registry = new MavlinkMetadataRegistry();
-registry.loadFromJsonString(commonJson);
-const manager = new ConnectionManager(registry);
-await manager.connect({ type: 'spoof' });
-
-// Wait 2 seconds for messages to accumulate
-const stats = manager.tracker!.getStats();
-expect(stats.has('HEARTBEAT')).toBe(true);
-expect(stats.get('HEARTBEAT')!.frequency).toBeGreaterThan(0);
-
-const fields = manager.timeseriesManager!.getAvailableFields();
-expect(fields).toContain('ATTITUDE.roll');
-```
+**Note on worker tests:** Vitest with `happy-dom` doesn't provide a real Web Worker environment. Test the worker bridge by:
+1. Unit testing each service (parser, decoder, tracker, timeseries) independently (already done in their own tests)
+2. Testing the worker message protocol with mock `postMessage` handlers
+3. Full integration testing via Playwright MCP in Phase 3+ (connect spoof in browser, verify messages appear)
 
 ---
 
@@ -1041,16 +1150,21 @@ export const [appState, setAppState] = createStore<AppState>({
 });
 ```
 
-Also export the `ConnectionManager` instance (created once, shared):
+Also export service instances as module-level variables (**NOT inside the store**):
 
 ```typescript
-export const connectionManager: ConnectionManager;  // initialized after registry loads
+// These are class instances with methods and TypedArrays — they MUST NOT go in createStore.
+// SolidJS's deep proxy would wrap their internals, breaking class methods and TypedArray performance.
+// Use non-null assertion (null!) because they're initialized in onMount before any UI reads them.
+export let workerBridge: MavlinkWorkerBridge = null!;   // assigned in onMount after dialect loads
+export let registry: MavlinkMetadataRegistry = null!;   // assigned in onMount
 ```
 
 **Acceptance criteria:**
 - [ ] Store initializes with default values
 - [ ] `setAppState('theme', 'light')` updates reactively
 - [ ] Types compile with strict mode
+- [ ] `workerBridge` and `registry` are module-level variables, NOT inside `createStore`
 
 ### Task 3.2: `src/components/ThemeProvider.tsx`
 
@@ -1142,7 +1256,7 @@ Wire everything together: ThemeProvider → Toolbar → TabBar → content area.
 Load dialect on mount:
 ```typescript
 onMount(async () => {
-  const response = await fetch('/MavDeck/dialects/common.json');
+  const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
   const json = await response.text();
   registry.loadFromJsonString(json);
 });
@@ -1413,18 +1527,53 @@ const grid = GridStack.init({
 });
 ```
 
-**SolidJS lifecycle:**
-- `onMount`: Initialize gridstack on container div
-- `onCleanup`: Destroy gridstack instance
-- When adding a plot: `grid.addWidget(element, gridPos)`
-- When removing: `grid.removeWidget(element)`
-- Listen to `change` event → update `PlotConfig.gridPos` in store
-- Listen to `resizestart`/`resizestop` → trigger uPlot resize
+**SolidJS + Gridstack integration (CRITICAL — read carefully):**
 
-**Serialization:**
-- On `change` event: save layout to IndexedDB via `idb-keyval`
-- On mount: restore layout from IndexedDB
+Gridstack mutates the DOM directly. SolidJS will crash or duplicate components if you use `<For>` to render gridstack items. You MUST use this pattern:
+
+```typescript
+// In GridLayout.tsx onMount:
+const grid = GridStack.init({ ... }, containerRef);
+
+function addPlotWidget(plotConfig: PlotConfig) {
+  // 1. Create a plain DOM container (NOT managed by SolidJS)
+  const container = document.createElement('div');
+
+  // 2. Let Gridstack own the DOM node
+  grid.addWidget(container, {
+    x: plotConfig.gridPos.x, y: plotConfig.gridPos.y,
+    w: plotConfig.gridPos.w, h: plotConfig.gridPos.h,
+    id: plotConfig.id,
+  });
+
+  // 3. Mount SolidJS component INSIDE the unmanaged node
+  const dispose = render(() => <PlotPanel config={plotConfig} />, container);
+
+  // 4. Store dispose function for cleanup
+  disposeMap.set(plotConfig.id, dispose);
+}
+
+function removePlotWidget(plotId: string) {
+  const el = grid.getGridItems().find(el => el.gridstackNode?.id === plotId);
+  if (el) grid.removeWidget(el);
+  disposeMap.get(plotId)?.();  // Cleanup SolidJS component
+  disposeMap.delete(plotId);
+}
+```
+
+**Why**: Gridstack reorders DOM nodes during drag. If SolidJS owns those nodes (via `<For>`), it loses track of them and crashes or duplicates charts. By using `render()` + `dispose()` on unmanaged nodes, SolidJS and Gridstack each own their own DOM layer.
+
+**Lifecycle:**
+- `onMount`: Initialize gridstack, restore layout from IndexedDB, call `addPlotWidget` for each
+- `onCleanup`: Destroy gridstack, call all dispose functions
+- Listen to `change` event → update `PlotConfig.gridPos` in store
+- Listen to `resizestart`/`resizestop` → trigger uPlot resize via `ResizeObserver`
+
+**Serialization (layout only — NOT settings):**
+- On `change` event: save grid positions to IndexedDB via `idb-keyval` under key `mavdeck-layout-v1`
+- On mount: restore grid positions from IndexedDB
 - Each widget identified by plot ID
+- **Ownership boundary**: This task owns *spatial layout* (grid x/y/w/h per widget per tab). Phase 9 `settings-service` owns *app preferences* (theme, baud rate, buffer size, etc.). They use separate IndexedDB keys and do not overlap.
 
 **Tab system:**
 - Only mount gridstack and uPlot instances for the active tab
@@ -1570,7 +1719,7 @@ Can start after Phase 3, integrates with all later phases.
 
 ### Task 9.1: `src/services/settings-service.ts`
 
-Persist application settings using `idb-keyval`.
+Persist application settings using `idb-keyval`. **Ownership boundary**: This service owns *app preferences* (theme, baud rate, buffer sizes, connection prefs). Grid *layout positions* are owned by Phase 6 (`mavdeck-layout-v1` key). Do not duplicate layout data here.
 
 ```typescript
 import { get, set } from 'idb-keyval';
@@ -1607,7 +1756,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 VitePWA({
   registerType: 'autoUpdate',
   workbox: {
-    globPatterns: ['**/*.{js,css,html,json,svg,woff2}'],
+    globPatterns: ['**/*.{js,css,html,json,svg,png,woff2}'],
   },
   manifest: {
     name: 'MavDeck',
@@ -1624,7 +1773,11 @@ VitePWA({
 })
 ```
 
-Set `base: '/MavDeck/'` for GitHub Pages.
+Use conditional `base` so local dev works on `/` and GitHub Pages deploys to `/MavDeck/`:
+```typescript
+base: process.env.GITHUB_ACTIONS ? '/MavDeck/' : '/',
+```
+All fetch paths in app code MUST use `import.meta.env.BASE_URL` (e.g., `` `${import.meta.env.BASE_URL}dialects/common.json` ``), never hardcoded `/MavDeck/`.
 
 **Acceptance criteria:**
 - [ ] `npm run build` generates service worker
@@ -1690,8 +1843,9 @@ browser_snapshot → verify resumed
 | Phase | Automated | Playwright MCP |
 |-------|-----------|---------------|
 | 0 | `npm run build` | Navigate, verify "MavDeck" text |
-| 1 | `npx vitest run src/mavlink/` — all pass | N/A (no UI) |
-| 2 | `npx vitest run` — all pass | N/A (no UI) |
+| 1A | `npx vitest run src/mavlink/__tests__/crc.test.ts src/mavlink/__tests__/frame-parser.test.ts` | N/A |
+| 1B | `npx vitest run src/mavlink/` — all pass | N/A |
+| 2 | `npx vitest run` — all pass | N/A (worker tested in Phase 3+) |
 | 3 | `npm run build` | Navigate, verify toolbar/tabs, connect spoof, toggle theme |
 | 4 | Build passes | Connect spoof, verify messages in sidebar with Hz, expand fields |
 | 5 | Build passes | Connect, click field, verify plot renders with live trace |
