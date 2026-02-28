@@ -4,7 +4,7 @@
 
 MavDeck is a high-performance, web-only PWA for real-time MAVLink telemetry visualization. It replaces the Flutter-based [js_dash](https://github.com/DanWilson00/js_dash) with a slicker, faster web architecture. The key feature is dynamic MAVLink message parsing driven by XML dialect definitions — no hardcoded message types.
 
-**Reference code**: `/tmp/js_dash/` — cloned Flutter project to port from.
+**Reference code**: `/tmp/js_dash/` — cloned Flutter project to port from. Just use as a guide.
 
 | Reference file | Porting to | Notes |
 |---------------|-----------|-------|
