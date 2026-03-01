@@ -42,6 +42,7 @@ export default function MapView() {
   let latestLon = INITIAL_LON;
   let latestAlt = 0;
   let latestHdg = 0;
+  let prevHdg = -1;
   let hasNewData = false;
 
   function subscribeToUpdates() {
@@ -101,11 +102,14 @@ export default function MapView() {
         const latlng = L.latLng(latestLat, latestLon);
 
         marker.setLatLng(latlng);
-        marker.setIcon(createVehicleIcon(latestHdg));
+        if (Math.abs(latestHdg - prevHdg) > 0.5) {
+          marker.setIcon(createVehicleIcon(latestHdg));
+          prevHdg = latestHdg;
+        }
 
         trailPoints.push(latlng);
         if (trailPoints.length > MAX_TRAIL_POINTS) {
-          trailPoints = trailPoints.slice(-MAX_TRAIL_POINTS);
+          trailPoints.shift();
         }
         trail?.setLatLngs(trailPoints);
 
@@ -131,6 +135,10 @@ export default function MapView() {
   createEffect(() => {
     if (appState.isReady && !unsubUpdate) {
       subscribeToUpdates();
+      onCleanup(() => {
+        unsubUpdate?.();
+        unsubUpdate = undefined;
+      });
     }
   });
 
