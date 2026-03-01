@@ -10,7 +10,7 @@ import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
 const LAYOUT_KEY = 'mavdeck-layout-v1';
 
 interface SavedLayout {
-  [tabId: string]: Array<{ id: string; x: number; y: number; w: number; h: number }>;
+  [tabId: string]: PlotConfig[];
 }
 
 let plotIdCounter = 0;
@@ -43,14 +43,8 @@ export default function TelemetryView() {
   async function saveLayout() {
     const saved = (await get<SavedLayout>(LAYOUT_KEY)) ?? {};
     const tabId = appState.activeSubTab;
-    const plots = currentPlots();
-    saved[tabId] = plots.map(p => ({
-      id: p.id,
-      x: p.gridPos.x,
-      y: p.gridPos.y,
-      w: p.gridPos.w,
-      h: p.gridPos.h,
-    }));
+    // JSON round-trip strips SolidJS store proxies so IndexedDB can serialize
+    saved[tabId] = JSON.parse(JSON.stringify(currentPlots())) as PlotConfig[];
     await set(LAYOUT_KEY, saved);
   }
 
@@ -58,20 +52,21 @@ export default function TelemetryView() {
     const saved = await get<SavedLayout>(LAYOUT_KEY);
     if (!saved) return;
     const tabId = appState.activeSubTab;
-    const positions = saved[tabId];
-    if (!positions) return;
+    const plots = saved[tabId];
+    if (!plots || plots.length === 0) return;
 
     const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
     if (tabIdx === -1) return;
 
-    for (const pos of positions) {
-      const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === pos.id);
-      if (plotIdx !== -1) {
-        setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'gridPos', {
-          x: pos.x, y: pos.y, w: pos.w, h: pos.h,
-        });
+    // Restore plot ID counter to avoid collisions
+    for (const p of plots) {
+      const num = parseInt(p.id.replace('plot-', ''), 10);
+      if (!isNaN(num) && num >= plotIdCounter) {
+        plotIdCounter = num;
       }
     }
+
+    setAppState('plotTabs', tabIdx, 'plots', plots);
   });
 
   // Create a new plot with a signal
@@ -108,6 +103,7 @@ export default function TelemetryView() {
     };
 
     updatePlots(plots => [...plots, plot]);
+    saveLayout();
   }
 
   function handleFieldSelected(messageName: string, fieldName: string) {
@@ -116,6 +112,7 @@ export default function TelemetryView() {
 
   function handleClosePlot(plotId: string) {
     updatePlots(plots => plots.filter(p => p.id !== plotId));
+    saveLayout();
   }
 
   function handleOpenSignalSelector(plotId: string) {
@@ -168,6 +165,7 @@ export default function TelemetryView() {
       setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'signals',
         sigs => [...sigs, newSignal]);
     }
+    saveLayout();
   }
 
   function handleAddPlot() {
@@ -181,6 +179,7 @@ export default function TelemetryView() {
     };
     updatePlots(plots => [...plots, plot]);
     setSelectorPlotId(plot.id);
+    saveLayout();
   }
 
   function selectorPlot(): PlotConfig | undefined {
