@@ -68,11 +68,13 @@ export default function GridLayout(props: GridLayoutProps) {
 
   function removePlotWidget(plotId: string) {
     if (!grid) return;
+    // Dispose SolidJS root FIRST so cleanups run against live DOM
+    disposeMap.get(plotId)?.();
+    disposeMap.delete(plotId);
+    // Then remove the DOM node from gridstack
     const items = grid.getGridItems();
     const el = items.find(item => item.gridstackNode?.id === plotId);
     if (el) grid.removeWidget(el);
-    disposeMap.get(plotId)?.();
-    disposeMap.delete(plotId);
     mountedIds.delete(plotId);
   }
 

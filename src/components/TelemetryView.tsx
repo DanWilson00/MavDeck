@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js';
+import { batch, createSignal, For, Show } from 'solid-js';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
 import GridLayout from './GridLayout';
@@ -84,12 +84,14 @@ export default function TelemetryView() {
   function handleGridChange(positions: Map<string, { x: number; y: number; w: number; h: number }>) {
     const tabIdx = appState.plotTabs.findIndex(t => t.id === appState.activeSubTab);
     if (tabIdx === -1) return;
-    for (const [plotId, pos] of positions) {
-      const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === plotId);
-      if (plotIdx !== -1) {
-        setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'gridPos', pos);
+    batch(() => {
+      for (const [plotId, pos] of positions) {
+        const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === plotId);
+        if (plotIdx !== -1) {
+          setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'gridPos', pos);
+        }
       }
-    }
+    });
   }
 
   function handleToggleSignal(plotId: string, fieldKey: string) {
