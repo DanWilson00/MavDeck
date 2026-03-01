@@ -2,7 +2,7 @@ import { onMount, onCleanup, Show } from 'solid-js';
 import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
-import { appState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
+import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
@@ -29,6 +29,8 @@ export default function App() {
     // Initialize connection manager
     connMgr = new ConnectionManager(bridge);
     setConnectionManager(connMgr);
+
+    setAppState('isReady', true);
   });
 
   onCleanup(() => {

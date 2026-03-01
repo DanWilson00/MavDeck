@@ -17,6 +17,7 @@ export interface AppState {
   activeSubTab: string;
   plotTabs: PlotTab[];
   isPaused: boolean;
+  isReady: boolean;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -26,6 +27,7 @@ export const [appState, setAppState] = createStore<AppState>({
   activeSubTab: 'default',
   plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
   isPaused: false,
+  isReady: false,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

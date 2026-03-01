@@ -1,4 +1,4 @@
-import { Show, createSignal, onCleanup, onMount } from 'solid-js';
+import { Show, createSignal, createEffect, onCleanup } from 'solid-js';
 import { appState, setAppState, connectionManager, workerBridge } from '../store/app-store';
 import { toggleTheme } from './ThemeProvider';
 import type { ConnectionStatus } from '../services/worker-bridge';
@@ -13,18 +13,18 @@ const STATUS_COLORS: Record<ConnectionStatus, string> = {
 export default function Toolbar() {
   const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
 
-  onMount(() => {
-    // Sync store connectionStatus → local signal for fine-grained reactivity
-    if (connectionManager) {
-      const unsub = connectionManager.onStatusChange(s => {
-        setStatus(s);
-        setAppState('connectionStatus', s);
-      });
-      onCleanup(unsub);
-    }
+  // Subscribe to connection status once services are ready
+  createEffect(() => {
+    if (!appState.isReady) return;
+    const unsub = connectionManager.onStatusChange(s => {
+      setStatus(s);
+      setAppState('connectionStatus', s);
+    });
+    onCleanup(unsub);
   });
 
   function handleConnect() {
+    if (!appState.isReady) return;
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
     } else {
@@ -33,6 +33,7 @@ export default function Toolbar() {
   }
 
   function handlePause() {
+    if (!appState.isReady) return;
     if (appState.isPaused) {
       workerBridge.resume();
       setAppState('isPaused', false);

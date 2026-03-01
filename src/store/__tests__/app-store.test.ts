@@ -9,6 +9,7 @@ describe('appStore', () => {
     expect(appState.activeSubTab).toBe('default');
     expect(appState.plotTabs).toEqual([{ id: 'default', name: 'Tab 1', plots: [] }]);
     expect(appState.isPaused).toBe(false);
+    expect(appState.isReady).toBe(false);
   });
 
   it('setAppState updates theme reactively', () => {
