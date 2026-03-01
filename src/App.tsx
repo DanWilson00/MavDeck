@@ -4,7 +4,7 @@ import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
-import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
+import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, connectionManager } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
@@ -23,6 +23,33 @@ export default function App() {
       dataRetentionMinutes: DEFAULT_SETTINGS.dataRetentionMinutes,
       updateIntervalMs: DEFAULT_SETTINGS.updateIntervalMs,
     });
+  });
+
+  // Global keyboard shortcuts
+  onMount(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      // Don't handle shortcuts when typing in inputs
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      switch (e.key) {
+        case ' ': {
+          e.preventDefault();
+          if (appState.connectionStatus !== 'connected') return;
+          if (appState.isPaused) {
+            connectionManager.resume();
+            setAppState('isPaused', false);
+          } else {
+            connectionManager.pause();
+            setAppState('isPaused', true);
+          }
+          break;
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    onCleanup(() => window.removeEventListener('keydown', handleKeyDown));
   });
 
   onMount(async () => {
