@@ -1,9 +1,10 @@
 import { Show, createSignal, createEffect, onCleanup, batch, For } from 'solid-js';
-import { appState, setAppState, connectionManager } from '../store/app-store';
+import { appState, setAppState, connectionManager, workerBridge, registry } from '../store/app-store';
 import { toggleTheme } from './ThemeProvider';
 import type { ConnectionStatus } from '../services/worker-bridge';
 import { isWebSerialSupported, BAUD_RATES } from '../services/webserial-byte-source';
 import type { BaudRate } from '../services/webserial-byte-source';
+import { parseFromFileMap } from '../mavlink/xml-parser';
 
 const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: '#71717a', // gray
@@ -56,6 +57,35 @@ export default function Toolbar() {
     } else {
       connectionManager.pause();
       setAppState('isPaused', true);
+    }
+  }
+
+  let fileInputRef: HTMLInputElement | undefined;
+
+  function handleDialectImport() {
+    fileInputRef?.click();
+  }
+
+  async function handleFileSelected(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = ''; // reset for re-import
+
+    try {
+      const text = await file.text();
+      const fileMap = new Map<string, string>();
+      fileMap.set(file.name, text);
+      const parsed = parseFromFileMap(fileMap, file.name);
+      const jsonString = JSON.stringify(parsed);
+
+      // Reinitialize worker with new dialect
+      await workerBridge.init(jsonString);
+
+      // Update main-thread registry too
+      registry.loadFromJsonString(jsonString);
+    } catch (err) {
+      console.error('[Dialect Import]', err);
     }
   }
 
@@ -142,6 +172,26 @@ export default function Toolbar() {
           </button>
         </Show>
 
+        {/* Dialect import */}
+        <button
+          onClick={handleDialectImport}
+          class="p-1.5 rounded transition-colors"
+          style={{
+            'background-color': 'var(--bg-hover)',
+            color: 'var(--text-secondary)',
+          }}
+          title="Import custom dialect XML"
+        >
+          <UploadIcon />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xml"
+          class="hidden"
+          onChange={handleFileSelected}
+        />
+
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
@@ -181,6 +231,16 @@ function MoonIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" y1="3" x2="12" y2="15" />
     </svg>
   );
 }
