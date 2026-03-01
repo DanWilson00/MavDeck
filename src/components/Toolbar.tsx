@@ -98,13 +98,11 @@ export default function Toolbar() {
         'border-color': 'var(--border)',
       }}
     >
-      {/* Left: Logo */}
-      <span
-        class="text-lg font-bold tracking-tight"
-        style={{ color: 'var(--accent)' }}
-      >
-        MavDeck
-      </span>
+      {/* Left: Tab navigation */}
+      <div class="flex items-center gap-1">
+        <TabButton id="telemetry" label="Telemetry" />
+        <TabButton id="map" label="Map" />
+      </div>
 
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
@@ -174,12 +172,13 @@ export default function Toolbar() {
         {/* Dialect import */}
         <button
           onClick={handleDialectImport}
-          class="p-1.5 rounded transition-colors"
+          class="p-1.5 rounded transition-colors interactive-hover"
           style={{
             'background-color': 'var(--bg-hover)',
             color: 'var(--text-secondary)',
           }}
           title="Import custom dialect XML"
+          aria-label="Import custom dialect XML"
         >
           <UploadIcon />
         </button>
@@ -194,12 +193,13 @@ export default function Toolbar() {
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          class="p-1.5 rounded transition-colors"
+          class="p-1.5 rounded transition-colors interactive-hover"
           style={{
             'background-color': 'var(--bg-hover)',
             color: 'var(--text-secondary)',
           }}
           title={`Switch to ${appState.theme === 'dark' ? 'light' : 'dark'} theme`}
+          aria-label={`Switch to ${appState.theme === 'dark' ? 'light' : 'dark'} theme`}
         >
           <Show when={appState.theme === 'dark'} fallback={<MoonIcon />}>
             <SunIcon />
@@ -207,6 +207,22 @@ export default function Toolbar() {
         </button>
       </div>
     </header>
+  );
+}
+
+function TabButton(props: { id: string; label: string }) {
+  const isActive = () => appState.activeTab === props.id;
+  return (
+    <button
+      onClick={() => setAppState('activeTab', props.id)}
+      class="px-3 py-1 text-sm font-medium rounded transition-colors"
+      style={{
+        'background-color': isActive() ? 'var(--bg-hover)' : 'transparent',
+        color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
+      }}
+    >
+      {props.label}
+    </button>
   );
 }
 

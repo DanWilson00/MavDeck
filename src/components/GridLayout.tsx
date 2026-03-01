@@ -10,6 +10,9 @@ interface GridLayoutProps {
   onClose: (plotId: string) => void;
   onOpenSignalSelector: (plotId: string) => void;
   onGridChange: (positions: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+  selectedPlotId: string | null;
+  onSelectPlot: (plotId: string) => void;
+  onClearSignals: (plotId: string) => void;
 }
 
 export default function GridLayout(props: GridLayoutProps) {
@@ -54,6 +57,9 @@ export default function GridLayout(props: GridLayoutProps) {
                 config={c()}
                 onClose={props.onClose}
                 onOpenSignalSelector={props.onOpenSignalSelector}
+                isSelected={() => props.selectedPlotId === plotId}
+                onSelect={() => props.onSelectPlot(plotId)}
+                onClearSignals={() => props.onClearSignals(plotId)}
               />
             )}
           </Show>
@@ -144,7 +150,7 @@ export default function GridLayout(props: GridLayoutProps) {
     <div
       ref={containerRef}
       class="grid-stack"
-      style={{ width: '100%', height: '100%', overflow: 'auto' }}
+      style={{ width: '100%', height: '100%', overflow: 'hidden' }}
     />
   );
 }

@@ -12,6 +12,10 @@
   --border: #2a2d35;
   --chart-grid: rgba(255, 255, 255, 0.06);
   --chart-axis: #888;
+  --map-overlay-bg: rgba(0, 0, 0, 0.72);
+  --map-overlay-text: #e4e4e7;
+  --map-overlay-border: rgba(255, 255, 255, 0.2);
+  --map-marker-stroke: #000;
 }
 
 /* Light theme — activated by .light class on <html> */
@@ -26,6 +30,10 @@
   --border: #e4e4e7;
   --chart-grid: rgba(0, 0, 0, 0.08);
   --chart-axis: #666;
+  --map-overlay-bg: rgba(255, 255, 255, 0.88);
+  --map-overlay-text: #18181b;
+  --map-overlay-border: rgba(0, 0, 0, 0.2);
+  --map-marker-stroke: #0f172a;
 }
 
 body {
@@ -37,6 +45,21 @@ body {
   transition: background-color 0.2s, color 0.2s;
 }
 
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.interactive-hover {
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.interactive-hover:hover {
+  background-color: var(--bg-hover);
+}
+
 /* Gridstack overrides */
 .grid-stack > .grid-stack-item > .grid-stack-item-content {
   display: flex;
@@ -45,6 +68,10 @@ body {
 }
 
 .grid-stack > .grid-stack-placeholder > .placeholder-content {
-  border: 1px dashed var(--accent) !important;
+  border: 1px solid var(--accent) !important;
   background-color: transparent !important;
 }
+
+/* uPlot drag-select box */
+.uplot .u-select { background: rgba(0, 212, 255, 0.1); }
+.light .uplot .u-select { background: rgba(0, 102, 204, 0.1); }

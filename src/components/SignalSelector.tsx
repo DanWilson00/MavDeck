@@ -15,8 +15,8 @@ export default function SignalSelector(props: SignalSelectorProps) {
   // Get available fields from worker updates
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = workerBridge.onUpdate(buffers => {
-      setAvailableFields(Array.from(buffers.keys()).sort());
+    const unsub = workerBridge.onAvailableFields(fields => {
+      setAvailableFields(fields);
     });
     onCleanup(unsub);
   });
@@ -77,9 +77,10 @@ export default function SignalSelector(props: SignalSelectorProps) {
             Select Signals
           </span>
           <button
-            class="p-1 rounded transition-colors"
+            class="p-1 rounded transition-colors interactive-hover"
             style={{ color: 'var(--text-secondary)' }}
             onClick={() => props.onClose()}
+            aria-label="Close signal selector"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -95,10 +96,8 @@ export default function SignalSelector(props: SignalSelectorProps) {
               <div class="mb-1">
                 {/* Group header */}
                 <button
-                  class="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left transition-colors"
+                  class="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left transition-colors interactive-hover"
                   style={{ color: 'var(--text-primary)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   onClick={() => toggleGroup(msgType)}
                 >
                   <svg
@@ -128,9 +127,7 @@ export default function SignalSelector(props: SignalSelectorProps) {
 
                         return (
                           <button
-                            class="flex items-center gap-2 w-full px-2 py-1 rounded text-left transition-colors"
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            class="flex items-center gap-2 w-full px-2 py-1 rounded text-left transition-colors interactive-hover"
                             onClick={() => props.onToggleSignal(props.plotConfig.id, fieldKey)}
                           >
                             {/* Color dot or checkbox */}

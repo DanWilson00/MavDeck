@@ -8,17 +8,25 @@ interface MessageMonitorProps {
   onFieldSelected?: (messageName: string, fieldName: string) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  activeSignals?: Map<string, string>;
 }
 
 export default function MessageMonitor(props: MessageMonitorProps) {
   const [messageStats, setMessageStats] = createSignal<Map<string, MessageStats>>(new Map());
   const [expandedMessages, setExpandedMessages] = createSignal<Set<string>>(new Set());
+  const [knownMessageNames, setKnownMessageNames] = createSignal<string[]>([]);
 
   // Subscribe to stats from worker bridge
   createEffect(() => {
     if (!appState.isReady) return;
     const unsub = workerBridge.onStats(stats => {
       setMessageStats(stats);
+      // Only update the name list when new message types appear
+      const incoming = [...stats.keys()].sort();
+      const known = knownMessageNames();
+      if (incoming.length !== known.length || incoming.some((n, i) => n !== known[i])) {
+        setKnownMessageNames(incoming);
+      }
     });
     onCleanup(unsub);
   });
@@ -33,10 +41,6 @@ export default function MessageMonitor(props: MessageMonitorProps) {
       }
       return next;
     });
-  }
-
-  function sortedEntries() {
-    return Array.from(messageStats().entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }
 
   function formatValue(value: number | string | number[], field: MavlinkFieldMetadata): string {
@@ -70,9 +74,10 @@ export default function MessageMonitor(props: MessageMonitorProps) {
         style={{ width: '40px', 'min-width': '40px', 'background-color': 'var(--bg-panel)', 'border-color': 'var(--border)' }}>
         <button
           onClick={() => props.onToggleCollapse?.()}
-          class="p-1 rounded transition-colors"
+          class="p-1 rounded transition-colors interactive-hover"
           style={{ color: 'var(--text-secondary)' }}
           title="Expand sidebar"
+          aria-label="Expand sidebar"
         >
           <ChevronRightIcon />
         </button>
@@ -110,9 +115,10 @@ export default function MessageMonitor(props: MessageMonitorProps) {
             </span>
             <button
               onClick={() => props.onToggleCollapse?.()}
-              class="p-0.5 rounded transition-colors"
+              class="p-0.5 rounded transition-colors interactive-hover"
               style={{ color: 'var(--text-secondary)' }}
               title="Collapse sidebar"
+              aria-label="Collapse sidebar"
             >
               <ChevronLeftIcon />
             </button>
@@ -121,8 +127,9 @@ export default function MessageMonitor(props: MessageMonitorProps) {
 
         {/* Message list */}
         <div class="flex-1 overflow-y-auto">
-          <For each={sortedEntries()}>
-            {([name, stats]) => {
+          <For each={knownMessageNames()}>
+            {(name) => {
+              const stats = () => messageStats().get(name);
               const meta = () => registry.getMessageByName(name);
               const isExpanded = () => expandedMessages().has(name);
 
@@ -133,10 +140,8 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                 >
                   {/* Collapsed header */}
                   <button
-                    class="flex items-center justify-between w-full px-3 py-2 text-left transition-colors"
+                    class="flex items-center justify-between w-full px-3 py-2 text-left transition-colors interactive-hover"
                     style={{ 'background-color': 'transparent' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                     onClick={() => toggleExpanded(name)}
                   >
                     <div class="flex items-center gap-2">
@@ -171,7 +176,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                         color: 'var(--accent-green)',
                       }}
                     >
-                      {stats.frequency.toFixed(1)} Hz
+                      {stats()?.frequency.toFixed(1) ?? '0.0'} Hz
                     </span>
                   </button>
 
@@ -180,32 +185,35 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                     <div class="px-3 pb-2">
                       <For each={meta()!.fields}>
                         {(field) => {
-                          const value = () => stats.lastMessage.values[field.name];
+                          const value = () => stats()?.lastMessage.values[field.name];
                           const clickable = () => isNumericField(value()) && props.onFieldSelected;
+                          const fieldKey = `${name}.${field.name}`;
+                          const activeColor = () => props.activeSignals?.get(fieldKey);
 
                           return (
-                            <div
-                              class="flex items-baseline justify-between py-0.5 text-xs"
+                            <button
+                              type="button"
+                              class="flex items-baseline justify-between py-0.5 text-xs w-full text-left rounded-r px-1 interactive-hover"
                               style={{
                                 cursor: clickable() ? 'pointer' : 'default',
+                                'border-left': activeColor()
+                                  ? `3px solid ${activeColor()}`
+                                  : '3px solid transparent',
+                                'background-color': activeColor()
+                                  ? `color-mix(in srgb, ${activeColor()} 10%, transparent)`
+                                  : undefined,
                               }}
                               onClick={() => {
                                 if (clickable()) {
                                   props.onFieldSelected!(name, field.name);
                                 }
                               }}
-                              onMouseEnter={(e) => {
-                                if (clickable()) {
-                                  e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'transparent';
-                              }}
+                              disabled={!clickable()}
+                              aria-label={`Add ${name}.${field.name} to plot`}
                             >
                               <span
                                 class="font-mono"
-                                style={{ color: 'var(--text-secondary)' }}
+                                style={{ color: activeColor() || 'var(--text-secondary)' }}
                               >
                                 {field.name}
                               </span>
@@ -220,7 +228,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                                   </span>
                                 </Show>
                               </span>
-                            </div>
+                            </button>
                           );
                         }}
                       </For>

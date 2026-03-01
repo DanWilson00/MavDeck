@@ -1,7 +1,6 @@
 import { onMount, onCleanup, createEffect, createSignal, batch, Show } from 'solid-js';
 import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
-import TabBar from './components/TabBar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
 import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, connectionManager } from './store/app-store';
@@ -10,20 +9,45 @@ import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
 import { loadSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from './services/settings-service';
 
+const MAP_REQUIRED_FIELDS = [
+  'GLOBAL_POSITION_INT.lat',
+  'GLOBAL_POSITION_INT.lon',
+  'GLOBAL_POSITION_INT.alt',
+  'GLOBAL_POSITION_INT.hdg',
+];
+
 export default function App() {
   const [loading, setLoading] = createSignal(true);
+  const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
+  let loadedSettings = { ...DEFAULT_SETTINGS };
 
   // Persist settings reactively when theme or baudRate changes
   createEffect(() => {
+    if (!settingsLoaded()) return;
     saveSettingsDebounced({
+      ...loadedSettings,
       theme: appState.theme,
       baudRate: appState.baudRate,
-      bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
-      dataRetentionMinutes: DEFAULT_SETTINGS.dataRetentionMinutes,
-      updateIntervalMs: DEFAULT_SETTINGS.updateIntervalMs,
     });
+  });
+
+  // Stream only fields needed by active views.
+  createEffect(() => {
+    if (!appState.isReady || !bridge) return;
+
+    const interested = new Set<string>(MAP_REQUIRED_FIELDS);
+    const activeTab = appState.plotTabs.find(t => t.id === appState.activeSubTab);
+    for (const plot of activeTab?.plots ?? []) {
+      for (const signal of plot.signals) {
+        if (signal.visible) {
+          interested.add(signal.fieldKey);
+        }
+      }
+    }
+
+    bridge.setInterestedFields([...interested]);
   });
 
   // Global keyboard shortcuts
@@ -57,10 +81,12 @@ export default function App() {
     try {
       // Load persisted settings and apply to store
       const settings = await loadSettings();
+      loadedSettings = settings;
       batch(() => {
         setAppState('theme', settings.theme);
         setAppState('baudRate', settings.baudRate);
       });
+      setSettingsLoaded(true);
 
       // Load dialect
       const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
@@ -110,7 +136,6 @@ export default function App() {
       }>
         <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
           <Toolbar />
-          <TabBar />
           <main class="flex-1 overflow-hidden">
             <Show when={appState.activeTab === 'telemetry'}>
               <TelemetryView />

@@ -1,4 +1,4 @@
-import { batch, createSignal, For, onMount, Show } from 'solid-js';
+import { batch, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import { get, set } from 'idb-keyval';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
@@ -6,6 +6,16 @@ import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
+
+/** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
+function pickNextColor(existingSignals: PlotSignalConfig[]): string {
+  const usedColors = new Set(existingSignals.map(s => s.color));
+  for (const color of SIGNAL_COLORS) {
+    if (!usedColors.has(color)) return color;
+  }
+  // All 10 used — fall back to modulo
+  return SIGNAL_COLORS[existingSignals.length % SIGNAL_COLORS.length];
+}
 
 const LAYOUT_KEY = 'mavdeck-layout-v1';
 
@@ -26,8 +36,12 @@ export default function TelemetryView() {
   const [selectorPlotId, setSelectorPlotId] = createSignal<string | null>(null);
   const [timeWindow, setTimeWindow] = createSignal<TimeWindow>(DEFAULT_TIME_WINDOW);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
+  const [selectedPlotId, setSelectedPlotId] = createSignal<string | null>(null);
 
   const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
+  let layoutCache: SavedLayout = {};
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let saveQueue: Promise<void> = Promise.resolve();
 
   // Get current tab's plots
   function currentPlots(): PlotConfig[] {
@@ -41,17 +55,40 @@ export default function TelemetryView() {
     setAppState('plotTabs', tabIdx, 'plots', prev => fn(prev));
   }
 
-  async function saveLayout() {
-    const saved = (await get<SavedLayout>(LAYOUT_KEY)) ?? {};
-    const tabId = appState.activeSubTab;
+  function snapshotCurrentPlots(): PlotConfig[] {
     // JSON round-trip strips SolidJS store proxies so IndexedDB can serialize
-    saved[tabId] = JSON.parse(JSON.stringify(currentPlots())) as PlotConfig[];
-    await set(LAYOUT_KEY, saved);
+    return JSON.parse(JSON.stringify(currentPlots())) as PlotConfig[];
+  }
+
+  function queueLayoutSave(tabId: string, plots: PlotConfig[]): void {
+    saveQueue = saveQueue
+      .then(async () => {
+        layoutCache[tabId] = plots;
+        await set(LAYOUT_KEY, layoutCache);
+      })
+      .catch(err => {
+        console.error('[TelemetryView] Failed to save layout:', err);
+      });
+  }
+
+  function scheduleLayoutSave(): void {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      queueLayoutSave(appState.activeSubTab, snapshotCurrentPlots());
+      saveTimer = undefined;
+    }, 300);
+  }
+
+  function flushLayoutSave(): void {
+    clearTimeout(saveTimer);
+    queueLayoutSave(appState.activeSubTab, snapshotCurrentPlots());
+    saveTimer = undefined;
   }
 
   onMount(async () => {
     const saved = await get<SavedLayout>(LAYOUT_KEY);
     if (!saved) return;
+    layoutCache = saved;
     const tabId = appState.activeSubTab;
     const plots = saved[tabId];
     if (!plots || plots.length === 0) return;
@@ -70,50 +107,20 @@ export default function TelemetryView() {
     setAppState('plotTabs', tabIdx, 'plots', plots);
   });
 
-  // Create a new plot with a signal
-  function createPlotWithSignal(messageName: string, fieldName: string): void {
-    const fieldKey = `${messageName}.${fieldName}`;
-    const existingPlots = currentPlots();
-
-    // Check if signal already exists in any plot
-    for (const plot of existingPlots) {
-      if (plot.signals.some(s => s.fieldKey === fieldKey)) return;
-    }
-
-    const colorIdx = existingPlots.reduce((n, p) => n + p.signals.length, 0) % SIGNAL_COLORS.length;
-
-    const signal: PlotSignalConfig = {
-      id: nextSignalId(),
-      messageType: messageName,
-      fieldName,
-      fieldKey,
-      color: SIGNAL_COLORS[colorIdx],
-      visible: true,
-    };
-
-    const gridCol = existingPlots.length % 2;
-    const gridRow = Math.floor(existingPlots.length / 2);
-
-    const plot: PlotConfig = {
-      id: nextPlotId(),
-      title: fieldKey,
-      signals: [signal],
-      scalingMode: 'auto',
-      timeWindow: timeWindow(),
-      gridPos: { x: gridCol * 6, y: gridRow * 4, w: 6, h: 4 },
-    };
-
-    updatePlots(plots => [...plots, plot]);
-    saveLayout();
-  }
+  onCleanup(() => {
+    flushLayoutSave();
+  });
 
   function handleFieldSelected(messageName: string, fieldName: string) {
-    createPlotWithSignal(messageName, fieldName);
+    const plotId = selectedPlotId();
+    if (!plotId) return;
+    const fieldKey = `${messageName}.${fieldName}`;
+    handleToggleSignal(plotId, fieldKey);
   }
 
   function handleClosePlot(plotId: string) {
     updatePlots(plots => plots.filter(p => p.id !== plotId));
-    saveLayout();
+    scheduleLayoutSave();
   }
 
   function handleOpenSignalSelector(plotId: string) {
@@ -131,7 +138,7 @@ export default function TelemetryView() {
         }
       }
     });
-    saveLayout();
+    scheduleLayoutSave();
   }
 
   function handleToggleSignal(plotId: string, fieldKey: string) {
@@ -152,21 +159,32 @@ export default function TelemetryView() {
       const dotIdx = fieldKey.indexOf('.');
       const messageType = fieldKey.substring(0, dotIdx);
       const fieldName = fieldKey.substring(dotIdx + 1);
-      const colorIdx = plot.signals.length % SIGNAL_COLORS.length;
-
       const newSignal: PlotSignalConfig = {
         id: nextSignalId(),
         messageType,
         fieldName,
         fieldKey,
-        color: SIGNAL_COLORS[colorIdx],
+        color: pickNextColor([...plot.signals]),
         visible: true,
       };
 
       setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'signals',
         sigs => [...sigs, newSignal]);
     }
-    saveLayout();
+    scheduleLayoutSave();
+  }
+
+  function handleSelectPlot(plotId: string) {
+    setSelectedPlotId(prev => prev === plotId ? null : plotId);
+  }
+
+  function handleClearSignals(plotId: string) {
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === appState.activeSubTab);
+    if (tabIdx === -1) return;
+    const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === plotId);
+    if (plotIdx === -1) return;
+    setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'signals', []);
+    scheduleLayoutSave();
   }
 
   function handleAddPlot() {
@@ -179,13 +197,28 @@ export default function TelemetryView() {
       gridPos: { x: 0, y: 0, w: 6, h: 4 },
     };
     updatePlots(plots => [...plots, plot]);
-    setSelectorPlotId(plot.id);
-    saveLayout();
+    setSelectedPlotId(plot.id);
+    scheduleLayoutSave();
   }
 
   function selectorPlot(): PlotConfig | undefined {
     return currentPlots().find(p => p.id === selectorPlotId());
   }
+
+  /** Map<fieldKey, color> of visible signals on the selected plot. */
+  const activeSignals = createMemo(() => {
+    const plotId = selectedPlotId();
+    if (!plotId) return new Map<string, string>();
+    const plot = currentPlots().find(p => p.id === plotId);
+    if (!plot) return new Map<string, string>();
+    const map = new Map<string, string>();
+    for (const sig of plot.signals) {
+      if (sig.visible) {
+        map.set(sig.fieldKey, sig.color);
+      }
+    }
+    return map;
+  });
 
   return (
     <div class="flex h-full">
@@ -194,6 +227,7 @@ export default function TelemetryView() {
         onFieldSelected={handleFieldSelected}
         collapsed={sidebarCollapsed()}
         onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        activeSignals={activeSignals()}
       />
 
       {/* Right: Plot area */}
@@ -230,6 +264,7 @@ export default function TelemetryView() {
                 setTimeWindow(val);
                 // Update all existing plots' time window
                 updatePlots(plots => plots.map(p => ({ ...p, timeWindow: val })));
+                scheduleLayoutSave();
               }}
             >
               <For each={TIME_WINDOW_OPTIONS}>
@@ -254,7 +289,7 @@ export default function TelemetryView() {
                     No plots yet
                   </p>
                   <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Click a field in the message monitor or use "+ Add Plot"
+                    Click "+ Add Plot", select a plot, then click fields to add signals
                   </p>
                 </div>
               </div>
@@ -265,6 +300,9 @@ export default function TelemetryView() {
               onClose={handleClosePlot}
               onOpenSignalSelector={handleOpenSignalSelector}
               onGridChange={handleGridChange}
+              selectedPlotId={selectedPlotId()}
+              onSelectPlot={handleSelectPlot}
+              onClearSignals={handleClearSignals}
             />
           </Show>
         </div>

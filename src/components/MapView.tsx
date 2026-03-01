@@ -8,6 +8,11 @@ const INITIAL_LON = -118.2437;
 const INITIAL_ZOOM = 15;
 const MAX_TRAIL_POINTS = 200;
 
+function cssVar(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 function createVehicleIcon(heading: number): L.DivIcon {
   return L.divIcon({
     className: '',
@@ -15,7 +20,7 @@ function createVehicleIcon(heading: number): L.DivIcon {
     iconAnchor: [12, 12],
     html: `<div style="transform: rotate(${heading}deg); width: 24px; height: 24px;">
       <svg viewBox="0 0 24 24" width="24" height="24">
-        <polygon points="12,2 4,20 12,16 20,20" fill="#00d4ff" stroke="#000" stroke-width="1"/>
+        <polygon points="12,2 4,20 12,16 20,20" fill="${cssVar('--accent', '#00d4ff')}" stroke="${cssVar('--map-marker-stroke', '#000')}" stroke-width="1"/>
       </svg>
     </div>`,
   });
@@ -87,7 +92,7 @@ export default function MapView() {
     }).addTo(map);
 
     trail = L.polyline([], {
-      color: '#00d4ff',
+      color: cssVar('--accent', '#00d4ff'),
       weight: 2,
       opacity: 0.7,
     }).addTo(map);
@@ -142,6 +147,13 @@ export default function MapView() {
     }
   });
 
+  // Keep map visuals synchronized with current theme tokens.
+  createEffect(() => {
+    appState.theme;
+    marker?.setIcon(createVehicleIcon(latestHdg));
+    trail?.setStyle({ color: cssVar('--accent', '#00d4ff') });
+  });
+
   onCleanup(() => {
     if (rafId !== undefined) cancelAnimationFrame(rafId);
     unsubUpdate?.();
@@ -156,9 +168,10 @@ export default function MapView() {
       <div
         class="absolute top-2 right-2 z-[1000] rounded px-3 py-2 text-xs font-mono"
         style={{
-          'background-color': 'rgba(0, 0, 0, 0.75)',
-          color: '#e4e4e7',
+          'background-color': 'var(--map-overlay-bg)',
+          color: 'var(--map-overlay-text)',
           'pointer-events': 'none',
+          border: '1px solid var(--map-overlay-border)',
         }}
       >
         <div>Lat: {coords().lat.toFixed(6)}</div>

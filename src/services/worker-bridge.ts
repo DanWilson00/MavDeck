@@ -21,6 +21,7 @@ export interface StatusTextEntry {
 
 type StatsCallback = (stats: Map<string, MessageStats>) => void;
 type UpdateCallback = (buffers: Map<string, { timestamps: Float64Array; values: Float64Array }>) => void;
+type AvailableFieldsCallback = (fields: string[]) => void;
 type StatusCallback = (status: ConnectionStatus) => void;
 type StatusTextCallback = (entry: StatusTextEntry) => void;
 
@@ -28,6 +29,7 @@ export class MavlinkWorkerBridge {
   private worker: Worker;
   private readonly statsCallbacks = new Set<StatsCallback>();
   private readonly updateCallbacks = new Set<UpdateCallback>();
+  private readonly availableFieldsCallbacks = new Set<AvailableFieldsCallback>();
   private readonly statusCallbacks = new Set<StatusCallback>();
   private readonly statustextCallbacks = new Set<StatusTextCallback>();
   private initResolve: (() => void) | null = null;
@@ -85,6 +87,12 @@ export class MavlinkWorkerBridge {
     return () => this.updateCallbacks.delete(callback);
   }
 
+  /** Subscribe to known field key updates. */
+  onAvailableFields(callback: AvailableFieldsCallback): () => void {
+    this.availableFieldsCallbacks.add(callback);
+    return () => this.availableFieldsCallbacks.delete(callback);
+  }
+
   /** Subscribe to connection status changes. */
   onStatusChange(callback: StatusCallback): () => void {
     this.statusCallbacks.add(callback);
@@ -95,6 +103,11 @@ export class MavlinkWorkerBridge {
   onStatusText(callback: StatusTextCallback): () => void {
     this.statustextCallbacks.add(callback);
     return () => this.statustextCallbacks.delete(callback);
+  }
+
+  /** Set the field keys that should be streamed to the main thread. */
+  setInterestedFields(fields: string[]): void {
+    this.worker.postMessage({ type: 'setInterestedFields', fields });
   }
 
   /** Terminate the worker. */
@@ -126,6 +139,14 @@ export class MavlinkWorkerBridge {
         const buffersMap = new Map(Object.entries(buffersRecord));
         for (const cb of this.updateCallbacks) {
           cb(buffersMap);
+        }
+        break;
+      }
+
+      case 'availableFields': {
+        const fields = e.data.fields as string[];
+        for (const cb of this.availableFieldsCallbacks) {
+          cb(fields);
         }
         break;
       }

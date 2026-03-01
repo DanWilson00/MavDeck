@@ -37,7 +37,10 @@ let nextId = 0;
 export default function StatusTextLog() {
   const [entries, setEntries] = createSignal<LogEntry[]>([]);
   const [isExpanded, setIsExpanded] = createSignal(false);
+  const [logHeight, setLogHeight] = createSignal(180);
   let scrollRef: HTMLDivElement | undefined;
+  let dragStartY = 0;
+  let dragStartHeight = 0;
 
   // Subscribe to STATUSTEXT messages from worker
   createEffect(() => {
@@ -75,13 +78,11 @@ export default function StatusTextLog() {
     >
       {/* Header */}
       <button
-        class="flex items-center justify-between w-full px-3 transition-colors"
+        class="flex items-center justify-between w-full px-3 transition-colors interactive-hover"
         style={{
           height: '36px',
           'background-color': 'transparent',
         }}
-        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-hover)'}
-        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
         onClick={() => setIsExpanded(prev => !prev)}
       >
         <div class="flex items-center gap-2">
@@ -119,10 +120,27 @@ export default function StatusTextLog() {
 
       {/* Expanded log */}
       <Show when={isExpanded()}>
+        {/* Drag handle */}
+        <div
+          style={{ height: '4px', cursor: 'ns-resize', 'background-color': 'var(--border)' }}
+          onPointerDown={(e) => {
+            dragStartY = e.clientY;
+            dragStartHeight = logHeight();
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+            const delta = dragStartY - e.clientY;
+            setLogHeight(Math.min(500, Math.max(60, dragStartHeight + delta)));
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }}
+        />
         <div
           ref={scrollRef}
           class="overflow-y-auto px-2 pb-2"
-          style={{ 'max-height': '180px' }}
+          style={{ height: `${logHeight()}px` }}
         >
           <For each={entries()}>
             {(entry) => (
