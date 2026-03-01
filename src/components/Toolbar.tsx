@@ -76,8 +76,7 @@ export default function Toolbar() {
       const text = await file.text();
       const fileMap = new Map<string, string>();
       fileMap.set(file.name, text);
-      const parsed = parseFromFileMap(fileMap, file.name);
-      const jsonString = JSON.stringify(parsed);
+      const jsonString = parseFromFileMap(fileMap, file.name);
 
       // Reinitialize worker with new dialect
       await workerBridge.init(jsonString);

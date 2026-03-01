@@ -167,8 +167,13 @@ export default function PlotChart(props: PlotChartProps) {
   });
 
   // Recreate chart when theme changes (uPlot doesn't support dynamic option updates)
+  let themeEffectInitialized = false;
   createEffect(() => {
     const _theme = appState.theme; // track theme
+    if (!themeEffectInitialized) {
+      themeEffectInitialized = true;
+      return; // skip initial run — onMount already created the chart with correct colors
+    }
     if (!chart || !containerRef) return;
 
     const colors = getChartColors();
