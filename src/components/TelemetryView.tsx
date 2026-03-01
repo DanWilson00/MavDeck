@@ -25,6 +25,7 @@ function nextSignalId(): string {
 export default function TelemetryView() {
   const [selectorPlotId, setSelectorPlotId] = createSignal<string | null>(null);
   const [timeWindow, setTimeWindow] = createSignal<TimeWindow>(DEFAULT_TIME_WINDOW);
+  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 
   const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
@@ -189,7 +190,11 @@ export default function TelemetryView() {
   return (
     <div class="flex h-full">
       {/* Left: Message Monitor */}
-      <MessageMonitor onFieldSelected={handleFieldSelected} />
+      <MessageMonitor
+        onFieldSelected={handleFieldSelected}
+        collapsed={sidebarCollapsed()}
+        onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+      />
 
       {/* Right: Plot area */}
       <div class="flex-1 flex flex-col min-w-0">
