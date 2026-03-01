@@ -41,6 +41,17 @@ function getChartColors(): { grid: string; axis: string } {
   };
 }
 
+function safeYRange(_u: uPlot, min: number | null, max: number | null): [number, number] {
+  if (min == null || max == null || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return [0, 1];
+  }
+  if (min === max) {
+    const pad = Math.abs(min) > 1 ? Math.abs(min) * 0.1 : 1;
+    return [min - pad, max + pad];
+  }
+  return [min, max];
+}
+
 function formatValue(v: number): string {
   if (Number.isNaN(v)) return '--';
   if (Number.isInteger(v)) return String(v);
@@ -120,7 +131,6 @@ export default function PlotChart(props: PlotChartProps) {
   let hasNewBuffers = false;
   let interactionMode: 'live' | 'zoomed' = 'live';
   let currentZoomRange: { min: number; max: number } | null = null;
-  let isPointerDown = false;
 
   let latestBuffers: Map<string, { timestamps: Float64Array; values: Float64Array }> = new Map();
 
@@ -154,6 +164,7 @@ export default function PlotChart(props: PlotChartProps) {
         label: sig.fieldKey,
         stroke: sig.color,
         width: 1.5,
+        points: { show: false },
       })),
     ];
 
@@ -163,27 +174,8 @@ export default function PlotChart(props: PlotChartProps) {
       legend: { show: false },
       cursor: {
         sync: { key: props.interactionGroupId },
-        drag: { x: true, y: false, setScale: false },
+        drag: { x: false, y: false, setScale: false },
         bind: {
-          mousedown: (_u, _target, handler) => (e: MouseEvent) => {
-            isPointerDown = true;
-            handler(e);
-          },
-          mouseup: (_u, _target, handler) => (e: MouseEvent) => {
-            handler(e);
-            if (!chart) return;
-            if (!isPointerDown) return;
-            isPointerDown = false;
-            const sel = chart.select;
-            if (!sel || sel.width <= 2) return;
-
-            const min = chart.posToVal(sel.left, 'x') as number;
-            const max = chart.posToVal(sel.left + sel.width, 'x') as number;
-            if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
-
-            props.interactionController.emitZoom({ min, max }, props.plotId);
-            chart.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false);
-          },
           dblclick: (_u, _target, handler) => (e: MouseEvent) => {
             handler(e);
             props.interactionController.emitReset(props.plotId);
@@ -197,7 +189,10 @@ export default function PlotChart(props: PlotChartProps) {
         { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
         { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
       ],
-      scales: { x: { time: true } },
+      scales: {
+        x: { time: true },
+        y: { auto: true, range: safeYRange },
+      },
     };
 
     const emptyData: uPlot.AlignedData = [
