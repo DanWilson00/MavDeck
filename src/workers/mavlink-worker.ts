@@ -9,6 +9,7 @@
 
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
 import { SpoofByteSource } from '../services/spoof-byte-source';
+import { ExternalByteSource } from '../services/external-byte-source';
 import { GenericMessageTracker } from '../services/message-tracker';
 import { TimeSeriesDataManager } from '../services/timeseries-manager';
 import { MavlinkService } from '../services/mavlink-service';
@@ -17,6 +18,7 @@ import type { MessageStats } from '../services/message-tracker';
 let registry: MavlinkMetadataRegistry | null = null;
 let service: MavlinkService | null = null;
 let spoofSource: SpoofByteSource | null = null;
+let externalSource: ExternalByteSource | null = null;
 let tracker: GenericMessageTracker | null = null;
 let timeseriesManager: TimeSeriesDataManager | null = null;
 
@@ -121,6 +123,65 @@ self.onmessage = (e: MessageEvent) => {
           self.postMessage({ type: 'error', message: err.message });
           self.postMessage({ type: 'statusChange', status: 'error' });
         });
+      } else if (config.type === 'webserial') {
+        externalSource = new ExternalByteSource();
+        tracker = new GenericMessageTracker();
+        timeseriesManager = new TimeSeriesDataManager();
+        service = new MavlinkService(registry, externalSource, tracker, timeseriesManager);
+
+        // Forward stats to main thread every 100ms
+        statsUnsubscribe = tracker.onStats(stats => {
+          self.postMessage({
+            type: 'stats',
+            stats: serializeStats(stats),
+          });
+        });
+
+        // Forward buffer updates to main thread
+        updateUnsubscribe = timeseriesManager.onUpdate(() => {
+          const fields = timeseriesManager!.getAvailableFields();
+          const buffers: Record<string, { timestamps: Float64Array; values: Float64Array }> = {};
+
+          for (const key of fields) {
+            const buffer = timeseriesManager!.getBuffer(key);
+            if (buffer && buffer.length > 0) {
+              const [timestamps, values] = buffer.toUplotData();
+              const tsBuf = new Float64Array(timestamps.length);
+              tsBuf.set(timestamps);
+              const valBuf = new Float64Array(values.length);
+              valBuf.set(values);
+              buffers[key] = { timestamps: tsBuf, values: valBuf };
+            }
+          }
+
+          const transferables: ArrayBuffer[] = [];
+          for (const buf of Object.values(buffers)) {
+            transferables.push(buf.timestamps.buffer);
+            transferables.push(buf.values.buffer);
+          }
+
+          self.postMessage({ type: 'update', buffers }, transferables);
+        });
+
+        // Forward STATUSTEXT messages
+        statustextUnsubscribe = service.onMessage(msg => {
+          if (msg.name === 'STATUSTEXT') {
+            self.postMessage({
+              type: 'statustext',
+              severity: msg.values['severity'] as number,
+              text: msg.values['text'] as string,
+              timestamp: Date.now(),
+            });
+          }
+        });
+
+        self.postMessage({ type: 'statusChange', status: 'connecting' });
+        service.connect().then(() => {
+          self.postMessage({ type: 'statusChange', status: 'connected' });
+        }).catch((err: Error) => {
+          self.postMessage({ type: 'error', message: err.message });
+          self.postMessage({ type: 'statusChange', status: 'error' });
+        });
       }
       break;
     }
@@ -132,6 +193,7 @@ self.onmessage = (e: MessageEvent) => {
       statustextUnsubscribe?.();
       service = null;
       spoofSource = null;
+      externalSource = null;
       tracker = null;
       timeseriesManager?.dispose();
       timeseriesManager = null;
@@ -153,9 +215,8 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     case 'bytes': {
-      // For Web Serial: main thread reads serial bytes and posts them here
-      // The worker would need a custom byte source that accepts external bytes
-      // This will be implemented in Phase 8 (Web Serial)
+      const { data } = e.data as { type: string; data: Uint8Array };
+      externalSource?.emitBytes(data);
       break;
     }
   }
