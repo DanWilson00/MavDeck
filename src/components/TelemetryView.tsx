@@ -1,10 +1,17 @@
-import { batch, createSignal, For, Show } from 'solid-js';
+import { batch, createSignal, For, onMount, Show } from 'solid-js';
+import { get, set } from 'idb-keyval';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
 import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
+
+const LAYOUT_KEY = 'mavdeck-layout-v1';
+
+interface SavedLayout {
+  [tabId: string]: Array<{ id: string; x: number; y: number; w: number; h: number }>;
+}
 
 let plotIdCounter = 0;
 function nextPlotId(): string {
@@ -32,6 +39,40 @@ export default function TelemetryView() {
     if (tabIdx === -1) return;
     setAppState('plotTabs', tabIdx, 'plots', prev => fn(prev));
   }
+
+  async function saveLayout() {
+    const saved = (await get<SavedLayout>(LAYOUT_KEY)) ?? {};
+    const tabId = appState.activeSubTab;
+    const plots = currentPlots();
+    saved[tabId] = plots.map(p => ({
+      id: p.id,
+      x: p.gridPos.x,
+      y: p.gridPos.y,
+      w: p.gridPos.w,
+      h: p.gridPos.h,
+    }));
+    await set(LAYOUT_KEY, saved);
+  }
+
+  onMount(async () => {
+    const saved = await get<SavedLayout>(LAYOUT_KEY);
+    if (!saved) return;
+    const tabId = appState.activeSubTab;
+    const positions = saved[tabId];
+    if (!positions) return;
+
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
+    if (tabIdx === -1) return;
+
+    for (const pos of positions) {
+      const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === pos.id);
+      if (plotIdx !== -1) {
+        setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'gridPos', {
+          x: pos.x, y: pos.y, w: pos.w, h: pos.h,
+        });
+      }
+    }
+  });
 
   // Create a new plot with a signal
   function createPlotWithSignal(messageName: string, fieldName: string): void {
@@ -92,6 +133,7 @@ export default function TelemetryView() {
         }
       }
     });
+    saveLayout();
   }
 
   function handleToggleSignal(plotId: string, fieldKey: string) {
