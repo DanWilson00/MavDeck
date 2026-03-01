@@ -2,6 +2,7 @@
 
 /* Dark theme (default) */
 :root {
+  --ui-scale: 1;
   --bg-primary: #111217;
   --bg-panel: #181b1f;
   --bg-hover: #1e2128;
@@ -16,6 +17,10 @@
   --map-overlay-text: #e4e4e7;
   --map-overlay-border: rgba(255, 255, 255, 0.2);
   --map-marker-stroke: #000;
+}
+
+html {
+  font-size: calc(16px * var(--ui-scale));
 }
 
 /* Light theme — activated by .light class on <html> */

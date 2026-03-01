@@ -6,6 +6,7 @@ import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
+import { createPlotInteractionController } from './plot-interactions';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
 function pickNextColor(existingSignals: PlotSignalConfig[]): string {
@@ -39,6 +40,8 @@ export default function TelemetryView() {
   const [selectedPlotId, setSelectedPlotId] = createSignal<string | null>(null);
 
   const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
+  const interactionController = createPlotInteractionController();
+  const interactionGroupId = 'telemetry-linked';
   let layoutCache: SavedLayout = {};
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
@@ -303,6 +306,8 @@ export default function TelemetryView() {
               selectedPlotId={selectedPlotId()}
               onSelectPlot={handleSelectPlot}
               onClearSignals={handleClearSignals}
+              interactionGroupId={interactionGroupId}
+              interactionController={interactionController}
             />
           </Show>
         </div>

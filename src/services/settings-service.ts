@@ -13,6 +13,7 @@ const SETTINGS_KEY = 'mavdeck-settings-v1';
 
 export interface MavDeckSettings {
   theme: 'dark' | 'light';
+  uiScale: number;
   baudRate: BaudRate;
   bufferCapacity: number;
   dataRetentionMinutes: number;
@@ -21,6 +22,7 @@ export interface MavDeckSettings {
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
   theme: 'dark',
+  uiScale: 1,
   baudRate: DEFAULT_BAUD_RATE,
   bufferCapacity: 2000,
   dataRetentionMinutes: 10,

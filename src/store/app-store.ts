@@ -10,23 +10,27 @@ import { DEFAULT_BAUD_RATE } from '../services/webserial-byte-source';
 export interface AppState {
   connectionStatus: ConnectionStatus;
   theme: 'dark' | 'light';
+  uiScale: number;
   activeTab: string;
   activeSubTab: string;
   plotTabs: PlotTab[];
   isPaused: boolean;
   isReady: boolean;
   baudRate: BaudRate;
+  isSettingsOpen: boolean;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
   connectionStatus: 'disconnected',
   theme: 'dark',
+  uiScale: 1,
   activeTab: 'telemetry',
   activeSubTab: 'default',
   plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
   isPaused: false,
   isReady: false,
   baudRate: DEFAULT_BAUD_RATE,
+  isSettingsOpen: false,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

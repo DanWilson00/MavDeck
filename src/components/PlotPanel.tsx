@@ -2,6 +2,7 @@ import { For, Show } from 'solid-js';
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models/plot-config';
 import { appState } from '../store/app-store';
+import type { PlotInteractionController } from './plot-interactions';
 
 interface PlotPanelProps {
   config: PlotConfig;
@@ -10,6 +11,8 @@ interface PlotPanelProps {
   isSelected: () => boolean;
   onSelect: () => void;
   onClearSignals: () => void;
+  interactionGroupId: string;
+  interactionController: PlotInteractionController;
 }
 
 export default function PlotPanel(props: PlotPanelProps) {
@@ -90,6 +93,9 @@ export default function PlotPanel(props: PlotPanelProps) {
       {/* Chart area */}
       <div class="flex-1 min-h-0">
         <PlotChart
+          plotId={props.config.id}
+          interactionGroupId={props.interactionGroupId}
+          interactionController={props.interactionController}
           signals={props.config.signals}
           timeWindow={props.config.timeWindow}
           isPaused={appState.isPaused}

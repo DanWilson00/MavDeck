@@ -23,12 +23,13 @@ export default function App() {
   let connMgr: ConnectionManager | undefined;
   let loadedSettings = { ...DEFAULT_SETTINGS };
 
-  // Persist settings reactively when theme or baudRate changes
+  // Persist settings reactively when display/connection preferences change.
   createEffect(() => {
     if (!settingsLoaded()) return;
     saveSettingsDebounced({
       ...loadedSettings,
       theme: appState.theme,
+      uiScale: appState.uiScale,
       baudRate: appState.baudRate,
     });
   });
@@ -84,6 +85,7 @@ export default function App() {
       loadedSettings = settings;
       batch(() => {
         setAppState('theme', settings.theme);
+        setAppState('uiScale', settings.uiScale);
         setAppState('baudRate', settings.baudRate);
       });
       setSettingsLoaded(true);

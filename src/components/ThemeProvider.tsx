@@ -7,6 +7,11 @@ export default function ThemeProvider(props: ParentProps) {
     document.documentElement.classList.toggle('light', appState.theme === 'light');
   });
 
+  // Apply global UI scale for text/layout density.
+  createEffect(() => {
+    document.documentElement.style.setProperty('--ui-scale', appState.uiScale.toFixed(2));
+  });
+
   return <>{props.children}</>;
 }
 

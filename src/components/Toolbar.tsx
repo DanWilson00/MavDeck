@@ -1,10 +1,8 @@
-import { Show, createSignal, createEffect, onCleanup, batch, For } from 'solid-js';
-import { appState, setAppState, connectionManager, workerBridge, registry } from '../store/app-store';
-import { toggleTheme } from './ThemeProvider';
+import { Show, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { appState, setAppState, connectionManager } from '../store/app-store';
 import type { ConnectionStatus } from '../services/worker-bridge';
-import { isWebSerialSupported, BAUD_RATES } from '../services/webserial-byte-source';
-import type { BaudRate } from '../services/webserial-byte-source';
-import { parseFromFileMap } from '../mavlink/xml-parser';
+import { isWebSerialSupported } from '../services/webserial-byte-source';
+import SettingsModal from './SettingsModal';
 
 const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: '#71717a', // gray
@@ -60,34 +58,6 @@ export default function Toolbar() {
     }
   }
 
-  let fileInputRef: HTMLInputElement | undefined;
-
-  function handleDialectImport() {
-    fileInputRef?.click();
-  }
-
-  async function handleFileSelected(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    input.value = ''; // reset for re-import
-
-    try {
-      const text = await file.text();
-      const fileMap = new Map<string, string>();
-      fileMap.set(file.name, text);
-      const jsonString = parseFromFileMap(fileMap, file.name);
-
-      // Reinitialize worker with new dialect
-      await workerBridge.init(jsonString);
-
-      // Update main-thread registry too
-      registry.loadFromJsonString(jsonString);
-    } catch (err) {
-      console.error('[Dialect Import]', err);
-    }
-  }
-
   const isConnected = () => status() === 'connected' || status() === 'connecting';
 
   return (
@@ -130,22 +100,6 @@ export default function Toolbar() {
           >
             Connect Serial
           </button>
-          <select
-            class="text-sm rounded px-1 py-1"
-            style={{
-              'background-color': 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border)',
-            }}
-            value={appState.baudRate}
-            onChange={(e) => {
-              setAppState('baudRate', Number(e.currentTarget.value) as BaudRate);
-            }}
-          >
-            <For each={[...BAUD_RATES]}>
-              {(rate) => <option value={rate}>{rate}</option>}
-            </For>
-          </select>
         </Show>
 
         {/* Status dot */}
@@ -169,43 +123,23 @@ export default function Toolbar() {
           </button>
         </Show>
 
-        {/* Dialect import */}
         <button
-          onClick={handleDialectImport}
+          onClick={() => setAppState('isSettingsOpen', true)}
           class="p-1.5 rounded transition-colors interactive-hover"
           style={{
             'background-color': 'var(--bg-hover)',
             color: 'var(--text-secondary)',
           }}
-          title="Import custom dialect XML"
-          aria-label="Import custom dialect XML"
+          title="Open settings"
+          aria-label="Open settings"
         >
-          <UploadIcon />
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xml"
-          class="hidden"
-          onChange={handleFileSelected}
-        />
-
-        {/* Theme toggle */}
-        <button
-          onClick={toggleTheme}
-          class="p-1.5 rounded transition-colors interactive-hover"
-          style={{
-            'background-color': 'var(--bg-hover)',
-            color: 'var(--text-secondary)',
-          }}
-          title={`Switch to ${appState.theme === 'dark' ? 'light' : 'dark'} theme`}
-          aria-label={`Switch to ${appState.theme === 'dark' ? 'light' : 'dark'} theme`}
-        >
-          <Show when={appState.theme === 'dark'} fallback={<MoonIcon />}>
-            <SunIcon />
-          </Show>
+          <SettingsIcon />
         </button>
       </div>
+
+      <Show when={appState.isSettingsOpen}>
+        <SettingsModal onClose={() => setAppState('isSettingsOpen', false)} />
+      </Show>
     </header>
   );
 }
@@ -226,36 +160,11 @@ function TabButton(props: { id: string; label: string }) {
   );
 }
 
-function SunIcon() {
+function SettingsIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="5" />
-      <line x1="12" y1="1" x2="12" y2="3" />
-      <line x1="12" y1="21" x2="12" y2="23" />
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-      <line x1="1" y1="12" x2="3" y2="12" />
-      <line x1="21" y1="12" x2="23" y2="12" />
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-    </svg>
-  );
-}
-
-function MoonIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-    </svg>
-  );
-}
-
-function UploadIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="17 8 12 3 7 8" />
-      <line x1="12" y1="3" x2="12" y2="15" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.76l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.6 1.6 0 0 0-1.76-.32 1.6 1.6 0 0 0-.98 1.47V21a2 2 0 1 1-4 0v-.09a1.6 1.6 0 0 0-.98-1.47 1.6 1.6 0 0 0-1.76.32l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.6 1.6 0 0 0 .32-1.76 1.6 1.6 0 0 0-1.47-.98H3a2 2 0 1 1 0-4h.09a1.6 1.6 0 0 0 1.47-.98 1.6 1.6 0 0 0-.32-1.76l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.6 1.6 0 0 0 1.76.32h.02a1.6 1.6 0 0 0 .96-1.47V3a2 2 0 1 1 4 0v.09a1.6 1.6 0 0 0 .98 1.47 1.6 1.6 0 0 0 1.76-.32l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.6 1.6 0 0 0-.32 1.76v.02a1.6 1.6 0 0 0 1.47.96H21a2 2 0 1 1 0 4h-.09a1.6 1.6 0 0 0-1.51 1.19z" />
     </svg>
   );
 }

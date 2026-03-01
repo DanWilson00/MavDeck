@@ -4,6 +4,7 @@ import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.css';
 import PlotPanel from './PlotPanel';
 import type { PlotConfig } from '../models/plot-config';
+import type { PlotInteractionController } from './plot-interactions';
 
 interface GridLayoutProps {
   plots: PlotConfig[];
@@ -13,6 +14,8 @@ interface GridLayoutProps {
   selectedPlotId: string | null;
   onSelectPlot: (plotId: string) => void;
   onClearSignals: (plotId: string) => void;
+  interactionGroupId: string;
+  interactionController: PlotInteractionController;
 }
 
 export default function GridLayout(props: GridLayoutProps) {
@@ -60,6 +63,8 @@ export default function GridLayout(props: GridLayoutProps) {
                 isSelected={() => props.selectedPlotId === plotId}
                 onSelect={() => props.onSelectPlot(plotId)}
                 onClearSignals={() => props.onClearSignals(plotId)}
+                interactionGroupId={props.interactionGroupId}
+                interactionController={props.interactionController}
               />
             )}
           </Show>
