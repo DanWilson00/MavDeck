@@ -32,3 +32,15 @@ body {
   min-height: 100vh;
   transition: background-color 0.2s, color 0.2s;
 }
+
+/* Gridstack overrides */
+.grid-stack > .grid-stack-item > .grid-stack-item-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.grid-stack > .grid-stack-placeholder > .placeholder-content {
+  border: 1px dashed var(--accent) !important;
+  background-color: transparent !important;
+}
