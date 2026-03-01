@@ -13,15 +13,23 @@ export type ConnectionConfig =
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+export interface StatusTextEntry {
+  severity: number;
+  text: string;
+  timestamp: number;
+}
+
 type StatsCallback = (stats: Map<string, MessageStats>) => void;
 type UpdateCallback = (buffers: Map<string, { timestamps: Float64Array; values: Float64Array }>) => void;
 type StatusCallback = (status: ConnectionStatus) => void;
+type StatusTextCallback = (entry: StatusTextEntry) => void;
 
 export class MavlinkWorkerBridge {
   private worker: Worker;
   private readonly statsCallbacks = new Set<StatsCallback>();
   private readonly updateCallbacks = new Set<UpdateCallback>();
   private readonly statusCallbacks = new Set<StatusCallback>();
+  private readonly statustextCallbacks = new Set<StatusTextCallback>();
   private initResolve: (() => void) | null = null;
 
   constructor() {
@@ -83,6 +91,12 @@ export class MavlinkWorkerBridge {
     return () => this.statusCallbacks.delete(callback);
   }
 
+  /** Subscribe to STATUSTEXT message events. */
+  onStatusText(callback: StatusTextCallback): () => void {
+    this.statustextCallbacks.add(callback);
+    return () => this.statustextCallbacks.delete(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -120,6 +134,18 @@ export class MavlinkWorkerBridge {
         const status = e.data.status as ConnectionStatus;
         for (const cb of this.statusCallbacks) {
           cb(status);
+        }
+        break;
+      }
+
+      case 'statustext': {
+        const entry: StatusTextEntry = {
+          severity: e.data.severity as number,
+          text: e.data.text as string,
+          timestamp: e.data.timestamp as number,
+        };
+        for (const cb of this.statustextCallbacks) {
+          cb(entry);
         }
         break;
       }

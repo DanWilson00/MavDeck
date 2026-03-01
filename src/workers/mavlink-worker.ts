@@ -22,6 +22,7 @@ let timeseriesManager: TimeSeriesDataManager | null = null;
 
 let statsUnsubscribe: (() => void) | null = null;
 let updateUnsubscribe: (() => void) | null = null;
+let statustextUnsubscribe: (() => void) | null = null;
 
 /** Serialize MessageStats map for transfer (Map can't be cloned). */
 function serializeStats(stats: Map<string, MessageStats>): Record<string, MessageStats> {
@@ -55,6 +56,7 @@ self.onmessage = (e: MessageEvent) => {
         service.disconnect();
         statsUnsubscribe?.();
         updateUnsubscribe?.();
+        statustextUnsubscribe?.();
       }
 
       const { config } = e.data as { type: string; config: { type: string } };
@@ -100,6 +102,18 @@ self.onmessage = (e: MessageEvent) => {
           self.postMessage({ type: 'update', buffers }, transferables);
         });
 
+        // Forward STATUSTEXT messages to main thread individually
+        statustextUnsubscribe = service.onMessage(msg => {
+          if (msg.name === 'STATUSTEXT') {
+            self.postMessage({
+              type: 'statustext',
+              severity: msg.values['severity'] as number,
+              text: msg.values['text'] as string,
+              timestamp: Date.now(),
+            });
+          }
+        });
+
         self.postMessage({ type: 'statusChange', status: 'connecting' });
         service.connect().then(() => {
           self.postMessage({ type: 'statusChange', status: 'connected' });
@@ -115,6 +129,7 @@ self.onmessage = (e: MessageEvent) => {
       service?.disconnect();
       statsUnsubscribe?.();
       updateUnsubscribe?.();
+      statustextUnsubscribe?.();
       service = null;
       spoofSource = null;
       tracker = null;
@@ -122,6 +137,7 @@ self.onmessage = (e: MessageEvent) => {
       timeseriesManager = null;
       statsUnsubscribe = null;
       updateUnsubscribe = null;
+      statustextUnsubscribe = null;
       self.postMessage({ type: 'statusChange', status: 'disconnected' });
       break;
     }
