@@ -3,6 +3,7 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
 import TelemetryView from './components/TelemetryView';
+import MapView from './components/MapView';
 import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
@@ -58,9 +59,7 @@ export default function App() {
             <TelemetryView />
           </Show>
           <Show when={appState.activeTab === 'map'}>
-            <div class="flex items-center justify-center h-full" style={{ color: 'var(--text-secondary)' }}>
-              Map view — Phase 7
-            </div>
+            <MapView />
           </Show>
         </main>
       </div>
