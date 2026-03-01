@@ -1,7 +1,9 @@
-import { Show, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { Show, createSignal, createEffect, onCleanup, batch, For } from 'solid-js';
 import { appState, setAppState, connectionManager } from '../store/app-store';
 import { toggleTheme } from './ThemeProvider';
 import type { ConnectionStatus } from '../services/worker-bridge';
+import { isWebSerialSupported, BAUD_RATES } from '../services/webserial-byte-source';
+import type { BaudRate } from '../services/webserial-byte-source';
 
 const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: '#71717a', // gray
@@ -34,6 +36,15 @@ export default function Toolbar() {
       connectionManager.disconnect();
     } else {
       connectionManager.connect({ type: 'spoof' });
+    }
+  }
+
+  function handleConnectSerial() {
+    if (!appState.isReady) return;
+    if (status() === 'connected' || status() === 'connecting') {
+      connectionManager.disconnect();
+    } else {
+      connectionManager.connect({ type: 'webserial', baudRate: appState.baudRate });
     }
   }
 
@@ -79,6 +90,39 @@ export default function Toolbar() {
         >
           {isConnected() ? 'Disconnect' : 'Connect Spoof'}
         </button>
+
+        {/* Serial connection — only when Web Serial is supported and not connected */}
+        <Show when={isWebSerialSupported() && !isConnected()}>
+          <button
+            onClick={handleConnectSerial}
+            class="px-3 py-1 rounded text-sm font-medium transition-colors"
+            style={{
+              'background-color': 'var(--bg-hover)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            Connect Serial
+          </button>
+        </Show>
+
+        <Show when={isWebSerialSupported() && !isConnected()}>
+          <select
+            class="text-sm rounded px-1 py-1"
+            style={{
+              'background-color': 'var(--bg-hover)',
+              color: 'var(--text-primary)',
+              border: '1px solid var(--border)',
+            }}
+            value={appState.baudRate}
+            onChange={(e) => {
+              setAppState('baudRate', Number(e.currentTarget.value) as BaudRate);
+            }}
+          >
+            <For each={[...BAUD_RATES]}>
+              {(rate) => <option value={rate}>{rate}</option>}
+            </For>
+          </select>
+        </Show>
 
         {/* Status dot */}
         <div

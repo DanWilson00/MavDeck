@@ -4,6 +4,8 @@ import type { MavlinkWorkerBridge } from '../services/worker-bridge';
 import type { ConnectionManager } from '../services/connection-manager';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import type { PlotTab } from '../models/plot-config';
+import type { BaudRate } from '../services/webserial-byte-source';
+import { DEFAULT_BAUD_RATE } from '../services/webserial-byte-source';
 
 export interface AppState {
   connectionStatus: ConnectionStatus;
@@ -13,6 +15,7 @@ export interface AppState {
   plotTabs: PlotTab[];
   isPaused: boolean;
   isReady: boolean;
+  baudRate: BaudRate;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -23,6 +26,7 @@ export const [appState, setAppState] = createStore<AppState>({
   plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
   isPaused: false,
   isReady: false,
+  baudRate: DEFAULT_BAUD_RATE,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

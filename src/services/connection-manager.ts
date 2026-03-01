@@ -6,12 +6,14 @@
  */
 
 import type { MavlinkWorkerBridge, ConnectionConfig, ConnectionStatus } from './worker-bridge';
+import { WebSerialByteSource } from './webserial-byte-source';
 
 type StatusCallback = (status: ConnectionStatus) => void;
 
 export class ConnectionManager {
   private readonly bridge: MavlinkWorkerBridge;
   private readonly callbacks = new Set<StatusCallback>();
+  private serialSource: WebSerialByteSource | null = null;
   private _status: ConnectionStatus = 'disconnected';
   private unsubBridgeStatus: (() => void) | null = null;
 
@@ -37,11 +39,31 @@ export class ConnectionManager {
     if (this._status === 'connected' || this._status === 'connecting') {
       this.disconnect();
     }
-    this.bridge.connect(config);
+
+    if (config.type === 'webserial') {
+      // Web Serial reads on main thread, forwards bytes to worker
+      this.serialSource = new WebSerialByteSource(config.baudRate, (data) => {
+        this.bridge.sendBytes(data);
+      });
+
+      // Tell worker to set up ExternalByteSource pipeline
+      this.bridge.connect(config);
+
+      // Open serial port (triggers browser dialog)
+      this.serialSource.connect().catch(() => {
+        // User cancelled dialog or port error — disconnect
+        this.bridge.disconnect();
+        this.serialSource = null;
+      });
+    } else {
+      this.bridge.connect(config);
+    }
   }
 
   /** Disconnect and clean up. */
   disconnect(): void {
+    this.serialSource?.disconnect();
+    this.serialSource = null;
     this.bridge.disconnect();
   }
 
