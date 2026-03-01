@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, batch, Show } from 'solid-js';
+import { onMount, onCleanup, createEffect, createSignal, batch, Show } from 'solid-js';
 import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
@@ -11,6 +11,7 @@ import { MavlinkMetadataRegistry } from './mavlink/registry';
 import { loadSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from './services/settings-service';
 
 export default function App() {
+  const [loading, setLoading] = createSignal(true);
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
 
@@ -83,9 +84,11 @@ export default function App() {
       setConnectionManager(connMgr);
 
       setAppState('isReady', true);
+      setLoading(false);
     } catch (err) {
       console.error('MavDeck initialization failed:', err);
       setAppState('connectionStatus', 'error');
+      setLoading(false);
     }
   });
 
@@ -97,18 +100,27 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
-        <Toolbar />
-        <TabBar />
-        <main class="flex-1 overflow-hidden">
-          <Show when={appState.activeTab === 'telemetry'}>
-            <TelemetryView />
-          </Show>
-          <Show when={appState.activeTab === 'map'}>
-            <MapView />
-          </Show>
-        </main>
-      </div>
+      <Show when={!loading()} fallback={
+        <div class="flex items-center justify-center h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
+          <div class="text-center">
+            <div class="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>MavDeck</div>
+            <div class="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>Loading dialect...</div>
+          </div>
+        </div>
+      }>
+        <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
+          <Toolbar />
+          <TabBar />
+          <main class="flex-1 overflow-hidden">
+            <Show when={appState.activeTab === 'telemetry'}>
+              <TelemetryView />
+            </Show>
+            <Show when={appState.activeTab === 'map'}>
+              <MapView />
+            </Show>
+          </main>
+        </div>
+      </Show>
     </ThemeProvider>
   );
 }
