@@ -61,7 +61,6 @@ export class RingBuffer {
       for (let i = 0; i < len; i++) {
         this.viewTimestamps[i] = this.timestamps[i] / 1000;
       }
-      this.viewValues.set(this.timestamps.subarray(0, 0)); // no-op, just for clarity
       this.viewValues.set(this.values.subarray(0, len));
     } else {
       // Buffer has wrapped: oldest data starts at head, newest ends at head-1

@@ -33,7 +33,7 @@ export class ConnectionManager {
   }
 
   /** Connect with the given configuration. Disconnects first if already connected. */
-  async connect(config: ConnectionConfig): Promise<void> {
+  connect(config: ConnectionConfig): void {
     if (this._status === 'connected' || this._status === 'connecting') {
       this.disconnect();
     }
@@ -65,5 +65,6 @@ export class ConnectionManager {
   dispose(): void {
     this.unsubBridgeStatus?.();
     this.unsubBridgeStatus = null;
+    this.callbacks.clear();
   }
 }

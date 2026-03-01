@@ -12,28 +12,37 @@ export default function App() {
   let connMgr: ConnectionManager | undefined;
 
   onMount(async () => {
-    // Load dialect
-    const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
-    const json = await response.text();
+    try {
+      // Load dialect
+      const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
+      if (!response.ok) {
+        throw new Error(`Failed to load dialect: ${response.status} ${response.statusText}`);
+      }
+      const json = await response.text();
 
-    // Initialize registry
-    const reg = new MavlinkMetadataRegistry();
-    reg.loadFromJsonString(json);
-    setRegistry(reg);
+      // Initialize registry
+      const reg = new MavlinkMetadataRegistry();
+      reg.loadFromJsonString(json);
+      setRegistry(reg);
 
-    // Initialize worker bridge
-    bridge = new MavlinkWorkerBridge();
-    await bridge.init(json);
-    setWorkerBridge(bridge);
+      // Initialize worker bridge
+      bridge = new MavlinkWorkerBridge();
+      await bridge.init(json);
+      setWorkerBridge(bridge);
 
-    // Initialize connection manager
-    connMgr = new ConnectionManager(bridge);
-    setConnectionManager(connMgr);
+      // Initialize connection manager
+      connMgr = new ConnectionManager(bridge);
+      setConnectionManager(connMgr);
 
-    setAppState('isReady', true);
+      setAppState('isReady', true);
+    } catch (err) {
+      console.error('MavDeck initialization failed:', err);
+      setAppState('connectionStatus', 'error');
+    }
   });
 
   onCleanup(() => {
+    connMgr?.disconnect();
     connMgr?.dispose();
     bridge?.dispose();
   });

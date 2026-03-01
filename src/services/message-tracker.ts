@@ -93,7 +93,10 @@ export class GenericMessageTracker {
   getStats(): Map<string, MessageStats> {
     const snapshot = new Map<string, MessageStats>();
     for (const [name, entry] of this.stats) {
-      snapshot.set(name, { ...entry });
+      snapshot.set(name, {
+        ...entry,
+        lastMessage: { ...entry.lastMessage, values: { ...entry.lastMessage.values } },
+      });
     }
     return snapshot;
   }

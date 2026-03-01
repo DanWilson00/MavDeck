@@ -1,5 +1,5 @@
-import { Show, createSignal, createEffect, onCleanup } from 'solid-js';
-import { appState, setAppState, connectionManager, workerBridge } from '../store/app-store';
+import { Show, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { appState, setAppState, connectionManager } from '../store/app-store';
 import { toggleTheme } from './ThemeProvider';
 import type { ConnectionStatus } from '../services/worker-bridge';
 
@@ -17,8 +17,13 @@ export default function Toolbar() {
   createEffect(() => {
     if (!appState.isReady) return;
     const unsub = connectionManager.onStatusChange(s => {
-      setStatus(s);
-      setAppState('connectionStatus', s);
+      batch(() => {
+        setStatus(s);
+        setAppState('connectionStatus', s);
+        if (s === 'disconnected') {
+          setAppState('isPaused', false);
+        }
+      });
     });
     onCleanup(unsub);
   });
@@ -35,10 +40,10 @@ export default function Toolbar() {
   function handlePause() {
     if (!appState.isReady) return;
     if (appState.isPaused) {
-      workerBridge.resume();
+      connectionManager.resume();
       setAppState('isPaused', false);
     } else {
-      workerBridge.pause();
+      connectionManager.pause();
       setAppState('isPaused', true);
     }
   }
