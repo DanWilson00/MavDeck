@@ -2,6 +2,7 @@ import { onMount, onCleanup, Show } from 'solid-js';
 import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
+import MessageMonitor from './components/MessageMonitor';
 import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
@@ -54,8 +55,11 @@ export default function App() {
         <TabBar />
         <main class="flex-1 overflow-hidden">
           <Show when={appState.activeTab === 'telemetry'}>
-            <div class="flex items-center justify-center h-full" style={{ color: 'var(--text-secondary)' }}>
-              Telemetry view — Phase 4+
+            <div class="flex h-full">
+              <MessageMonitor />
+              <div class="flex-1 flex items-center justify-center" style={{ color: 'var(--text-secondary)' }}>
+                Plot area — Phase 5
+              </div>
             </div>
           </Show>
           <Show when={appState.activeTab === 'map'}>

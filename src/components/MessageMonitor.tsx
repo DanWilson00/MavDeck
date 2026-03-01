@@ -2,6 +2,7 @@ import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState, workerBridge, registry } from '../store/app-store';
 import type { MessageStats } from '../services/message-tracker';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
+import StatusTextLog from './StatusTextLog';
 
 interface MessageMonitorProps {
   onFieldSelected?: (messageName: string, fieldName: string) => void;
@@ -205,6 +206,9 @@ export default function MessageMonitor(props: MessageMonitorProps) {
           }}
         </For>
       </div>
+
+      {/* Status text log at bottom */}
+      <StatusTextLog />
     </div>
   );
 }
