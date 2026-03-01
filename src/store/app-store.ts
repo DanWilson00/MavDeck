@@ -3,9 +3,11 @@ import type { ConnectionStatus } from '../services/worker-bridge';
 import type { MavlinkWorkerBridge } from '../services/worker-bridge';
 import type { ConnectionManager } from '../services/connection-manager';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
-import type { PlotTab } from '../models/plot-config';
+import type { PlotTab, TimeWindow } from '../models/plot-config';
+import { DEFAULT_TIME_WINDOW } from '../models/plot-config';
 import type { BaudRate } from '../services/webserial-byte-source';
 import { DEFAULT_BAUD_RATE } from '../services/webserial-byte-source';
+import { DEFAULT_SETTINGS } from '../services/settings-service';
 
 export interface AppState {
   connectionStatus: ConnectionStatus;
@@ -17,7 +19,15 @@ export interface AppState {
   isPaused: boolean;
   isReady: boolean;
   baudRate: BaudRate;
+  bufferCapacity: number;
   isSettingsOpen: boolean;
+  timeWindow: TimeWindow;
+  addPlotCounter: number;
+  mapShowPath: boolean;
+  mapTrailLength: number;
+  mapLayer: 'street' | 'satellite';
+  mapZoom: number;
+  mapAutoCenter: boolean;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -30,7 +40,15 @@ export const [appState, setAppState] = createStore<AppState>({
   isPaused: false,
   isReady: false,
   baudRate: DEFAULT_BAUD_RATE,
+  bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
   isSettingsOpen: false,
+  timeWindow: DEFAULT_TIME_WINDOW,
+  addPlotCounter: 0,
+  mapShowPath: DEFAULT_SETTINGS.mapShowPath,
+  mapTrailLength: DEFAULT_SETTINGS.mapTrailLength,
+  mapLayer: DEFAULT_SETTINGS.mapLayer,
+  mapZoom: DEFAULT_SETTINGS.mapZoom,
+  mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

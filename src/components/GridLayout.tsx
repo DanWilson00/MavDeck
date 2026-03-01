@@ -94,7 +94,7 @@ export default function GridLayout(props: GridLayoutProps) {
 
     grid = GridStack.init({
       column: 12,
-      animate: true,
+      animate: false,
       cellHeight: 80,
       margin: 4,
       float: true,
@@ -117,6 +117,12 @@ export default function GridLayout(props: GridLayoutProps) {
     for (const plot of props.plots) {
       addPlotWidget(plot);
     }
+
+    // Enable animations after initial layout settles so drag/drop animates
+    // but mount doesn't cause visual noise on tab switch.
+    requestAnimationFrame(() => {
+      grid?.el?.classList.add('grid-stack-animate');
+    });
   });
 
   createEffect(on(

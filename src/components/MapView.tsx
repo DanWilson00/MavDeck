@@ -1,12 +1,23 @@
 import { onMount, onCleanup, createSignal, createEffect } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { appState, workerBridge } from '../store/app-store';
+import { appState, setAppState, workerBridge } from '../store/app-store';
 
 const INITIAL_LAT = 34.0522;
 const INITIAL_LON = -118.2437;
-const INITIAL_ZOOM = 15;
-const MAX_TRAIL_POINTS = 200;
+
+const TILE_LAYERS = {
+  street: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    maxZoom: 19,
+  },
+} as const;
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -26,16 +37,20 @@ function createVehicleIcon(heading: number): L.DivIcon {
   });
 }
 
+function trailColor(): string {
+  return appState.mapLayer === 'satellite' ? '#00ff88' : cssVar('--accent', '#00d4ff');
+}
+
 export default function MapView() {
   let containerRef: HTMLDivElement | undefined;
   let map: L.Map | undefined;
   let marker: L.Marker | undefined;
   let trail: L.Polyline | undefined;
+  let tileLayer: L.TileLayer | undefined;
   let trailPoints: L.LatLng[] = [];
   let rafId: number | undefined;
   let unsubUpdate: (() => void) | undefined;
 
-  const [autoCenter, setAutoCenter] = createSignal(true);
   const [coords, setCoords] = createSignal({
     lat: INITIAL_LAT,
     lon: INITIAL_LON,
@@ -78,13 +93,19 @@ export default function MapView() {
 
     map = L.map(containerRef, {
       center: [INITIAL_LAT, INITIAL_LON],
-      zoom: INITIAL_ZOOM,
+      zoom: appState.mapZoom,
       zoomControl: true,
     });
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
+    map.on('zoomend', () => {
+      const z = map!.getZoom();
+      if (z !== appState.mapZoom) setAppState('mapZoom', z);
+    });
+
+    const layerConfig = TILE_LAYERS[appState.mapLayer];
+    tileLayer = L.tileLayer(layerConfig.url, {
+      attribution: layerConfig.attribution,
+      maxZoom: layerConfig.maxZoom,
     }).addTo(map);
 
     marker = L.marker([INITIAL_LAT, INITIAL_LON], {
@@ -92,10 +113,14 @@ export default function MapView() {
     }).addTo(map);
 
     trail = L.polyline([], {
-      color: cssVar('--accent', '#00d4ff'),
+      color: trailColor(),
       weight: 2,
       opacity: 0.7,
-    }).addTo(map);
+    });
+
+    if (appState.mapShowPath) {
+      trail.addTo(map);
+    }
 
     if (appState.isReady) {
       subscribeToUpdates();
@@ -113,12 +138,12 @@ export default function MapView() {
         }
 
         trailPoints.push(latlng);
-        if (trailPoints.length > MAX_TRAIL_POINTS) {
-          trailPoints.shift();
+        if (trailPoints.length > appState.mapTrailLength) {
+          trailPoints = trailPoints.slice(-appState.mapTrailLength);
         }
         trail?.setLatLngs(trailPoints);
 
-        if (autoCenter()) {
+        if (appState.mapAutoCenter) {
           map.panTo(latlng, { animate: false });
         }
 
@@ -133,7 +158,7 @@ export default function MapView() {
     }
     rafId = requestAnimationFrame(tick);
 
-    map.on('dragstart', () => setAutoCenter(false));
+    map.on('dragstart', () => setAppState('mapAutoCenter', false));
   });
 
   // Subscribe once worker is ready (if not already)
@@ -151,7 +176,39 @@ export default function MapView() {
   createEffect(() => {
     appState.theme;
     marker?.setIcon(createVehicleIcon(latestHdg));
-    trail?.setStyle({ color: cssVar('--accent', '#00d4ff') });
+    trail?.setStyle({ color: trailColor() });
+  });
+
+  // Toggle trail visibility
+  createEffect(() => {
+    if (!map || !trail) return;
+    if (appState.mapShowPath) {
+      if (!map.hasLayer(trail)) trail.addTo(map);
+    } else {
+      if (map.hasLayer(trail)) trail.remove();
+    }
+  });
+
+  // Switch tile layer
+  createEffect(() => {
+    if (!map) return;
+    const layerConfig = TILE_LAYERS[appState.mapLayer];
+    if (tileLayer) tileLayer.remove();
+    tileLayer = L.tileLayer(layerConfig.url, {
+      attribution: layerConfig.attribution,
+      maxZoom: layerConfig.maxZoom,
+    }).addTo(map);
+    // Update trail color for visibility on new background
+    trail?.setStyle({ color: trailColor() });
+  });
+
+  // Trim trail when length setting decreases
+  createEffect(() => {
+    const maxLen = appState.mapTrailLength;
+    if (trailPoints.length > maxLen) {
+      trailPoints = trailPoints.slice(-maxLen);
+      trail?.setLatLngs(trailPoints);
+    }
   });
 
   onCleanup(() => {
@@ -164,40 +221,100 @@ export default function MapView() {
     <div class="relative h-full w-full">
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Coordinate overlay */}
-      <div
-        class="absolute top-2 right-2 z-[1000] rounded px-3 py-2 text-xs font-mono"
-        style={{
-          'background-color': 'var(--map-overlay-bg)',
-          color: 'var(--map-overlay-text)',
-          'pointer-events': 'none',
-          border: '1px solid var(--map-overlay-border)',
-        }}
-      >
-        <div>Lat: {coords().lat.toFixed(6)}</div>
-        <div>Lon: {coords().lon.toFixed(6)}</div>
-        <div>Alt: {coords().alt.toFixed(1)} m</div>
-        <div>Hdg: {coords().hdg.toFixed(1)}&deg;</div>
-      </div>
+      {/* Top-right overlay: telemetry + controls */}
+      <div class="absolute top-2 right-2 z-[1000] flex flex-col items-end gap-1.5">
+        {/* Coordinate readout */}
+        <div
+          class="rounded px-3 py-2 text-xs font-mono"
+          style={{
+            'background-color': 'var(--map-overlay-bg)',
+            color: 'var(--map-overlay-text)',
+            'pointer-events': 'none',
+            border: '1px solid var(--map-overlay-border)',
+          }}
+        >
+          <div>Lat: {coords().lat.toFixed(6)}</div>
+          <div>Lon: {coords().lon.toFixed(6)}</div>
+          <div>Alt: {coords().alt.toFixed(1)} m</div>
+          <div>Hdg: {coords().hdg.toFixed(1)}&deg;</div>
+        </div>
 
-      {/* Auto-center toggle */}
-      <button
-        class="absolute bottom-4 right-2 z-[1000] rounded px-3 py-1.5 text-xs font-medium transition-colors"
-        style={{
-          'background-color': autoCenter() ? 'var(--accent)' : 'var(--bg-panel)',
-          color: autoCenter() ? '#000' : 'var(--text-primary)',
-          border: '1px solid var(--border)',
-        }}
-        onClick={() => {
-          const newState = !autoCenter();
-          setAutoCenter(newState);
-          if (newState && map) {
-            map.panTo([latestLat, latestLon], { animate: true });
-          }
-        }}
-      >
-        {autoCenter() ? 'Auto-Center: ON' : 'Auto-Center: OFF'}
-      </button>
+        {/* Map control buttons */}
+        <div class="flex gap-1.5">
+          <button
+            class="p-1.5 rounded interactive-hover"
+            style={{
+              'background-color': 'var(--bg-panel)',
+              border: '1px solid var(--border)',
+              color: appState.mapLayer === 'satellite' ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            onClick={() => setAppState('mapLayer', appState.mapLayer === 'street' ? 'satellite' : 'street')}
+            title={appState.mapLayer === 'street' ? 'Switch to satellite' : 'Switch to street map'}
+          >
+            <LayerIcon />
+          </button>
+          <button
+            class="p-1.5 rounded interactive-hover"
+            style={{
+              'background-color': 'var(--bg-panel)',
+              border: '1px solid var(--border)',
+              color: appState.mapShowPath ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            onClick={() => setAppState('mapShowPath', !appState.mapShowPath)}
+            title={appState.mapShowPath ? 'Hide flight path' : 'Show flight path'}
+          >
+            <PathIcon />
+          </button>
+          <button
+            class="p-1.5 rounded interactive-hover"
+            style={{
+              'background-color': 'var(--bg-panel)',
+              border: '1px solid var(--border)',
+              color: appState.mapAutoCenter ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            onClick={() => {
+              const newState = !appState.mapAutoCenter;
+              setAppState('mapAutoCenter', newState);
+              if (newState && map) {
+                map.panTo([latestLat, latestLon], { animate: true });
+              }
+            }}
+            title={appState.mapAutoCenter ? 'Auto-center: ON' : 'Auto-center: OFF'}
+          >
+            <CrosshairIcon />
+          </button>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function CrosshairIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="8" />
+      <line x1="12" y1="2" x2="12" y2="6" />
+      <line x1="12" y1="18" x2="12" y2="22" />
+      <line x1="2" y1="12" x2="6" y2="12" />
+      <line x1="18" y1="12" x2="22" y2="12" />
+    </svg>
+  );
+}
+
+function PathIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 17l4-4 4 4 4-8 6 6" />
+    </svg>
+  );
+}
+
+function LayerIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
+    </svg>
   );
 }

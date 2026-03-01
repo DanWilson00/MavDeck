@@ -11,7 +11,15 @@ describe('appStore', () => {
     expect(appState.plotTabs).toEqual([{ id: 'default', name: 'Tab 1', plots: [] }]);
     expect(appState.isPaused).toBe(false);
     expect(appState.isReady).toBe(false);
+    expect(appState.bufferCapacity).toBe(2000);
     expect(appState.isSettingsOpen).toBe(false);
+    expect(appState.timeWindow).toBe(30);
+    expect(appState.addPlotCounter).toBe(0);
+    expect(appState.mapShowPath).toBe(true);
+    expect(appState.mapTrailLength).toBe(500);
+    expect(appState.mapLayer).toBe('street');
+    expect(appState.mapZoom).toBe(15);
+    expect(appState.mapAutoCenter).toBe(true);
   });
 
   it('setAppState updates theme reactively', () => {

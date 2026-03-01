@@ -110,6 +110,11 @@ export class MavlinkWorkerBridge {
     this.worker.postMessage({ type: 'setInterestedFields', fields });
   }
 
+  /** Set ring-buffer capacity (samples per numeric field). */
+  setBufferCapacity(bufferCapacity: number): void {
+    this.worker.postMessage({ type: 'setBufferCapacity', bufferCapacity });
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();

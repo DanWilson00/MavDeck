@@ -1,6 +1,7 @@
 import { For, Show } from 'solid-js';
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models/plot-config';
+import { getThemeColor } from '../models/plot-config';
 import { appState } from '../store/app-store';
 import type { PlotInteractionController } from './plot-interactions';
 
@@ -40,7 +41,7 @@ export default function PlotPanel(props: PlotPanelProps) {
             {(sig) => (
               <span
                 class="text-xs font-mono truncate"
-                style={{ color: sig.color }}
+                style={{ color: getThemeColor(sig.color, appState.theme) }}
               >
                 {sig.fieldKey}
               </span>

@@ -2,6 +2,7 @@ import { onMount, onCleanup, createEffect, createMemo } from 'solid-js';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models/plot-config';
+import { getThemeColor } from '../models/plot-config';
 import { appState, workerBridge } from '../store/app-store';
 import type { PlotInteractionController } from './plot-interactions';
 
@@ -162,7 +163,7 @@ export default function PlotChart(props: PlotChartProps) {
       { label: 'Time' },
       ...getVisibleSignals().map(sig => ({
         label: sig.fieldKey,
-        stroke: sig.color,
+        stroke: getThemeColor(sig.color, appState.theme),
         width: 1.5,
         points: { show: false },
       })),
@@ -250,7 +251,7 @@ export default function PlotChart(props: PlotChartProps) {
     });
 
     function tick() {
-      if (chart && hasNewBuffers && (interactionMode === 'zoomed' || !props.isPaused)) {
+      if (chart && hasNewBuffers) {
         updateChart();
         hasNewBuffers = false;
       }

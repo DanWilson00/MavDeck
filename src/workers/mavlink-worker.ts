@@ -15,12 +15,15 @@ import { TimeSeriesDataManager } from '../services/timeseries-manager';
 import { MavlinkService } from '../services/mavlink-service';
 import type { MessageStats } from '../services/message-tracker';
 
+const DEFAULT_BUFFER_CAPACITY = 2000;
+
 let registry: MavlinkMetadataRegistry | null = null;
 let service: MavlinkService | null = null;
 let spoofSource: SpoofByteSource | null = null;
 let externalSource: ExternalByteSource | null = null;
 let tracker: GenericMessageTracker | null = null;
 let timeseriesManager: TimeSeriesDataManager | null = null;
+let bufferCapacity = DEFAULT_BUFFER_CAPACITY;
 
 let statsUnsubscribe: (() => void) | null = null;
 let updateUnsubscribe: (() => void) | null = null;
@@ -38,7 +41,7 @@ function serializeStats(stats: Map<string, MessageStats>): Record<string, Messag
 }
 
 function cleanupService(): void {
-  service?.disconnect();
+  disconnectPipeline();
   statsUnsubscribe?.();
   updateUnsubscribe?.();
   statustextUnsubscribe?.();
@@ -52,6 +55,13 @@ function cleanupService(): void {
   updateUnsubscribe = null;
   statustextUnsubscribe = null;
   lastAvailableFieldsSignature = '';
+}
+
+function disconnectPipeline(): void {
+  service?.disconnect();
+  tracker = null;
+  timeseriesManager?.dispose();
+  timeseriesManager = null;
 }
 
 function buildBuffersRecord(
@@ -100,7 +110,7 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
 
 function setupService(source: SpoofByteSource | ExternalByteSource): void {
   tracker = new GenericMessageTracker();
-  timeseriesManager = new TimeSeriesDataManager();
+  timeseriesManager = new TimeSeriesDataManager({ bufferCapacity });
   service = new MavlinkService(registry!, source, tracker, timeseriesManager);
 
   statsUnsubscribe = tracker.onStats(stats => {
@@ -123,6 +133,33 @@ function setupService(source: SpoofByteSource | ExternalByteSource): void {
         timestamp: Date.now(),
       });
     }
+  });
+}
+
+function reconnectWithCurrentSource(): void {
+  if (!registry) return;
+  const source = spoofSource ?? externalSource;
+  if (!source || !service) return;
+
+  const wasPaused = service.isPaused;
+
+  disconnectPipeline();
+  statsUnsubscribe?.();
+  updateUnsubscribe?.();
+  statustextUnsubscribe?.();
+  statsUnsubscribe = null;
+  updateUnsubscribe = null;
+  statustextUnsubscribe = null;
+  lastAvailableFieldsSignature = '';
+
+  setupService(source);
+  if (wasPaused) {
+    service?.pause();
+  }
+
+  service?.connect().catch((err: Error) => {
+    self.postMessage({ type: 'error', message: err.message });
+    self.postMessage({ type: 'statusChange', status: 'error' });
   });
 }
 
@@ -200,6 +237,17 @@ self.onmessage = (e: MessageEvent) => {
     case 'setInterestedFields': {
       const { fields } = e.data as { type: string; fields: string[] };
       interestedFields = new Set(fields);
+      break;
+    }
+
+    case 'setBufferCapacity': {
+      const { bufferCapacity: nextCapacity } = e.data as { type: string; bufferCapacity: number };
+      const normalizedCapacity = Number.isFinite(nextCapacity)
+        ? Math.max(1, Math.floor(nextCapacity))
+        : DEFAULT_BUFFER_CAPACITY;
+      if (normalizedCapacity === bufferCapacity) break;
+      bufferCapacity = normalizedCapacity;
+      reconnectWithCurrentSource();
       break;
     }
   }

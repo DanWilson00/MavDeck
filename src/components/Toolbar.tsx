@@ -1,8 +1,11 @@
-import { Show, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
 import { appState, setAppState, connectionManager } from '../store/app-store';
 import type { ConnectionStatus } from '../services/worker-bridge';
+import type { TimeWindow } from '../models/plot-config';
 import { isWebSerialSupported } from '../services/webserial-byte-source';
 import SettingsModal from './SettingsModal';
+
+const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
 const STATUS_COLORS: Record<ConnectionStatus, string> = {
   disconnected: '#71717a', // gray
@@ -49,13 +52,7 @@ export default function Toolbar() {
 
   function handlePause() {
     if (!appState.isReady) return;
-    if (appState.isPaused) {
-      connectionManager.resume();
-      setAppState('isPaused', false);
-    } else {
-      connectionManager.pause();
-      setAppState('isPaused', true);
-    }
+    setAppState('isPaused', !appState.isPaused);
   }
 
   const isConnected = () => status() === 'connected' || status() === 'connecting';
@@ -113,14 +110,48 @@ export default function Toolbar() {
         <Show when={status() === 'connected'}>
           <button
             onClick={handlePause}
-            class="px-3 py-1 rounded text-sm font-medium transition-colors"
-            style={{
-              'background-color': 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-            }}
+            class="p-1.5 rounded interactive-hover"
+            style={{ color: 'var(--text-secondary)' }}
+            title={appState.isPaused ? 'Resume' : 'Pause'}
+            aria-label={appState.isPaused ? 'Resume' : 'Pause'}
           >
-            {appState.isPaused ? 'Resume' : 'Pause'}
+            {appState.isPaused ? <PlayIcon /> : <PauseIcon />}
           </button>
+        </Show>
+
+        {/* Telemetry controls — only when on telemetry tab and services ready */}
+        <Show when={appState.activeTab === 'telemetry' && appState.isReady}>
+          <button
+            onClick={() => setAppState('addPlotCounter', c => c + 1)}
+            class="p-1.5 rounded interactive-hover"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Add plot"
+            aria-label="Add plot"
+          >
+            <PlusIcon />
+          </button>
+
+          <div class="flex items-center gap-1">
+            <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>Window:</span>
+            <select
+              class="text-xs rounded px-1 py-0.5"
+              style={{
+                'background-color': 'var(--bg-hover)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border)',
+              }}
+              value={appState.timeWindow}
+              onChange={(e) => setAppState('timeWindow', Number(e.currentTarget.value) as TimeWindow)}
+            >
+              <For each={TIME_WINDOW_OPTIONS}>
+                {(tw) => (
+                  <option value={tw}>
+                    {tw >= 60 ? `${tw / 60}m` : `${tw}s`}
+                  </option>
+                )}
+              </For>
+            </select>
+          </div>
         </Show>
 
         <button
@@ -157,6 +188,32 @@ function TabButton(props: { id: string; label: string }) {
     >
       {props.label}
     </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="6,4 20,12 6,20" />
+    </svg>
   );
 }
 

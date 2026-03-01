@@ -3,7 +3,7 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
-import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, connectionManager } from './store/app-store';
+import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
@@ -31,7 +31,19 @@ export default function App() {
       theme: appState.theme,
       uiScale: appState.uiScale,
       baudRate: appState.baudRate,
+      bufferCapacity: appState.bufferCapacity,
+      mapShowPath: appState.mapShowPath,
+      mapTrailLength: appState.mapTrailLength,
+      mapLayer: appState.mapLayer,
+      mapZoom: appState.mapZoom,
+      mapAutoCenter: appState.mapAutoCenter,
     });
+  });
+
+  // Apply telemetry buffer-capacity changes immediately in worker.
+  createEffect(() => {
+    if (!appState.isReady || !bridge) return;
+    bridge.setBufferCapacity(appState.bufferCapacity);
   });
 
   // Stream only fields needed by active views.
@@ -62,13 +74,7 @@ export default function App() {
         case ' ': {
           e.preventDefault();
           if (appState.connectionStatus !== 'connected') return;
-          if (appState.isPaused) {
-            connectionManager.resume();
-            setAppState('isPaused', false);
-          } else {
-            connectionManager.pause();
-            setAppState('isPaused', true);
-          }
+          setAppState('isPaused', !appState.isPaused);
           break;
         }
       }
@@ -87,6 +93,12 @@ export default function App() {
         setAppState('theme', settings.theme);
         setAppState('uiScale', settings.uiScale);
         setAppState('baudRate', settings.baudRate);
+        setAppState('bufferCapacity', settings.bufferCapacity);
+        setAppState('mapShowPath', settings.mapShowPath);
+        setAppState('mapTrailLength', settings.mapTrailLength);
+        setAppState('mapLayer', settings.mapLayer);
+        setAppState('mapZoom', settings.mapZoom);
+        setAppState('mapAutoCenter', settings.mapAutoCenter);
       });
       setSettingsLoaded(true);
 

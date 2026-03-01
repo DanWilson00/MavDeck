@@ -1,11 +1,11 @@
-import { batch, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from 'solid-js';
 import { get, set } from 'idb-keyval';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
 import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
-import type { PlotConfig, PlotSignalConfig, TimeWindow } from '../models/plot-config';
-import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
+import type { PlotConfig, PlotSignalConfig } from '../models/plot-config';
+import { SIGNAL_COLORS, getThemeColor } from '../models/plot-config';
 import { createPlotInteractionController } from './plot-interactions';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
@@ -35,13 +35,47 @@ function nextSignalId(): string {
 
 export default function TelemetryView() {
   const [selectorPlotId, setSelectorPlotId] = createSignal<string | null>(null);
-  const [timeWindow, setTimeWindow] = createSignal<TimeWindow>(DEFAULT_TIME_WINDOW);
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [selectedPlotId, setSelectedPlotId] = createSignal<string | null>(null);
 
-  const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
   const interactionController = createPlotInteractionController();
   const interactionGroupId = 'telemetry-linked';
+
+  // Bridge isPaused store flag ↔ interaction controller so pause freezes charts
+  // while data keeps flowing in the worker.
+  createEffect(on(() => appState.isPaused, (paused) => {
+    const snap = interactionController.getSnapshot();
+    if (paused && snap.mode === 'live') {
+      const now = Date.now() / 1000;
+      interactionController.emitZoom({ min: now - appState.timeWindow, max: now }, '__pause__');
+    } else if (!paused) {
+      interactionController.emitReset('__pause__');
+    }
+  }));
+
+  // Sync store isPaused when user scroll-zooms or double-click-resets a chart.
+  // Skip events from the pause button itself ('__pause__') to avoid loops.
+  const unsubInteraction = interactionController.subscribe(snapshot => {
+    if (snapshot.lastSourcePlotId === '__pause__') return;
+    if (snapshot.mode === 'zoomed' && !appState.isPaused) {
+      setAppState('isPaused', true);
+    } else if (snapshot.mode === 'live' && appState.isPaused) {
+      setAppState('isPaused', false);
+    }
+  });
+  onCleanup(unsubInteraction);
+
+  // Toolbar "+" button increments addPlotCounter → trigger handleAddPlot.
+  createEffect(on(() => appState.addPlotCounter, (count) => {
+    if (count > 0) handleAddPlot();
+  }));
+
+  // Toolbar window selector writes appState.timeWindow → update all plots.
+  createEffect(on(() => appState.timeWindow, (tw) => {
+    updatePlots(plots => plots.map(p => ({ ...p, timeWindow: tw })));
+    scheduleLayoutSave();
+  }));
+
   let layoutCache: SavedLayout = {};
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
@@ -196,7 +230,7 @@ export default function TelemetryView() {
       title: 'New Plot',
       signals: [],
       scalingMode: 'auto',
-      timeWindow: timeWindow(),
+      timeWindow: appState.timeWindow,
       gridPos: { x: 0, y: 0, w: 6, h: 4 },
     };
     updatePlots(plots => [...plots, plot]);
@@ -217,7 +251,7 @@ export default function TelemetryView() {
     const map = new Map<string, string>();
     for (const sig of plot.signals) {
       if (sig.visible) {
-        map.set(sig.fieldKey, sig.color);
+        map.set(sig.fieldKey, getThemeColor(sig.color, appState.theme));
       }
     }
     return map;
@@ -235,52 +269,6 @@ export default function TelemetryView() {
 
       {/* Right: Plot area */}
       <div class="flex-1 flex flex-col min-w-0">
-        {/* Plot toolbar */}
-        <div
-          class="flex items-center gap-3 px-3 py-2 border-b"
-          style={{ 'border-color': 'var(--border)', 'background-color': 'var(--bg-panel)' }}
-        >
-          <button
-            class="px-2 py-1 rounded text-xs font-medium transition-colors"
-            style={{
-              'background-color': 'var(--accent)',
-              color: '#000',
-            }}
-            onClick={handleAddPlot}
-          >
-            + Add Plot
-          </button>
-
-          {/* Time window selector */}
-          <div class="flex items-center gap-1">
-            <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>Window:</span>
-            <select
-              class="text-xs rounded px-1 py-0.5"
-              style={{
-                'background-color': 'var(--bg-hover)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border)',
-              }}
-              value={timeWindow()}
-              onChange={(e) => {
-                const val = Number(e.currentTarget.value) as TimeWindow;
-                setTimeWindow(val);
-                // Update all existing plots' time window
-                updatePlots(plots => plots.map(p => ({ ...p, timeWindow: val })));
-                scheduleLayoutSave();
-              }}
-            >
-              <For each={TIME_WINDOW_OPTIONS}>
-                {(tw) => (
-                  <option value={tw}>
-                    {tw >= 60 ? `${tw / 60}m` : `${tw}s`}
-                  </option>
-                )}
-              </For>
-            </select>
-          </div>
-        </div>
-
         {/* Plot grid */}
         <div class="flex-1 min-h-0">
           <Show
@@ -292,7 +280,7 @@ export default function TelemetryView() {
                     No plots yet
                   </p>
                   <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Click "+ Add Plot", select a plot, then click fields to add signals
+                    Use the "+" button in the toolbar, select a plot, then click fields to add signals
                   </p>
                 </div>
               </div>

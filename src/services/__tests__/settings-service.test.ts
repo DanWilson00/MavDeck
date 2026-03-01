@@ -41,6 +41,11 @@ describe('settings-service', () => {
       bufferCapacity: 5000,
       dataRetentionMinutes: 30,
       updateIntervalMs: 32,
+      mapShowPath: false,
+      mapTrailLength: 200,
+      mapLayer: 'satellite',
+      mapZoom: 12,
+      mapAutoCenter: false,
     };
     mockStore.set('mavdeck-settings-v1', saved);
 
@@ -77,6 +82,11 @@ describe('settings-service', () => {
       bufferCapacity: 4000,
       dataRetentionMinutes: 20,
       updateIntervalMs: 32,
+      mapShowPath: true,
+      mapTrailLength: 500,
+      mapLayer: 'street',
+      mapZoom: 15,
+      mapAutoCenter: true,
     };
 
     await saveSettings(settings);
@@ -93,6 +103,11 @@ describe('settings-service', () => {
       bufferCapacity: 10000,
       dataRetentionMinutes: 60,
       updateIntervalMs: 50,
+      mapShowPath: false,
+      mapTrailLength: 1000,
+      mapLayer: 'satellite',
+      mapZoom: 18,
+      mapAutoCenter: false,
     };
 
     await saveSettings(settings);

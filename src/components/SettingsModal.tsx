@@ -7,6 +7,12 @@ import { parseFromFileMap } from '../mavlink/xml-parser';
 const UI_SCALE_MIN = 0.8;
 const UI_SCALE_MAX = 1.4;
 const UI_SCALE_STEP = 0.05;
+const BUFFER_CAPACITY_MIN = 100;
+const BUFFER_CAPACITY_MAX = 20000;
+const BUFFER_CAPACITY_STEP = 100;
+const TRAIL_LENGTH_MIN = 50;
+const TRAIL_LENGTH_MAX = 5000;
+const TRAIL_LENGTH_STEP = 50;
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -33,6 +39,18 @@ export default function SettingsModal(props: SettingsModalProps) {
     setAppState('uiScale', clamped);
   }
 
+  function setBufferCapacity(value: number) {
+    const rounded = Math.round(value / BUFFER_CAPACITY_STEP) * BUFFER_CAPACITY_STEP;
+    const clamped = Math.max(BUFFER_CAPACITY_MIN, Math.min(BUFFER_CAPACITY_MAX, rounded));
+    setAppState('bufferCapacity', clamped);
+  }
+
+  function setTrailLength(value: number) {
+    const rounded = Math.round(value / TRAIL_LENGTH_STEP) * TRAIL_LENGTH_STEP;
+    const clamped = Math.max(TRAIL_LENGTH_MIN, Math.min(TRAIL_LENGTH_MAX, rounded));
+    setAppState('mapTrailLength', clamped);
+  }
+
   async function handleFileSelected(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -55,7 +73,7 @@ export default function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center"
+      class="fixed inset-0 z-[9999] flex items-center justify-center"
       style={{ 'background-color': 'rgba(0,0,0,0.45)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
@@ -159,6 +177,54 @@ export default function SettingsModal(props: SettingsModalProps) {
               >
                 {BAUD_RATES.map(rate => <option value={rate}>{rate}</option>)}
               </select>
+            </div>
+            <div>
+              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
+                Telemetry Buffer Capacity (samples per field)
+              </label>
+              <input
+                id="buffer-capacity-input"
+                type="number"
+                min={BUFFER_CAPACITY_MIN}
+                max={BUFFER_CAPACITY_MAX}
+                step={BUFFER_CAPACITY_STEP}
+                value={appState.bufferCapacity}
+                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+                onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+              />
+            </div>
+          </section>
+
+          <section class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+              Map
+            </h3>
+            <div>
+              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="trail-length-input">
+                Trail Length (data points)
+              </label>
+              <input
+                id="trail-length-input"
+                type="number"
+                min={TRAIL_LENGTH_MIN}
+                max={TRAIL_LENGTH_MAX}
+                step={TRAIL_LENGTH_STEP}
+                value={appState.mapTrailLength}
+                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+                onInput={(e) => setTrailLength(Number(e.currentTarget.value))}
+                onBlur={(e) => setTrailLength(Number(e.currentTarget.value))}
+              />
             </div>
           </section>
 

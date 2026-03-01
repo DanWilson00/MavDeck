@@ -18,6 +18,11 @@ export interface MavDeckSettings {
   bufferCapacity: number;
   dataRetentionMinutes: number;
   updateIntervalMs: number;
+  mapShowPath: boolean;
+  mapTrailLength: number;
+  mapLayer: 'street' | 'satellite';
+  mapZoom: number;
+  mapAutoCenter: boolean;
 }
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
@@ -27,6 +32,11 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   bufferCapacity: 2000,
   dataRetentionMinutes: 10,
   updateIntervalMs: 16,
+  mapShowPath: true,
+  mapTrailLength: 500,
+  mapLayer: 'street',
+  mapZoom: 15,
+  mapAutoCenter: true,
 };
 
 /**
