@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from 'solid-js';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
-import PlotPanel from './PlotPanel';
+import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { SIGNAL_COLORS, DEFAULT_TIME_WINDOW } from '../models/plot-config';
@@ -79,6 +79,17 @@ export default function TelemetryView() {
 
   function handleOpenSignalSelector(plotId: string) {
     setSelectorPlotId(plotId);
+  }
+
+  function handleGridChange(positions: Map<string, { x: number; y: number; w: number; h: number }>) {
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === appState.activeSubTab);
+    if (tabIdx === -1) return;
+    for (const [plotId, pos] of positions) {
+      const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === plotId);
+      if (plotIdx !== -1) {
+        setAppState('plotTabs', tabIdx, 'plots', plotIdx, 'gridPos', pos);
+      }
+    }
   }
 
   function handleToggleSignal(plotId: string, fieldKey: string) {
@@ -185,7 +196,7 @@ export default function TelemetryView() {
         </div>
 
         {/* Plot grid */}
-        <div class="flex-1 overflow-auto p-2">
+        <div class="flex-1 min-h-0">
           <Show
             when={currentPlots().length > 0}
             fallback={
@@ -201,24 +212,12 @@ export default function TelemetryView() {
               </div>
             }
           >
-            <div
-              class="grid gap-2"
-              style={{
-                'grid-template-columns': 'repeat(auto-fill, minmax(400px, 1fr))',
-              }}
-            >
-              <For each={currentPlots()}>
-                {(plot) => (
-                  <div style={{ height: '300px' }}>
-                    <PlotPanel
-                      config={plot}
-                      onClose={handleClosePlot}
-                      onOpenSignalSelector={handleOpenSignalSelector}
-                    />
-                  </div>
-                )}
-              </For>
-            </div>
+            <GridLayout
+              plots={currentPlots()}
+              onClose={handleClosePlot}
+              onOpenSignalSelector={handleOpenSignalSelector}
+              onGridChange={handleGridChange}
+            />
           </Show>
         </div>
       </div>
