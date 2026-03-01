@@ -4,6 +4,14 @@ import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { appState, workerBridge } from '../store/app-store';
 
+function getChartColors(): { grid: string; axis: string } {
+  const style = getComputedStyle(document.documentElement);
+  return {
+    grid: style.getPropertyValue('--chart-grid').trim() || 'rgba(255,255,255,0.06)',
+    axis: style.getPropertyValue('--chart-axis').trim() || '#888',
+  };
+}
+
 interface PlotChartProps {
   signals: PlotSignalConfig[];
   timeWindow: TimeWindow;
@@ -34,6 +42,7 @@ export default function PlotChart(props: PlotChartProps) {
       })),
     ];
 
+    const colors = getChartColors();
     const opts: uPlot.Options = {
       width: Math.max(rect.width, 100),
       height: Math.max(rect.height, 100),
@@ -43,12 +52,12 @@ export default function PlotChart(props: PlotChartProps) {
       series,
       axes: [
         {
-          stroke: '#888',
-          grid: { stroke: '#333', width: 1 },
+          stroke: colors.axis,
+          grid: { stroke: colors.grid, width: 1 },
         },
         {
-          stroke: '#888',
-          grid: { stroke: '#333', width: 1 },
+          stroke: colors.axis,
+          grid: { stroke: colors.grid, width: 1 },
         },
       ],
       scales: {
@@ -155,6 +164,45 @@ export default function PlotChart(props: PlotChartProps) {
     if (!props.isPaused && chart) {
       updateChart();
     }
+  });
+
+  // Recreate chart when theme changes (uPlot doesn't support dynamic option updates)
+  createEffect(() => {
+    const _theme = appState.theme; // track theme
+    if (!chart || !containerRef) return;
+
+    const colors = getChartColors();
+    const rect = containerRef.getBoundingClientRect();
+
+    const visibleSignals = props.signals.filter(s => s.visible);
+    const series: uPlot.Series[] = [
+      { label: 'Time' },
+      ...visibleSignals.map(sig => ({
+        label: sig.fieldKey,
+        stroke: sig.color,
+        width: 1.5,
+      })),
+    ];
+
+    const opts: uPlot.Options = {
+      width: Math.max(rect.width, 100),
+      height: Math.max(rect.height, 100),
+      cursor: { sync: { key: 'telemetry' } },
+      series,
+      axes: [
+        { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
+        { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
+      ],
+      scales: { x: { time: true } },
+    };
+
+    const emptyData: uPlot.AlignedData = [
+      new Float64Array(0),
+      ...visibleSignals.map(() => new Float64Array(0)),
+    ];
+
+    chart.destroy();
+    chart = new uPlot(opts, emptyData, containerRef);
   });
 
   onCleanup(() => {

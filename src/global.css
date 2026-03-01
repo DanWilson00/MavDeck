@@ -10,6 +10,8 @@
   --accent: #00d4ff;
   --accent-green: #00ff88;
   --border: #2a2d35;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: #888;
 }
 
 /* Light theme — activated by .light class on <html> */
@@ -22,6 +24,8 @@
   --accent: #0066cc;
   --accent-green: #059669;
   --border: #e4e4e7;
+  --chart-grid: rgba(0, 0, 0, 0.08);
+  --chart-axis: #666;
 }
 
 body {
