@@ -3,12 +3,7 @@ import type { ConnectionStatus } from '../services/worker-bridge';
 import type { MavlinkWorkerBridge } from '../services/worker-bridge';
 import type { ConnectionManager } from '../services/connection-manager';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
-
-export interface PlotTab {
-  id: string;
-  name: string;
-  plots: string[]; // field keys like "ATTITUDE.roll"
-}
+import type { PlotTab } from '../models/plot-config';
 
 export interface AppState {
   connectionStatus: ConnectionStatus;
