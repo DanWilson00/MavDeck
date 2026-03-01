@@ -46,13 +46,16 @@ export class ConnectionManager {
         this.bridge.sendBytes(data);
       });
 
-      // Tell worker to set up ExternalByteSource pipeline
-      this.bridge.connect(config);
-
-      // Open serial port (triggers browser dialog)
-      this.serialSource.connect().catch(() => {
-        // User cancelled dialog or port error — disconnect
-        this.bridge.disconnect();
+      // Open serial port first (triggers browser dialog), then set up worker pipeline.
+      // This order prevents a false "connected" flash if the user cancels the dialog.
+      this.serialSource.connect().then(() => {
+        this.bridge.connect(config);
+      }).catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'NotFoundError') {
+          // User cancelled port picker — expected, no action needed
+        } else {
+          console.error('[ConnectionManager] Serial connect failed:', err);
+        }
         this.serialSource = null;
       });
     } else {
@@ -60,8 +63,10 @@ export class ConnectionManager {
     }
   }
 
-  /** Disconnect and clean up. */
+  /** Disconnect and clean up. Serial port cleanup is fire-and-forget (async). */
   disconnect(): void {
+    // Serial cleanup is async but fire-and-forget is safe here:
+    // WebSerialByteSource.disconnect() has internal try/catch for all async ops.
     this.serialSource?.disconnect();
     this.serialSource = null;
     this.bridge.disconnect();

@@ -103,9 +103,6 @@ export default function Toolbar() {
           >
             Connect Serial
           </button>
-        </Show>
-
-        <Show when={isWebSerialSupported() && !isConnected()}>
           <select
             class="text-sm rounded px-1 py-1"
             style={{
