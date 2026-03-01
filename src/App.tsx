@@ -1,4 +1,4 @@
-import { onMount, onCleanup, Show } from 'solid-js';
+import { onMount, onCleanup, createEffect, batch, Show } from 'solid-js';
 import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TabBar from './components/TabBar';
@@ -8,13 +8,32 @@ import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegist
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
+import { loadSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from './services/settings-service';
 
 export default function App() {
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
 
+  // Persist settings reactively when theme or baudRate changes
+  createEffect(() => {
+    saveSettingsDebounced({
+      theme: appState.theme,
+      baudRate: appState.baudRate,
+      bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
+      dataRetentionMinutes: DEFAULT_SETTINGS.dataRetentionMinutes,
+      updateIntervalMs: DEFAULT_SETTINGS.updateIntervalMs,
+    });
+  });
+
   onMount(async () => {
     try {
+      // Load persisted settings and apply to store
+      const settings = await loadSettings();
+      batch(() => {
+        setAppState('theme', settings.theme);
+        setAppState('baudRate', settings.baudRate);
+      });
+
       // Load dialect
       const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
       if (!response.ok) {
