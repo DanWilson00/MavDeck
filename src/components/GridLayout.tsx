@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, on } from 'solid-js';
+import { onMount, onCleanup, createEffect, on, Show } from 'solid-js';
 import { render } from 'solid-js/web';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.css';
@@ -40,15 +40,25 @@ export default function GridLayout(props: GridLayoutProps) {
       id: plotConfig.id,
     });
 
-    // Mount SolidJS component into the content div
+    // Mount SolidJS component into the content div.
+    // Capture only the stable ID — look up the live config reactively from
+    // props.plots so that store updates (e.g. adding a signal) propagate.
+    const plotId = plotConfig.id;
     const dispose = render(
-      () => (
-        <PlotPanel
-          config={plotConfig}
-          onClose={props.onClose}
-          onOpenSignalSelector={props.onOpenSignalSelector}
-        />
-      ),
+      () => {
+        const config = () => props.plots.find(p => p.id === plotId);
+        return (
+          <Show when={config()}>
+            {(c) => (
+              <PlotPanel
+                config={c()}
+                onClose={props.onClose}
+                onOpenSignalSelector={props.onOpenSignalSelector}
+              />
+            )}
+          </Show>
+        );
+      },
       content,
     );
 
