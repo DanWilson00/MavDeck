@@ -9,14 +9,24 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,json,svg,png}'],
+      },
       manifest: {
         name: 'MavDeck',
         short_name: 'MavDeck',
         description: 'Real-time MAVLink telemetry visualization',
-        theme_color: '#111827',
-        background_color: '#111827',
+        theme_color: '#111217',
+        background_color: '#111217',
         display: 'standalone',
-        icons: [],
+        icons: [
+          {
+            src: 'icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any',
+          },
+        ],
       },
     }),
   ],
