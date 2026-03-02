@@ -312,31 +312,20 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
 
       const { config } = msg;
 
-      if (config.type === 'spoof') {
-        spoofSource = new SpoofByteSource(registry);
-        setupService(spoofSource);
-        startLogSession();
+      const source = config.type === 'spoof'
+        ? (spoofSource = new SpoofByteSource(registry))
+        : (externalSource = new ExternalByteSource());
 
-        postEvent({ type: 'statusChange', status: 'connecting' });
-        service!.connect().then(() => {
-          postEvent({ type: 'statusChange', status: 'connected' });
-        }).catch((err: Error) => {
-          postEvent({ type: 'error', message: err.message });
-          postEvent({ type: 'statusChange', status: 'error' });
-        });
-      } else if (config.type === 'webserial') {
-        externalSource = new ExternalByteSource();
-        setupService(externalSource);
-        startLogSession();
+      setupService(source);
+      startLogSession();
 
-        postEvent({ type: 'statusChange', status: 'connecting' });
-        service!.connect().then(() => {
-          postEvent({ type: 'statusChange', status: 'connected' });
-        }).catch((err: Error) => {
-          postEvent({ type: 'error', message: err.message });
-          postEvent({ type: 'statusChange', status: 'error' });
-        });
-      }
+      postEvent({ type: 'statusChange', status: 'connecting' });
+      service!.connect().then(() => {
+        postEvent({ type: 'statusChange', status: 'connected' });
+      }).catch((err: Error) => {
+        postEvent({ type: 'error', message: err.message });
+        postEvent({ type: 'statusChange', status: 'error' });
+      });
       break;
     }
 
