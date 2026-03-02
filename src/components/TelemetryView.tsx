@@ -1,11 +1,12 @@
-import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from 'solid-js';
-import { get, set } from 'idb-keyval';
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from 'solid-js';
+import { get, set, del } from 'idb-keyval';
 import { appState, setAppState } from '../store';
 import MessageMonitor from './MessageMonitor';
 import LogLibraryPane from './LogLibraryPane';
 import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
-import type { PlotConfig, PlotSignalConfig } from '../models';
+import PlotTabBar from './PlotTabBar';
+import type { PlotConfig, PlotSignalConfig, PlotTab } from '../models';
 import { SIGNAL_COLORS, getThemeColor } from '../models';
 import { createPlotInteractionController } from '../core';
 
@@ -19,11 +20,8 @@ function pickNextColor(existingSignals: PlotSignalConfig[]): string {
   return SIGNAL_COLORS[existingSignals.length % SIGNAL_COLORS.length];
 }
 
-const LAYOUT_KEY = 'mavdeck-layout-v1';
-
-interface SavedLayout {
-  [tabId: string]: PlotConfig[];
-}
+const LAYOUT_KEY_V2 = 'mavdeck-layout-v2';
+const LAYOUT_KEY_V1 = 'mavdeck-layout-v1';
 
 let plotIdCounter = 0;
 function nextPlotId(): string {
@@ -42,7 +40,7 @@ export default function TelemetryView() {
   const interactionController = createPlotInteractionController();
   const interactionGroupId = 'telemetry-linked';
 
-  // Bridge isPaused store flag ↔ interaction controller so pause freezes charts
+  // Bridge isPaused store flag <-> interaction controller so pause freezes charts
   // while data keeps flowing in the worker.
   createEffect(on(() => appState.isPaused, (paused) => {
     const snap = interactionController.getSnapshot();
@@ -69,18 +67,17 @@ export default function TelemetryView() {
   });
   onCleanup(unsubInteraction);
 
-  // Toolbar "+" button increments addPlotCounter → trigger handleAddPlot.
+  // Toolbar "+" button increments addPlotCounter -> trigger handleAddPlot.
   createEffect(on(() => appState.addPlotCounter, (count) => {
     if (count > 0) handleAddPlot();
   }));
 
-  // Toolbar window selector writes appState.timeWindow → update all plots.
+  // Toolbar window selector writes appState.timeWindow -> update all plots.
   createEffect(on(() => appState.timeWindow, (tw) => {
     updatePlots(plots => plots.map(p => ({ ...p, timeWindow: tw })));
     scheduleLayoutSave();
   }));
 
-  let layoutCache: SavedLayout = {};
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let saveQueue: Promise<void> = Promise.resolve();
 
@@ -96,56 +93,62 @@ export default function TelemetryView() {
     setAppState('plotTabs', tabIdx, 'plots', prev => fn(prev));
   }
 
-  function snapshotCurrentPlots(): PlotConfig[] {
-    // JSON round-trip strips SolidJS store proxies so IndexedDB can serialize
-    return JSON.parse(JSON.stringify(currentPlots())) as PlotConfig[];
-  }
-
-  function queueLayoutSave(tabId: string, plots: PlotConfig[]): void {
-    saveQueue = saveQueue
-      .then(async () => {
-        layoutCache[tabId] = plots;
-        await set(LAYOUT_KEY, layoutCache);
-      })
-      .catch(err => {
-        console.error('[TelemetryView] Failed to save layout:', err);
-      });
-  }
-
   function scheduleLayoutSave(): void {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      queueLayoutSave(appState.activeSubTab, snapshotCurrentPlots());
+      // Serialize entire plotTabs array, stripping SolidJS proxies
+      const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
+      saveQueue = saveQueue
+        .then(() => set(LAYOUT_KEY_V2, snapshot))
+        .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
       saveTimer = undefined;
     }, 300);
   }
 
   function flushLayoutSave(): void {
     clearTimeout(saveTimer);
-    queueLayoutSave(appState.activeSubTab, snapshotCurrentPlots());
+    const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
+    saveQueue = saveQueue
+      .then(() => set(LAYOUT_KEY_V2, snapshot))
+      .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
     saveTimer = undefined;
   }
 
   onMount(async () => {
-    const saved = await get<SavedLayout>(LAYOUT_KEY);
-    if (!saved) return;
-    layoutCache = saved;
-    const tabId = appState.activeSubTab;
-    const plots = saved[tabId];
-    if (!plots || plots.length === 0) return;
+    // Try v2 first
+    let savedTabs = await get<PlotTab[]>(LAYOUT_KEY_V2);
 
-    const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
-    if (tabIdx === -1) return;
-
-    // Restore plot ID counter to avoid collisions
-    for (const p of plots) {
-      const num = parseInt(p.id.replace('plot-', ''), 10);
-      if (!isNaN(num) && num >= plotIdCounter) {
-        plotIdCounter = num;
+    if (!savedTabs) {
+      // Try v1 migration
+      const v1 = await get<{ [tabId: string]: PlotConfig[] }>(LAYOUT_KEY_V1);
+      if (v1) {
+        savedTabs = Object.entries(v1).map(([tabId, plots], i) => ({
+          id: tabId,
+          name: `Tab ${i + 1}`,
+          plots,
+        }));
+        // Save as v2 and remove v1
+        await set(LAYOUT_KEY_V2, savedTabs);
+        await del(LAYOUT_KEY_V1);
       }
     }
 
-    setAppState('plotTabs', tabIdx, 'plots', plots);
+    if (!savedTabs || savedTabs.length === 0) return;
+
+    // Restore plotIdCounter from ALL tabs' plots
+    for (const tab of savedTabs) {
+      for (const p of tab.plots) {
+        const num = parseInt(p.id.replace('plot-', ''), 10);
+        if (!isNaN(num) && num >= plotIdCounter) {
+          plotIdCounter = num;
+        }
+      }
+    }
+
+    batch(() => {
+      setAppState('plotTabs', savedTabs!);
+      setAppState('activeSubTab', savedTabs![0].id);
+    });
   });
 
   onCleanup(() => {
@@ -159,8 +162,10 @@ export default function TelemetryView() {
     handleToggleSignal(plotId, fieldKey);
   }
 
-  function handleClosePlot(plotId: string) {
-    updatePlots(plots => plots.filter(p => p.id !== plotId));
+  function handleClosePlot(plotId: string, tabId: string) {
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
+    if (tabIdx === -1) return;
+    setAppState('plotTabs', tabIdx, 'plots', prev => prev.filter(p => p.id !== plotId));
     scheduleLayoutSave();
   }
 
@@ -168,8 +173,8 @@ export default function TelemetryView() {
     setSelectorPlotId(plotId);
   }
 
-  function handleGridChange(positions: Map<string, { x: number; y: number; w: number; h: number }>) {
-    const tabIdx = appState.plotTabs.findIndex(t => t.id === appState.activeSubTab);
+  function handleGridChange(positions: Map<string, { x: number; y: number; w: number; h: number }>, tabId: string) {
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
     if (tabIdx === -1) return;
     batch(() => {
       for (const [plotId, pos] of positions) {
@@ -219,8 +224,8 @@ export default function TelemetryView() {
     setSelectedPlotId(prev => prev === plotId ? null : plotId);
   }
 
-  function handleClearSignals(plotId: string) {
-    const tabIdx = appState.plotTabs.findIndex(t => t.id === appState.activeSubTab);
+  function handleClearSignals(plotId: string, tabId: string) {
+    const tabIdx = appState.plotTabs.findIndex(t => t.id === tabId);
     if (tabIdx === -1) return;
     const plotIdx = appState.plotTabs[tabIdx].plots.findIndex(p => p.id === plotId);
     if (plotIdx === -1) return;
@@ -289,35 +294,54 @@ export default function TelemetryView() {
 
       {/* Right: Plot area */}
       <div class="flex-1 flex flex-col min-w-0">
-        {/* Plot grid */}
-        <div class="flex-1 min-h-0">
-          <Show
-            when={currentPlots().length > 0}
-            fallback={
-              <div class="flex items-center justify-center h-full">
-                <div class="text-center">
-                  <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    No plots yet
-                  </p>
-                  <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Use the "+" button in the toolbar, select a plot, then click fields to add signals
-                  </p>
+        <PlotTabBar onLayoutDirty={scheduleLayoutSave} />
+        <div class="flex-1 min-h-0 relative">
+          <For each={appState.plotTabs}>
+            {(tab) => {
+              const isActive = () => appState.activeSubTab === tab.id;
+              const tabPlots = () => {
+                const t = appState.plotTabs.find(t2 => t2.id === tab.id);
+                return t?.plots ?? [];
+              };
+              return (
+                <div
+                  class="absolute inset-0"
+                  style={{
+                    visibility: isActive() ? 'visible' : 'hidden',
+                    'z-index': isActive() ? 1 : 0,
+                  }}
+                >
+                  <Show
+                    when={tabPlots().length > 0}
+                    fallback={
+                      <div class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                          <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            No plots yet
+                          </p>
+                          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
+                            Use the "+" button in the toolbar, select a plot, then click fields to add signals
+                          </p>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <GridLayout
+                      plots={tabPlots()}
+                      onClose={(plotId) => handleClosePlot(plotId, tab.id)}
+                      onOpenSignalSelector={handleOpenSignalSelector}
+                      onGridChange={(positions) => handleGridChange(positions, tab.id)}
+                      selectedPlotId={selectedPlotId()}
+                      onSelectPlot={handleSelectPlot}
+                      onClearSignals={(plotId) => handleClearSignals(plotId, tab.id)}
+                      interactionGroupId={interactionGroupId}
+                      interactionController={interactionController}
+                    />
+                  </Show>
                 </div>
-              </div>
-            }
-          >
-            <GridLayout
-              plots={currentPlots()}
-              onClose={handleClosePlot}
-              onOpenSignalSelector={handleOpenSignalSelector}
-              onGridChange={handleGridChange}
-              selectedPlotId={selectedPlotId()}
-              onSelectPlot={handleSelectPlot}
-              onClearSignals={handleClearSignals}
-              interactionGroupId={interactionGroupId}
-              interactionController={interactionController}
-            />
-          </Show>
+              );
+            }}
+          </For>
         </div>
       </div>
 
