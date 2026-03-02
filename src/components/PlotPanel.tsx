@@ -1,9 +1,9 @@
 import { For, Show } from 'solid-js';
 import PlotChart from './PlotChart';
-import type { PlotConfig } from '../models/plot-config';
-import { getThemeColor } from '../models/plot-config';
-import { appState } from '../store/app-store';
-import type { PlotInteractionController } from '../core/plot-interactions';
+import type { PlotConfig } from '../models';
+import { getThemeColor } from '../models';
+import { appState } from '../store';
+import type { PlotInteractionController } from '../core';
 
 interface PlotPanelProps {
   config: PlotConfig;

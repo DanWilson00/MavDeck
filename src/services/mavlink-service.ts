@@ -5,7 +5,7 @@
  * Runs inside the Web Worker (not on the main thread).
  */
 
-import { EventEmitter } from '../core/event-emitter';
+import { EventEmitter } from '../core';
 import type { MavlinkMessage } from '../mavlink/decoder';
 import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import { MavlinkFrameParser } from '../mavlink/frame-parser';

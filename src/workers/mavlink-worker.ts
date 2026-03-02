@@ -8,15 +8,17 @@
  */
 
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
-import { SpoofByteSource } from '../services/spoof-byte-source';
-import { ExternalByteSource } from '../services/external-byte-source';
-import { GenericMessageTracker } from '../services/message-tracker';
-import { TimeSeriesDataManager } from '../services/timeseries-manager';
-import { MavlinkService } from '../services/mavlink-service';
+import {
+  SpoofByteSource,
+  ExternalByteSource,
+  GenericMessageTracker,
+  TimeSeriesDataManager,
+  MavlinkService,
+  encodeTlogRecord,
+  type MessageStats,
+} from '../services';
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import { MavlinkMessageDecoder } from '../mavlink/decoder';
-import type { MessageStats } from '../services/message-tracker';
-import { encodeTlogRecord } from '../services/tlog-codec';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
 
 /** Type-safe wrapper around self.postMessage for worker events. */

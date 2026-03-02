@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState, workerBridge } from '../store/app-store';
-import type { PlotConfig } from '../models/plot-config';
+import { appState, workerBridge } from '../store';
+import type { PlotConfig } from '../models';
 import { toggleSetItem } from './hooks';
 
 interface SignalSelectorProps {

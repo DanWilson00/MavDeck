@@ -3,8 +3,8 @@ import { render } from 'solid-js/web';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.css';
 import PlotPanel from './PlotPanel';
-import type { PlotConfig } from '../models/plot-config';
-import type { PlotInteractionController } from '../core/plot-interactions';
+import type { PlotConfig } from '../models';
+import type { PlotInteractionController } from '../core';
 
 interface GridLayoutProps {
   plots: PlotConfig[];

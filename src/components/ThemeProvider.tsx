@@ -1,5 +1,5 @@
 import { createEffect, type ParentProps } from 'solid-js';
-import { appState, setAppState } from '../store/app-store';
+import { appState, setAppState } from '../store';
 
 export default function ThemeProvider(props: ParentProps) {
   // Apply theme CSS class reactively

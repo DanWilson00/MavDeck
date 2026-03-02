@@ -3,13 +3,20 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
-import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from './store/app-store';
-import { MavlinkWorkerBridge } from './services/worker-bridge';
-import { ConnectionManager } from './services/connection-manager';
+import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from './store';
+import {
+  MavlinkWorkerBridge,
+  ConnectionManager,
+  loadSettings,
+  saveSettingsDebounced,
+  DEFAULT_SETTINGS,
+  LogViewerService,
+  finalizeSession,
+  recoverStagedSessions,
+  stageSessionChunk,
+  stageSessionStart,
+} from './services';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
-import { loadSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from './services/settings-service';
-import { LogViewerService } from './services/log-viewer-service';
-import { finalizeSession, recoverStagedSessions, stageSessionChunk, stageSessionStart } from './services/tlog-service';
 
 const MAP_REQUIRED_FIELDS = [
   'GLOBAL_POSITION_INT.lat',

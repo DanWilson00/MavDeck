@@ -10,8 +10,7 @@
  * the rendering thread.
  */
 
-import { EventEmitter } from '../core/event-emitter';
-import { RingBuffer } from '../core/ring-buffer';
+import { EventEmitter, RingBuffer } from '../core';
 import type { MavlinkMessage } from '../mavlink/decoder';
 
 /** Default ring buffer capacity per field (number of samples). */

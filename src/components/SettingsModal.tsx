@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { appState, setAppState, workerBridge, registry } from '../store/app-store';
-import { BAUD_RATES } from '../services/webserial-byte-source';
-import type { BaudRate } from '../services/webserial-byte-source';
+import { appState, setAppState, workerBridge, registry } from '../store';
+import { BAUD_RATES } from '../services';
+import type { BaudRate } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
 
 const UI_SCALE_MIN = 0.8;

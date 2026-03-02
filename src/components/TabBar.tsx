@@ -1,5 +1,5 @@
 import { For } from 'solid-js';
-import { appState, setAppState } from '../store/app-store';
+import { appState, setAppState } from '../store';
 
 const TABS = [
   { id: 'telemetry', label: 'Telemetry' },

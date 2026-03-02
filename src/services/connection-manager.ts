@@ -5,7 +5,7 @@
  * Tracks connection status locally.
  */
 
-import { EventEmitter } from '../core/event-emitter';
+import { EventEmitter } from '../core';
 import type { MavlinkWorkerBridge, ConnectionConfig, ConnectionStatus } from './worker-bridge';
 import { WebSerialByteSource } from './webserial-byte-source';
 

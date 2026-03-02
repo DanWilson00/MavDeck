@@ -1,14 +1,16 @@
 import { createStore } from 'solid-js/store';
-import type { ConnectionStatus } from '../services/worker-bridge';
-import type { MavlinkWorkerBridge } from '../services/worker-bridge';
-import type { ConnectionManager } from '../services/connection-manager';
+import type {
+  ConnectionStatus,
+  MavlinkWorkerBridge,
+  ConnectionManager,
+  BaudRate,
+  LogViewerService,
+  LogViewerState,
+} from '../services';
+import { DEFAULT_BAUD_RATE, DEFAULT_SETTINGS } from '../services';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
-import type { PlotTab, TimeWindow } from '../models/plot-config';
-import { DEFAULT_TIME_WINDOW } from '../models/plot-config';
-import type { BaudRate } from '../services/webserial-byte-source';
-import { DEFAULT_BAUD_RATE } from '../services/webserial-byte-source';
-import { DEFAULT_SETTINGS } from '../services/settings-service';
-import type { LogViewerService, LogViewerState } from '../services/log-viewer-service';
+import type { PlotTab, TimeWindow } from '../models';
+import { DEFAULT_TIME_WINDOW } from '../models';
 
 export interface AppState {
   connectionStatus: ConnectionStatus;

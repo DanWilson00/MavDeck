@@ -1,7 +1,7 @@
 import { onMount, onCleanup, createSignal, createEffect } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { appState, setAppState, workerBridge } from '../store/app-store';
+import { appState, setAppState, workerBridge } from '../store';
 
 const INITIAL_LAT = 34.0522;
 const INITIAL_LON = -118.2437;

@@ -6,7 +6,7 @@
  * decay for frequency calculation.
  */
 
-import { EventEmitter } from '../core/event-emitter';
+import { EventEmitter } from '../core';
 import type { MavlinkMessage } from '../mavlink/decoder';
 
 export interface MessageStats {

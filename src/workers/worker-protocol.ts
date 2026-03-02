@@ -6,7 +6,7 @@
  * casts needed.
  */
 
-import type { MessageStats } from '../services/message-tracker';
+import type { MessageStats } from '../services';
 
 // ---------------------------------------------------------------------------
 // Shared types used by both directions

@@ -1,13 +1,13 @@
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from 'solid-js';
 import { get, set } from 'idb-keyval';
-import { appState, setAppState } from '../store/app-store';
+import { appState, setAppState } from '../store';
 import MessageMonitor from './MessageMonitor';
 import LogLibraryPane from './LogLibraryPane';
 import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
-import type { PlotConfig, PlotSignalConfig } from '../models/plot-config';
-import { SIGNAL_COLORS, getThemeColor } from '../models/plot-config';
-import { createPlotInteractionController } from '../core/plot-interactions';
+import type { PlotConfig, PlotSignalConfig } from '../models';
+import { SIGNAL_COLORS, getThemeColor } from '../models';
+import { createPlotInteractionController } from '../core';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
 function pickNextColor(existingSignals: PlotSignalConfig[]): string {

@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState, workerBridge, registry } from '../store/app-store';
-import type { MessageStats } from '../services/message-tracker';
+import { appState, workerBridge, registry } from '../store';
+import type { MessageStats } from '../services';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
 import StatusTextLog from './StatusTextLog';
 import { toggleSetItem } from './hooks';

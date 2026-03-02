@@ -1,7 +1,16 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { appState, logViewerService, setAppState } from '../store/app-store';
-import { clearAllLogs, deleteLogFile, exportLogFile, getLogMetadata, listLogs, readLogFile, setLogMetadata, type LogLibraryEntry } from '../services/tlog-service';
-import { parseTlogBytes } from '../services/tlog-codec';
+import { appState, logViewerService, setAppState } from '../store';
+import {
+  clearAllLogs,
+  deleteLogFile,
+  exportLogFile,
+  getLogMetadata,
+  listLogs,
+  readLogFile,
+  setLogMetadata,
+  parseTlogBytes,
+  type LogLibraryEntry,
+} from '../services';
 
 interface EditingState {
   fileName: string;

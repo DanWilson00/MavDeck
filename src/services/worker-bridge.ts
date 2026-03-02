@@ -5,7 +5,7 @@
  * Translates postMessage calls into typed callbacks.
  */
 
-import { EventEmitter } from '../core/event-emitter';
+import { EventEmitter } from '../core';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
 import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';

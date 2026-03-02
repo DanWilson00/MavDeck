@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState, workerBridge } from '../store/app-store';
+import { appState, workerBridge } from '../store';
 
 const MAX_ENTRIES = 100;
 
