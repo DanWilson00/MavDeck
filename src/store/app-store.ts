@@ -104,10 +104,19 @@ function generateTabId(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+function nextTabNumber(): number {
+  let max = 0;
+  for (const tab of appState.plotTabs) {
+    const match = tab.name.match(/^Tab (\d+)$/);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  }
+  return max + 1;
+}
+
 /** Create a new plot tab with an auto-generated name, set it active, and return its id. */
 export function addPlotTab(): string {
   const id = generateTabId();
-  const name = `Tab ${appState.plotTabs.length + 1}`;
+  const name = `Tab ${nextTabNumber()}`;
   const newTab: PlotTab = { id, name, plots: [] };
   batch(() => {
     setAppState('plotTabs', tabs => [...tabs, newTab]);
@@ -165,5 +174,6 @@ export function reorderPlotTabs(fromIdx: number, toIdx: number): void {
 
 /** Switch the active sub-tab. */
 export function setActiveSubTab(tabId: string): void {
+  if (!appState.plotTabs.some(t => t.id === tabId)) return;
   setAppState('activeSubTab', tabId);
 }
