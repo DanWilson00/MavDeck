@@ -23,6 +23,8 @@ export interface MavDeckSettings {
   mapLayer: 'street' | 'satellite';
   mapZoom: number;
   mapAutoCenter: boolean;
+  sidebarCollapsed: boolean;
+  sidebarWidth: number;
 }
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
@@ -37,6 +39,8 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   mapLayer: 'street',
   mapZoom: 15,
   mapAutoCenter: true,
+  sidebarCollapsed: false,
+  sidebarWidth: 350,
 };
 
 /**

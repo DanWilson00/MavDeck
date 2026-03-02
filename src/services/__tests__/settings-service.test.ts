@@ -46,6 +46,8 @@ describe('settings-service', () => {
       mapLayer: 'satellite',
       mapZoom: 12,
       mapAutoCenter: false,
+      sidebarCollapsed: true,
+      sidebarWidth: 400,
     };
     mockStore.set('mavdeck-settings-v1', saved);
 
@@ -87,6 +89,8 @@ describe('settings-service', () => {
       mapLayer: 'street',
       mapZoom: 15,
       mapAutoCenter: true,
+      sidebarCollapsed: false,
+      sidebarWidth: 350,
     };
 
     await saveSettings(settings);
@@ -108,6 +112,8 @@ describe('settings-service', () => {
       mapLayer: 'satellite',
       mapZoom: 18,
       mapAutoCenter: false,
+      sidebarCollapsed: true,
+      sidebarWidth: 500,
     };
 
     await saveSettings(settings);

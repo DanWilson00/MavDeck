@@ -185,6 +185,7 @@ export default function MapView() {
       center: [INITIAL_LAT, INITIAL_LON],
       zoom: appState.mapZoom,
       zoomControl: true,
+      fadeAnimation: false,
     });
 
     map.on('zoomend', () => {

@@ -20,6 +20,8 @@ describe('appStore', () => {
     expect(appState.mapLayer).toBe('street');
     expect(appState.mapZoom).toBe(15);
     expect(appState.mapAutoCenter).toBe(true);
+    expect(appState.sidebarCollapsed).toBe(false);
+    expect(appState.sidebarWidth).toBe(350);
   });
 
   it('setAppState updates theme reactively', () => {

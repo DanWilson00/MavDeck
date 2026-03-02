@@ -34,7 +34,6 @@ function nextSignalId(): string {
 
 export default function TelemetryView() {
   const [selectorPlotId, setSelectorPlotId] = createSignal<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [selectedPlotId, setSelectedPlotId] = createSignal<string | null>(null);
 
   const interactionController = createPlotInteractionController();
@@ -266,31 +265,109 @@ export default function TelemetryView() {
     return map;
   });
 
+  function handleResizeStart(e: MouseEvent) {
+    const startX = e.clientX;
+    const startWidth = appState.sidebarWidth;
+
+    function onMove(ev: MouseEvent) {
+      const newWidth = Math.min(600, Math.max(200, startWidth + (ev.clientX - startX)));
+      setAppState('sidebarWidth', newWidth);
+    }
+
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+
   return (
     <div class="flex h-full">
-      {/* Left pane: log library + message monitor */}
-      <div
-        class="flex flex-col h-full"
-        style={{
-          'background-color': 'var(--bg-panel)',
-          'border-right': '1px solid var(--border)',
-          width: '350px',
-          'min-width': '280px',
-        }}
+      {/* Left pane: collapsible sidebar */}
+      <Show
+        when={!appState.sidebarCollapsed}
+        fallback={
+          <div
+            class="flex flex-col items-center py-2"
+            style={{
+              width: '32px',
+              'min-width': '32px',
+              'background-color': 'var(--bg-panel)',
+              'border-right': '1px solid var(--border)',
+            }}
+          >
+            <button
+              onClick={() => setAppState('sidebarCollapsed', false)}
+              class="p-1 rounded transition-colors interactive-hover"
+              style={{ color: 'var(--text-secondary)' }}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+            >
+              <ChevronRightIcon />
+            </button>
+          </div>
+        }
       >
-        <div class="min-h-0 flex-1">
-          <MessageMonitor
-            onFieldSelected={handleFieldSelected}
-            collapsed={sidebarCollapsed()}
-            onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
-            activeSignals={activeSignals()}
+        <div
+          class="flex flex-col h-full relative"
+          style={{
+            'background-color': 'var(--bg-panel)',
+            'border-right': '1px solid var(--border)',
+            width: `${appState.sidebarWidth}px`,
+            'min-width': '200px',
+            'max-width': '600px',
+          }}
+        >
+          {/* Compact header with collapse button */}
+          <div
+            class="flex items-center justify-end px-2 py-1 border-b"
+            style={{ 'border-color': 'var(--border)' }}
+          >
+            <button
+              onClick={() => setAppState('sidebarCollapsed', true)}
+              class="p-1 rounded transition-colors interactive-hover"
+              style={{ color: 'var(--text-secondary)' }}
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
+            >
+              <ChevronLeftIcon />
+            </button>
+          </div>
+
+          {/* Message monitor */}
+          <div class="min-h-0 flex-1">
+            <MessageMonitor
+              onFieldSelected={handleFieldSelected}
+              activeSignals={activeSignals()}
+            />
+          </div>
+
+          {/* Log library pane */}
+          <Show when={!appState.isLogPaneCollapsed}>
+            <div style={{ height: '1px', 'background-color': 'var(--border)' }} />
+          </Show>
+          <LogLibraryPane />
+
+          {/* Resize handle */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '0',
+              right: '0',
+              width: '4px',
+              height: '100%',
+              cursor: 'col-resize',
+            }}
+            onMouseDown={handleResizeStart}
           />
         </div>
-        <Show when={!appState.isLogPaneCollapsed}>
-          <div style={{ height: '1px', 'background-color': 'var(--border)' }} />
-        </Show>
-        <LogLibraryPane />
-      </div>
+      </Show>
 
       {/* Right: Plot area */}
       <div class="flex-1 flex flex-col min-w-0">
@@ -306,6 +383,7 @@ export default function TelemetryView() {
                   style={{
                     visibility: isActive() ? 'visible' : 'hidden',
                     'z-index': isActive() ? 1 : 0,
+                    'overflow-y': 'auto',
                   }}
                 >
                   <Show
@@ -351,5 +429,21 @@ export default function TelemetryView() {
         />
       </Show>
     </div>
+  );
+}
+
+function ChevronLeftIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
   );
 }

@@ -161,7 +161,7 @@ export default function GridLayout(props: GridLayoutProps) {
     <div
       ref={containerRef}
       class="grid-stack"
-      style={{ width: '100%', height: '100%', overflow: 'hidden' }}
+      style={{ width: '100%' }}
     />
   );
 }

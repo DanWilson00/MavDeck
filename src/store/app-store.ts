@@ -32,6 +32,8 @@ export interface AppState {
   mapLayer: 'street' | 'satellite';
   mapZoom: number;
   mapAutoCenter: boolean;
+  sidebarCollapsed: boolean;
+  sidebarWidth: number;
   isLogPaneCollapsed: boolean;
   offlineReady: boolean;
   offlineStatus: 'checking' | 'ready' | 'error' | 'unsupported';
@@ -59,6 +61,8 @@ export const [appState, setAppState] = createStore<AppState>({
   mapLayer: DEFAULT_SETTINGS.mapLayer,
   mapZoom: DEFAULT_SETTINGS.mapZoom,
   mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
+  sidebarCollapsed: false,
+  sidebarWidth: 350,
   isLogPaneCollapsed: true,
   offlineReady: false,
   offlineStatus: 'checking',

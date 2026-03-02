@@ -70,8 +70,13 @@ export default function Toolbar() {
     >
       {/* Left: Tab navigation */}
       <div class="flex items-center gap-1">
-        <TabButton id="telemetry" label="Telemetry" />
-        <TabButton id="map" label="Map" />
+        <div
+          class="flex rounded-md overflow-hidden"
+          style={{ border: '1px solid var(--border)', 'background-color': 'var(--bg-hover)' }}
+        >
+          <SegmentButton id="telemetry" label="Telemetry" />
+          <SegmentButton id="map" label="Map" isLast={true} />
+        </div>
         <ModeToggle />
       </div>
 
@@ -191,15 +196,16 @@ export default function Toolbar() {
   );
 }
 
-function TabButton(props: { id: string; label: string }) {
+function SegmentButton(props: { id: string; label: string; isLast?: boolean }) {
   const isActive = () => appState.activeTab === props.id;
   return (
     <button
       onClick={() => setAppState('activeTab', props.id)}
-      class="px-3 py-1 text-sm font-medium rounded transition-colors"
+      class="px-3 py-1 text-sm font-medium transition-colors"
       style={{
-        'background-color': isActive() ? 'var(--bg-hover)' : 'transparent',
+        'background-color': isActive() ? 'var(--bg-panel)' : 'transparent',
         color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
+        'border-right': props.isLast ? 'none' : '1px solid var(--border)',
       }}
     >
       {props.label}

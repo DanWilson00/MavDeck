@@ -52,6 +52,8 @@ export default function App() {
       mapLayer: appState.mapLayer,
       mapZoom: appState.mapZoom,
       mapAutoCenter: appState.mapAutoCenter,
+      sidebarCollapsed: appState.sidebarCollapsed,
+      sidebarWidth: appState.sidebarWidth,
     });
   });
 
@@ -138,6 +140,8 @@ export default function App() {
         setAppState('mapLayer', settings.mapLayer);
         setAppState('mapZoom', settings.mapZoom);
         setAppState('mapAutoCenter', settings.mapAutoCenter);
+        setAppState('sidebarCollapsed', settings.sidebarCollapsed);
+        setAppState('sidebarWidth', settings.sidebarWidth);
       });
       setSettingsLoaded(true);
 
