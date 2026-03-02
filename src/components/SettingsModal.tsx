@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { appState, setAppState, workerBridge, registry } from '../store';
+import { appState, setAppState, workerBridge, registry, connectionManager } from '../store';
 import { BAUD_RATES } from '../services';
 import type { BaudRate } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -57,6 +57,11 @@ export default function SettingsModal(props: SettingsModalProps) {
     if (!file) return;
     input.value = '';
     setImportError(null);
+
+    // Auto-disconnect before re-initializing with a new dialect
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+      connectionManager.disconnect();
+    }
 
     try {
       const text = await file.text();
