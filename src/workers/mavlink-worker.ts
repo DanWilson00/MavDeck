@@ -18,7 +18,7 @@ import {
   type MessageStats,
 } from '../services';
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
-import { MavlinkMessageDecoder } from '../mavlink/decoder';
+import { MavlinkMessageDecoder, type MavlinkMessage } from '../mavlink/decoder';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
 
 /** Type-safe wrapper around self.postMessage for worker events. */
@@ -316,6 +316,43 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
   postEvent({ type: 'update', buffers }, transferables);
 }
 
+/** Forward STATUSTEXT messages to the main thread. */
+function forwardStatusText(msg: MavlinkMessage, timestampMs: number): void {
+  if (msg.name !== 'STATUSTEXT') return;
+  postEvent({
+    type: 'statustext',
+    severity: msg.values['severity'] as number,
+    text: msg.values['text'] as string,
+    timestamp: timestampMs,
+  });
+}
+
+/** Run a batch of raw packets through parse→decode→track→timeseries→STATUSTEXT. */
+function batchProcessPackets(
+  reg: MavlinkMetadataRegistry,
+  tracker: GenericMessageTracker,
+  tsManager: TimeSeriesDataManager,
+  packets: Uint8Array[],
+  timestamps: number[],
+): void {
+  const parser = new MavlinkFrameParser(reg);
+  const decoder = new MavlinkMessageDecoder(reg);
+  let currentTimestampMs = 0;
+
+  parser.onFrame(frame => {
+    const decoded = decoder.decode(frame);
+    if (!decoded) return;
+    tracker.trackMessage(decoded);
+    tsManager.processMessageWithTimestamp(decoded, currentTimestampMs);
+    forwardStatusText(decoded, currentTimestampMs);
+  });
+
+  for (let i = 0; i < packets.length; i++) {
+    currentTimestampMs = timestamps[i];
+    parser.parse(packets[i]);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline setup
 // ---------------------------------------------------------------------------
@@ -337,14 +374,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource): void {
   });
 
   pipeline.statustextUnsub = pipeline.service.onMessage(msg => {
-    if (msg.name === 'STATUSTEXT') {
-      postEvent({
-        type: 'statustext',
-        severity: msg.values['severity'] as number,
-        text: msg.values['text'] as string,
-        timestamp: Date.now(),
-      });
-    }
+    forwardStatusText(msg, Date.now());
   });
 
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
@@ -469,36 +499,10 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       // Set buffer capacity for this log
       pipeline.bufferCapacity = logCapacity;
 
-      // Create standalone pipeline components (bypass setupService/MavlinkService)
+      // Create pipeline components and process all packets
       pipeline.tracker = new GenericMessageTracker();
       pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
-      const parser = new MavlinkFrameParser(registry);
-      const decoder = new MavlinkMessageDecoder(registry);
-
-      // Parse -> decode -> track -> timeseries with tlog timestamps
-      parser.onFrame(frame => {
-        const decoded = decoder.decode(frame);
-        if (!decoded) return;
-        pipeline.tracker!.trackMessage(decoded);
-        // currentTimestampMs is set per-packet in the loop below
-        pipeline.timeseriesManager!.processMessageWithTimestamp(decoded, currentTimestampMs);
-
-        // Forward STATUSTEXT messages to UI
-        if (decoded.name === 'STATUSTEXT') {
-          postEvent({
-            type: 'statustext',
-            severity: decoded.values['severity'] as number,
-            text: decoded.values['text'] as string,
-            timestamp: currentTimestampMs,
-          });
-        }
-      });
-
-      let currentTimestampMs = 0;
-      for (let i = 0; i < packets.length; i++) {
-        currentTimestampMs = timestamps[i];
-        parser.parse(packets[i]);
-      }
+      batchProcessPackets(registry, pipeline.tracker, pipeline.timeseriesManager, packets, timestamps);
 
       // Do NOT start tracker timer -- stats are static for loaded logs
       // (stopTracking is a no-op since we never called startTracking)
