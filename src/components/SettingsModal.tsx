@@ -283,6 +283,18 @@ export default function SettingsModal(props: SettingsModalProps) {
                     : 'Preparing offline cache. Open once online to finish setup.'}
             </p>
           </section>
+
+          <section class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+              About
+            </h3>
+            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              MavDeck v0.0.1
+            </p>
+            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Built by Dan Wilson
+            </p>
+          </section>
         </div>
       </div>
     </div>

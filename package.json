@@ -2,6 +2,7 @@
   "name": "mavdeck",
   "private": true,
   "version": "0.0.1",
+  "author": "Dan Wilson",
   "type": "module",
   "scripts": {
     "dev": "vite",
