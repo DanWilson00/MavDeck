@@ -3,6 +3,7 @@ import { appState, workerBridge, registry } from '../store/app-store';
 import type { MessageStats } from '../services/message-tracker';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
 import StatusTextLog from './StatusTextLog';
+import { toggleSetItem } from './hooks';
 
 interface MessageMonitorProps {
   onFieldSelected?: (messageName: string, fieldName: string) => void;
@@ -32,15 +33,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   });
 
   function toggleExpanded(name: string) {
-    setExpandedMessages(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else {
-        next.add(name);
-      }
-      return next;
-    });
+    toggleSetItem(setExpandedMessages, name);
   }
 
   function formatValue(value: number | string | number[], field: MavlinkFieldMetadata): string {

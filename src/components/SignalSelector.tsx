@@ -1,6 +1,7 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState, workerBridge } from '../store/app-store';
 import type { PlotConfig } from '../models/plot-config';
+import { toggleSetItem } from './hooks';
 
 interface SignalSelectorProps {
   plotConfig: PlotConfig;
@@ -45,12 +46,7 @@ export default function SignalSelector(props: SignalSelectorProps) {
   }
 
   function toggleGroup(msgType: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(msgType)) next.delete(msgType);
-      else next.add(msgType);
-      return next;
-    });
+    toggleSetItem(setExpandedGroups, msgType);
   }
 
   return (
