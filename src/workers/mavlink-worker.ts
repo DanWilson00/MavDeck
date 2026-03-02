@@ -17,6 +17,16 @@ import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import type { MessageStats } from '../services/message-tracker';
 import { encodeTlogRecord } from '../services/tlog-codec';
+import type { WorkerCommand, WorkerEvent } from './worker-protocol';
+
+/** Type-safe wrapper around self.postMessage for worker events. */
+function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
+  if (transfer) {
+    self.postMessage(event, transfer);
+  } else {
+    self.postMessage(event);
+  }
+}
 
 const DEFAULT_BUFFER_CAPACITY = 2000;
 
@@ -123,7 +133,7 @@ function flushLogChunk(): void {
 
   const chunkStartUs = activeLogFirstPacketUs ?? 0;
   const chunkEndUs = activeLogLastPacketUs ?? chunkStartUs;
-  self.postMessage({
+  postEvent({
     type: 'logChunk',
     sessionId: activeLogSessionId,
     seq: activeLogSeq++,
@@ -154,7 +164,7 @@ function startLogSession(): void {
     clearTimeout(logFlushTimer);
     logFlushTimer = null;
   }
-  self.postMessage({
+  postEvent({
     type: 'logSessionStarted',
     sessionId: activeLogSessionId,
     startedAtMs: activeLogStartedAtMs,
@@ -168,7 +178,7 @@ function stopLogSession(): void {
     logFlushTimer = null;
   }
   flushLogChunk();
-  self.postMessage({
+  postEvent({
     type: 'logSessionEnded',
     sessionId: activeLogSessionId,
     endedAtMs: Date.now(),
@@ -206,7 +216,7 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
 
   if (signature !== lastAvailableFieldsSignature) {
     lastAvailableFieldsSignature = signature;
-    self.postMessage({ type: 'availableFields', fields: availableFields });
+    postEvent({ type: 'availableFields', fields: availableFields });
   }
 
   const streamedFields = interestedFields.size > 0
@@ -220,7 +230,7 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
     transferables.push(buf.values.buffer);
   }
 
-  self.postMessage({ type: 'update', buffers }, transferables);
+  postEvent({ type: 'update', buffers }, transferables);
 }
 
 function setupService(source: SpoofByteSource | ExternalByteSource): void {
@@ -229,7 +239,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource): void {
   service = new MavlinkService(registry!, source, tracker, timeseriesManager);
 
   statsUnsubscribe = tracker.onStats(stats => {
-    self.postMessage({
+    postEvent({
       type: 'stats',
       stats: serializeStats(stats),
     });
@@ -241,7 +251,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource): void {
 
   statustextUnsubscribe = service.onMessage(msg => {
     if (msg.name === 'STATUSTEXT') {
-      self.postMessage({
+      postEvent({
         type: 'statustext',
         severity: msg.values['severity'] as number,
         text: msg.values['text'] as string,
@@ -274,26 +284,25 @@ function reconnectWithCurrentSource(): void {
   setupService(source);
 
   service?.connect().catch((err: Error) => {
-    self.postMessage({ type: 'error', message: err.message });
-    self.postMessage({ type: 'statusChange', status: 'error' });
+    postEvent({ type: 'error', message: err.message });
+    postEvent({ type: 'statusChange', status: 'error' });
   });
 }
 
-self.onmessage = (e: MessageEvent) => {
-  const { type } = e.data;
+self.onmessage = (e: MessageEvent<WorkerCommand>) => {
+  const msg = e.data;
 
-  switch (type) {
+  switch (msg.type) {
     case 'init': {
-      const { dialectJson } = e.data as { type: string; dialectJson: string };
       registry = new MavlinkMetadataRegistry();
-      registry.loadFromJsonString(dialectJson);
-      self.postMessage({ type: 'initComplete' });
+      registry.loadFromJsonString(msg.dialectJson);
+      postEvent({ type: 'initComplete' });
       break;
     }
 
     case 'connect': {
       if (!registry) {
-        self.postMessage({ type: 'error', message: 'Registry not initialized' });
+        postEvent({ type: 'error', message: 'Registry not initialized' });
         return;
       }
 
@@ -301,31 +310,31 @@ self.onmessage = (e: MessageEvent) => {
       stopLogSession();
       cleanupService();
 
-      const { config } = e.data as { type: string; config: { type: string } };
+      const { config } = msg;
 
       if (config.type === 'spoof') {
         spoofSource = new SpoofByteSource(registry);
         setupService(spoofSource);
         startLogSession();
 
-        self.postMessage({ type: 'statusChange', status: 'connecting' });
-        service.connect().then(() => {
-          self.postMessage({ type: 'statusChange', status: 'connected' });
+        postEvent({ type: 'statusChange', status: 'connecting' });
+        service!.connect().then(() => {
+          postEvent({ type: 'statusChange', status: 'connected' });
         }).catch((err: Error) => {
-          self.postMessage({ type: 'error', message: err.message });
-          self.postMessage({ type: 'statusChange', status: 'error' });
+          postEvent({ type: 'error', message: err.message });
+          postEvent({ type: 'statusChange', status: 'error' });
         });
       } else if (config.type === 'webserial') {
         externalSource = new ExternalByteSource();
         setupService(externalSource);
         startLogSession();
 
-        self.postMessage({ type: 'statusChange', status: 'connecting' });
-        service.connect().then(() => {
-          self.postMessage({ type: 'statusChange', status: 'connected' });
+        postEvent({ type: 'statusChange', status: 'connecting' });
+        service!.connect().then(() => {
+          postEvent({ type: 'statusChange', status: 'connected' });
         }).catch((err: Error) => {
-          self.postMessage({ type: 'error', message: err.message });
-          self.postMessage({ type: 'statusChange', status: 'error' });
+          postEvent({ type: 'error', message: err.message });
+          postEvent({ type: 'statusChange', status: 'error' });
         });
       }
       break;
@@ -334,8 +343,8 @@ self.onmessage = (e: MessageEvent) => {
     case 'disconnect': {
       stopLogSession();
       cleanupService();
-      self.postMessage({ type: 'stats', stats: {} });
-      self.postMessage({ type: 'statusChange', status: 'disconnected' });
+      postEvent({ type: 'stats', stats: {} });
+      postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
     }
 
@@ -345,19 +354,17 @@ self.onmessage = (e: MessageEvent) => {
       break;
 
     case 'bytes': {
-      const { data } = e.data as { type: string; data: Uint8Array };
-      externalSource?.emitBytes(data);
+      externalSource?.emitBytes(msg.data);
       break;
     }
 
     case 'setInterestedFields': {
-      const { fields } = e.data as { type: string; fields: string[] };
-      interestedFields = new Set(fields);
+      interestedFields = new Set(msg.fields);
       break;
     }
 
     case 'setBufferCapacity': {
-      const { bufferCapacity: nextCapacity } = e.data as { type: string; bufferCapacity: number };
+      const nextCapacity = msg.bufferCapacity;
       const normalizedCapacity = Number.isFinite(nextCapacity)
         ? Math.max(1, Math.floor(nextCapacity))
         : DEFAULT_BUFFER_CAPACITY;
@@ -369,16 +376,11 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'loadLog': {
       if (!registry) {
-        self.postMessage({ type: 'error', message: 'Registry not initialized' });
+        postEvent({ type: 'error', message: 'Registry not initialized' });
         return;
       }
 
-      const { packets, timestamps, bufferCapacity: logCapacity } = e.data as {
-        type: string;
-        packets: Uint8Array[];
-        timestamps: number[];
-        bufferCapacity: number;
-      };
+      const { packets, timestamps, bufferCapacity: logCapacity } = msg;
 
       // Stop any active log session and clean up existing service
       stopLogSession();
@@ -395,18 +397,18 @@ self.onmessage = (e: MessageEvent) => {
 
       // Parse → decode → track → timeseries with tlog timestamps
       parser.onFrame(frame => {
-        const msg = decoder.decode(frame);
-        if (!msg) return;
-        tracker!.trackMessage(msg);
+        const decoded = decoder.decode(frame);
+        if (!decoded) return;
+        tracker!.trackMessage(decoded);
         // currentTimestampMs is set per-packet in the loop below
-        timeseriesManager!.processMessageWithTimestamp(msg, currentTimestampMs);
+        timeseriesManager!.processMessageWithTimestamp(decoded, currentTimestampMs);
 
         // Forward STATUSTEXT messages to UI
-        if (msg.name === 'STATUSTEXT') {
-          self.postMessage({
+        if (decoded.name === 'STATUSTEXT') {
+          postEvent({
             type: 'statustext',
-            severity: msg.values['severity'] as number,
-            text: msg.values['text'] as string,
+            severity: decoded.values['severity'] as number,
+            text: decoded.values['text'] as string,
             timestamp: currentTimestampMs,
           });
         }
@@ -454,16 +456,16 @@ self.onmessage = (e: MessageEvent) => {
 
       // Post stats via the normal channel so MessageMonitor sees them
       const stats = serializeStats(statsMap);
-      self.postMessage({ type: 'stats', stats });
+      postEvent({ type: 'stats', stats });
 
       // Post completion signal
-      self.postMessage({
+      postEvent({
         type: 'loadComplete',
         stats,
         durationSec,
       });
 
-      self.postMessage({ type: 'statusChange', status: 'connected' });
+      postEvent({ type: 'statusChange', status: 'connected' });
       break;
     }
   }

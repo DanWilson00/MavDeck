@@ -8,12 +8,10 @@
 import { EventEmitter } from '../core/event-emitter';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
+import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
 
-export type ConnectionConfig =
-  | { type: 'spoof' }
-  | { type: 'webserial'; baudRate: number };
-
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+// Re-export protocol types so existing consumers don't need to change imports.
+export type { ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
 
 export interface StatusTextEntry {
   severity: number;
@@ -53,37 +51,42 @@ export class MavlinkWorkerBridge {
     this.worker.onmessage = this.handleMessage.bind(this);
   }
 
+  /** Type-safe wrapper for sending commands to the worker. */
+  private postCommand(command: WorkerCommand): void {
+    this.worker.postMessage(command);
+  }
+
   /** Initialize worker with dialect JSON. */
   init(dialectJson: string): Promise<void> {
     return new Promise<void>(resolve => {
       this.initResolve = resolve;
-      this.worker.postMessage({ type: 'init', dialectJson });
+      this.postCommand({ type: 'init', dialectJson });
     });
   }
 
   /** Connect with given configuration. */
   connect(config: ConnectionConfig): void {
-    this.worker.postMessage({ type: 'connect', config });
+    this.postCommand({ type: 'connect', config });
   }
 
   /** Disconnect and clean up. */
   disconnect(): void {
-    this.worker.postMessage({ type: 'disconnect' });
+    this.postCommand({ type: 'disconnect' });
   }
 
   /** Pause message processing. */
   pause(): void {
-    this.worker.postMessage({ type: 'pause' });
+    this.postCommand({ type: 'pause' });
   }
 
   /** Resume message processing. */
   resume(): void {
-    this.worker.postMessage({ type: 'resume' });
+    this.postCommand({ type: 'resume' });
   }
 
   /** Send raw bytes to the worker (for Web Serial). */
   sendBytes(data: Uint8Array): void {
-    this.worker.postMessage({ type: 'bytes', data });
+    this.postCommand({ type: 'bytes', data });
   }
 
   /** Subscribe to message stats updates. */
@@ -129,17 +132,17 @@ export class MavlinkWorkerBridge {
 
   /** Set the field keys that should be streamed to the main thread. */
   setInterestedFields(fields: string[]): void {
-    this.worker.postMessage({ type: 'setInterestedFields', fields });
+    this.postCommand({ type: 'setInterestedFields', fields });
   }
 
   /** Set ring-buffer capacity (samples per numeric field). */
   setBufferCapacity(bufferCapacity: number): void {
-    this.worker.postMessage({ type: 'setBufferCapacity', bufferCapacity });
+    this.postCommand({ type: 'setBufferCapacity', bufferCapacity });
   }
 
   /** Bulk-load tlog packets into the worker pipeline with their original timestamps. */
   loadLog(packets: Uint8Array[], timestamps: number[], bufferCapacity: number): void {
-    this.worker.postMessage({ type: 'loadLog', packets, timestamps, bufferCapacity });
+    this.postCommand({ type: 'loadLog', packets, timestamps, bufferCapacity });
   }
 
   /** Subscribe to log load completion events. */
@@ -152,10 +155,10 @@ export class MavlinkWorkerBridge {
     this.worker.terminate();
   }
 
-  private handleMessage(e: MessageEvent): void {
-    const { type } = e.data;
+  private handleMessage(e: MessageEvent<WorkerEvent>): void {
+    const msg = e.data;
 
-    switch (type) {
+    switch (msg.type) {
       case 'initComplete': {
         this.initResolve?.();
         this.initResolve = null;
@@ -163,40 +166,36 @@ export class MavlinkWorkerBridge {
       }
 
       case 'stats': {
-        const statsRecord = e.data.stats as Record<string, MessageStats>;
-        const statsMap = new Map<string, MessageStats>(Object.entries(statsRecord));
+        const statsMap = new Map<string, MessageStats>(Object.entries(msg.stats));
         this.statsEmitter.emit(statsMap);
         break;
       }
 
       case 'update': {
-        const buffersRecord = e.data.buffers as Record<string, { timestamps: Float64Array; values: Float64Array }>;
-        const buffersMap = new Map(Object.entries(buffersRecord));
+        const buffersMap = new Map(Object.entries(msg.buffers));
         this.lastUpdate = buffersMap;
         this.updateEmitter.emit(buffersMap);
         break;
       }
 
       case 'availableFields': {
-        const fields = e.data.fields as string[];
-        this.availableFieldsEmitter.emit(fields);
+        this.availableFieldsEmitter.emit(msg.fields);
         break;
       }
 
       case 'statusChange': {
-        const status = e.data.status as ConnectionStatus;
-        if (status === 'disconnected') {
+        if (msg.status === 'disconnected') {
           this.lastUpdate = null;
         }
-        this.statusEmitter.emit(status);
+        this.statusEmitter.emit(msg.status);
         break;
       }
 
       case 'statustext': {
         const entry: StatusTextEntry = {
-          severity: e.data.severity as number,
-          text: e.data.text as string,
-          timestamp: e.data.timestamp as number,
+          severity: msg.severity,
+          text: msg.text,
+          timestamp: msg.timestamp,
         };
         this.statustextEmitter.emit(entry);
         break;
@@ -204,8 +203,8 @@ export class MavlinkWorkerBridge {
 
       case 'logSessionStarted': {
         const meta: LogSessionStart = {
-          sessionId: e.data.sessionId as string,
-          startedAtMs: e.data.startedAtMs as number,
+          sessionId: msg.sessionId,
+          startedAtMs: msg.startedAtMs,
         };
         this.logSessionStartEmitter.emit(meta);
         break;
@@ -213,12 +212,12 @@ export class MavlinkWorkerBridge {
 
       case 'logChunk': {
         const chunk: LogSessionChunk = {
-          sessionId: e.data.sessionId as string,
-          seq: e.data.seq as number,
-          startUs: e.data.startUs as number,
-          endUs: e.data.endUs as number,
-          packetCount: e.data.chunkPacketCount as number,
-          bytes: e.data.bytes as ArrayBuffer,
+          sessionId: msg.sessionId,
+          seq: msg.seq,
+          startUs: msg.startUs,
+          endUs: msg.endUs,
+          packetCount: msg.chunkPacketCount,
+          bytes: msg.bytes,
         };
         this.logChunkEmitter.emit(chunk);
         break;
@@ -226,26 +225,24 @@ export class MavlinkWorkerBridge {
 
       case 'logSessionEnded': {
         const meta: LogSessionEnd = {
-          sessionId: e.data.sessionId as string,
-          endedAtMs: e.data.endedAtMs as number,
-          firstPacketUs: e.data.firstPacketUs as number | undefined,
-          lastPacketUs: e.data.lastPacketUs as number | undefined,
-          packetCount: e.data.packetCount as number,
+          sessionId: msg.sessionId,
+          endedAtMs: msg.endedAtMs,
+          firstPacketUs: msg.firstPacketUs,
+          lastPacketUs: msg.lastPacketUs,
+          packetCount: msg.packetCount,
         };
         this.logSessionEndEmitter.emit(meta);
         break;
       }
 
       case 'loadComplete': {
-        const statsRecord = e.data.stats as Record<string, MessageStats>;
-        const statsMap = new Map<string, MessageStats>(Object.entries(statsRecord));
-        const durationSec = e.data.durationSec as number;
-        this.loadCompleteEmitter.emit({ stats: statsMap, durationSec });
+        const statsMap = new Map<string, MessageStats>(Object.entries(msg.stats));
+        this.loadCompleteEmitter.emit({ stats: statsMap, durationSec: msg.durationSec });
         break;
       }
 
       case 'error': {
-        console.error('[MavlinkWorker]', e.data.message);
+        console.error('[MavlinkWorker]', msg.message);
         break;
       }
     }
