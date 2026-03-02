@@ -51,17 +51,24 @@ export class TimeSeriesDataManager {
    * - `string` → skip (not numeric)
    */
   processMessage(msg: MavlinkMessage): void {
-    const now = Date.now();
+    this.processMessageWithTimestamp(msg, Date.now());
+  }
+
+  /**
+   * Same as processMessage but uses the provided timestamp instead of Date.now().
+   * Used for bulk-loading tlog files where each record has its own timestamp.
+   */
+  processMessageWithTimestamp(msg: MavlinkMessage, timestampMs: number): void {
     const prefix = msg.name;
 
     for (const [fieldName, value] of Object.entries(msg.values)) {
       if (typeof value === 'number') {
         const key = `${prefix}.${fieldName}`;
-        this.pushValue(key, now, value);
+        this.pushValue(key, timestampMs, value);
       } else if (Array.isArray(value)) {
         for (let i = 0; i < value.length; i++) {
           const key = `${prefix}.${fieldName}[${i}]`;
-          this.pushValue(key, now, value[i]);
+          this.pushValue(key, timestampMs, value[i]);
         }
       }
       // string values are silently skipped

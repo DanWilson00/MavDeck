@@ -17,6 +17,7 @@ export interface MavlinkFrame {
   componentId: number;         // 0-255
   messageId: number;           // 0-255 (v1) or 0-16777215 (v2)
   payload: Uint8Array;         // raw payload bytes
+  rawPacket: Uint8Array;       // full wire packet bytes (stx..crc)
   crcValid: boolean;           // receivedCrc === calculatedCrc
 }
 

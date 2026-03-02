@@ -50,6 +50,10 @@ export default function MapView() {
   let trailPoints: L.LatLng[] = [];
   let rafId: number | undefined;
   let unsubUpdate: (() => void) | undefined;
+  let startMarker: L.CircleMarker | undefined;
+  let endMarker: L.CircleMarker | undefined;
+  let latestBuffers: Map<string, { timestamps: Float64Array; values: Float64Array }> | undefined;
+  let savedAutoCenter: boolean | undefined;
 
   const [coords, setCoords] = createSignal({
     lat: INITIAL_LAT,
@@ -67,6 +71,8 @@ export default function MapView() {
 
   function subscribeToUpdates() {
     unsubUpdate = workerBridge.onUpdate(buffers => {
+      latestBuffers = buffers;
+
       const latBuf = buffers.get('GLOBAL_POSITION_INT.lat');
       const lonBuf = buffers.get('GLOBAL_POSITION_INT.lon');
       const altBuf = buffers.get('GLOBAL_POSITION_INT.alt');
@@ -85,7 +91,91 @@ export default function MapView() {
         latestHdg = hdgBuf.values[hdgBuf.values.length - 1] / 100;
       }
       hasNewData = true;
+
+      // When a log is loaded, the worker sends all buffer data at once.
+      // Show the full flight path as soon as the data arrives.
+      if (appState.logViewerState.isActive) {
+        showFullFlightPath();
+      }
     });
+  }
+
+  function showFullFlightPath() {
+    if (!map || !trail || !latestBuffers) return;
+
+    const latBuf = latestBuffers.get('GLOBAL_POSITION_INT.lat');
+    const lonBuf = latestBuffers.get('GLOBAL_POSITION_INT.lon');
+    if (!latBuf || !lonBuf || latBuf.values.length === 0 || lonBuf.values.length === 0) return;
+
+    const len = Math.min(latBuf.values.length, lonBuf.values.length);
+    const fullPath: L.LatLng[] = [];
+    for (let i = 0; i < len; i++) {
+      const lat = latBuf.values[i] / 1e7;
+      const lon = lonBuf.values[i] / 1e7;
+      // Skip zero/invalid coordinates
+      if (lat === 0 && lon === 0) continue;
+      fullPath.push(L.latLng(lat, lon));
+    }
+
+    if (fullPath.length === 0) return;
+
+    // Set the trail polyline to the full path
+    trail.setLatLngs(fullPath);
+    trailPoints = fullPath;
+
+    // Ensure trail is visible on the map
+    if (!map.hasLayer(trail)) trail.addTo(map);
+
+    // Remove any existing start/end markers
+    if (startMarker) { startMarker.remove(); startMarker = undefined; }
+    if (endMarker) { endMarker.remove(); endMarker = undefined; }
+
+    // Add start marker (green)
+    startMarker = L.circleMarker(fullPath[0], {
+      radius: 6,
+      color: '#00cc00',
+      fillColor: '#00ff00',
+      fillOpacity: 0.8,
+      weight: 2,
+    }).addTo(map);
+
+    // Add end marker (red)
+    endMarker = L.circleMarker(fullPath[fullPath.length - 1], {
+      radius: 6,
+      color: '#cc0000',
+      fillColor: '#ff0000',
+      fillOpacity: 0.8,
+      weight: 2,
+    }).addTo(map);
+
+    // Fit the map to show the entire path
+    const bounds = trail.getBounds();
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }
+
+    // Save and disable auto-center in log mode
+    if (savedAutoCenter === undefined) {
+      savedAutoCenter = appState.mapAutoCenter;
+    }
+    setAppState('mapAutoCenter', false);
+  }
+
+  function clearLogFlightPath() {
+    // Remove start/end markers
+    if (startMarker) { startMarker.remove(); startMarker = undefined; }
+    if (endMarker) { endMarker.remove(); endMarker = undefined; }
+
+    // Reset trail for live mode
+    trailPoints = [];
+    trail?.setLatLngs([]);
+    latestBuffers = undefined;
+
+    // Restore auto-center preference
+    if (savedAutoCenter !== undefined) {
+      setAppState('mapAutoCenter', savedAutoCenter);
+      savedAutoCenter = undefined;
+    }
   }
 
   onMount(() => {
@@ -131,20 +221,25 @@ export default function MapView() {
         hasNewData = false;
         const latlng = L.latLng(latestLat, latestLon);
 
+        // Always update the vehicle marker position
         marker.setLatLng(latlng);
         if (Math.abs(latestHdg - prevHdg) > 0.5) {
           marker.setIcon(createVehicleIcon(latestHdg));
           prevHdg = latestHdg;
         }
 
-        trailPoints.push(latlng);
-        if (trailPoints.length > appState.mapTrailLength) {
-          trailPoints = trailPoints.slice(-appState.mapTrailLength);
-        }
-        trail?.setLatLngs(trailPoints);
+        // In log mode, the full flight path is drawn by showFullFlightPath().
+        // Only append trail points and auto-center in live mode.
+        if (!appState.logViewerState.isActive) {
+          trailPoints.push(latlng);
+          if (trailPoints.length > appState.mapTrailLength) {
+            trailPoints = trailPoints.slice(-appState.mapTrailLength);
+          }
+          trail?.setLatLngs(trailPoints);
 
-        if (appState.mapAutoCenter) {
-          map.panTo(latlng, { animate: false });
+          if (appState.mapAutoCenter) {
+            map.panTo(latlng, { animate: false });
+          }
         }
 
         setCoords({
@@ -208,6 +303,17 @@ export default function MapView() {
     if (trailPoints.length > maxLen) {
       trailPoints = trailPoints.slice(-maxLen);
       trail?.setLatLngs(trailPoints);
+    }
+  });
+
+  // Show full flight path when a log is loaded, clear when unloaded
+  createEffect(() => {
+    const isLogActive = appState.logViewerState.isActive;
+    if (isLogActive) {
+      // Data may already be available from the onUpdate callback
+      showFullFlightPath();
+    } else {
+      clearLogFlightPath();
     }
   });
 

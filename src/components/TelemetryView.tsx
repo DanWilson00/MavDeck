@@ -2,6 +2,7 @@ import { batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, 
 import { get, set } from 'idb-keyval';
 import { appState, setAppState } from '../store/app-store';
 import MessageMonitor from './MessageMonitor';
+import LogLibraryPane from './LogLibraryPane';
 import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig } from '../models/plot-config';
@@ -46,8 +47,11 @@ export default function TelemetryView() {
   createEffect(on(() => appState.isPaused, (paused) => {
     const snap = interactionController.getSnapshot();
     if (paused && snap.mode === 'live') {
-      const now = Date.now() / 1000;
-      interactionController.emitZoom({ min: now - appState.timeWindow, max: now }, '__pause__');
+      // Don't emit zoom for loaded logs — let fitToLogRange() handle it
+      if (!appState.logViewerState.isActive) {
+        const now = Date.now() / 1000;
+        interactionController.emitZoom({ min: now - appState.timeWindow, max: now }, '__pause__');
+      }
     } else if (!paused) {
       interactionController.emitReset('__pause__');
     }
@@ -259,13 +263,29 @@ export default function TelemetryView() {
 
   return (
     <div class="flex h-full">
-      {/* Left: Message Monitor */}
-      <MessageMonitor
-        onFieldSelected={handleFieldSelected}
-        collapsed={sidebarCollapsed()}
-        onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
-        activeSignals={activeSignals()}
-      />
+      {/* Left pane: log library + message monitor */}
+      <div
+        class="flex flex-col h-full"
+        style={{
+          'background-color': 'var(--bg-panel)',
+          'border-right': '1px solid var(--border)',
+          width: '350px',
+          'min-width': '280px',
+        }}
+      >
+        <div class="min-h-0 flex-1">
+          <MessageMonitor
+            onFieldSelected={handleFieldSelected}
+            collapsed={sidebarCollapsed()}
+            onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+            activeSignals={activeSignals()}
+          />
+        </div>
+        <Show when={!appState.isLogPaneCollapsed}>
+          <div style={{ height: '1px', 'background-color': 'var(--border)' }} />
+        </Show>
+        <LogLibraryPane />
+      </div>
 
       {/* Right: Plot area */}
       <div class="flex-1 flex flex-col min-w-0">

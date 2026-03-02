@@ -1,5 +1,24 @@
 import { render } from 'solid-js/web';
 import App from './App';
 import './global.css';
+import { registerSW } from 'virtual:pwa-register';
+import { setAppState } from './store/app-store';
+
+if ('serviceWorker' in navigator) {
+  registerSW({
+    immediate: true,
+    onOfflineReady() {
+      setAppState('offlineReady', true);
+      setAppState('offlineStatus', 'ready');
+      setAppState('offlineError', null);
+    },
+    onRegisterError(error) {
+      setAppState('offlineStatus', 'error');
+      setAppState('offlineError', error instanceof Error ? error.message : String(error));
+    },
+  });
+} else {
+  setAppState('offlineStatus', 'unsupported');
+}
 
 render(() => <App />, document.getElementById('root')!);

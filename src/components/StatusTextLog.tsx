@@ -42,6 +42,12 @@ export default function StatusTextLog() {
   let dragStartY = 0;
   let dragStartHeight = 0;
 
+  // Clear entries when log source changes
+  createEffect(() => {
+    appState.logViewerState.sourceName;
+    setEntries([]);
+  });
+
   // Subscribe to STATUSTEXT messages from worker
   createEffect(() => {
     if (!appState.isReady) return;
@@ -77,36 +83,19 @@ export default function StatusTextLog() {
       }}
     >
       {/* Header */}
-      <button
-        class="flex items-center justify-between w-full px-3 transition-colors interactive-hover"
-        style={{
-          height: '36px',
-          'background-color': 'transparent',
-        }}
+      <div
+        class="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold uppercase tracking-wide cursor-pointer interactive-hover"
+        style={{ color: 'var(--text-secondary)', 'background-color': 'var(--bg-panel)' }}
         onClick={() => setIsExpanded(prev => !prev)}
       >
-        <div class="flex items-center gap-2">
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            style={{
-              color: 'var(--text-secondary)',
-              transform: isExpanded() ? 'rotate(90deg)' : 'rotate(0deg)',
-              transition: 'transform 0.15s',
-            }}
-          >
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-          <span class="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Status
+        <div class="flex items-center gap-1.5">
+          <span style={{ 'font-size': '10px', 'line-height': '1' }}>
+            {isExpanded() ? '\u25BE' : '\u25B8'}
           </span>
+          <span>Status</span>
           <Show when={entries().length > 0}>
             <span
-              class="text-xs px-1.5 py-0.5 rounded-full"
+              class="text-xs px-1.5 py-0.5 rounded-full normal-case"
               style={{
                 'background-color': 'var(--bg-hover)',
                 color: 'var(--text-secondary)',
@@ -116,7 +105,7 @@ export default function StatusTextLog() {
             </span>
           </Show>
         </div>
-      </button>
+      </div>
 
       {/* Expanded log */}
       <Show when={isExpanded()}>

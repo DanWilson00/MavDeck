@@ -253,6 +253,31 @@ export default function SettingsModal(props: SettingsModalProps) {
               </p>
             )}
           </section>
+
+          <section class="space-y-2">
+            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+              Offline
+            </h3>
+            <p
+              class="text-xs"
+              style={{
+                color:
+                  appState.offlineStatus === 'ready'
+                    ? '#22c55e'
+                    : appState.offlineStatus === 'error'
+                      ? '#ef4444'
+                      : 'var(--text-secondary)',
+              }}
+            >
+              {appState.offlineStatus === 'ready'
+                ? 'Offline ready: app shell is cached for reopen without internet.'
+                : appState.offlineStatus === 'error'
+                  ? `Offline cache setup failed: ${appState.offlineError ?? 'unknown error'}`
+                  : appState.offlineStatus === 'unsupported'
+                    ? 'Offline cache is not supported in this browser.'
+                    : 'Preparing offline cache. Open once online to finish setup.'}
+            </p>
+          </section>
         </div>
       </div>
     </div>

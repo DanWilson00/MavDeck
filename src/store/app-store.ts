@@ -8,6 +8,7 @@ import { DEFAULT_TIME_WINDOW } from '../models/plot-config';
 import type { BaudRate } from '../services/webserial-byte-source';
 import { DEFAULT_BAUD_RATE } from '../services/webserial-byte-source';
 import { DEFAULT_SETTINGS } from '../services/settings-service';
+import type { LogViewerService, LogViewerState } from '../services/log-viewer-service';
 
 export interface AppState {
   connectionStatus: ConnectionStatus;
@@ -28,6 +29,12 @@ export interface AppState {
   mapLayer: 'street' | 'satellite';
   mapZoom: number;
   mapAutoCenter: boolean;
+  isLogPaneCollapsed: boolean;
+  offlineReady: boolean;
+  offlineStatus: 'checking' | 'ready' | 'error' | 'unsupported';
+  offlineError: string | null;
+  logsVersion: number;
+  logViewerState: LogViewerState;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -49,6 +56,17 @@ export const [appState, setAppState] = createStore<AppState>({
   mapLayer: DEFAULT_SETTINGS.mapLayer,
   mapZoom: DEFAULT_SETTINGS.mapZoom,
   mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
+  isLogPaneCollapsed: true,
+  offlineReady: false,
+  offlineStatus: 'checking',
+  offlineError: null,
+  logsVersion: 0,
+  logViewerState: {
+    isActive: false,
+    sourceName: '',
+    durationSec: 0,
+    recordCount: 0,
+  },
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.
@@ -57,6 +75,7 @@ export const [appState, setAppState] = createStore<AppState>({
 export let workerBridge: MavlinkWorkerBridge = null!;
 export let connectionManager: ConnectionManager = null!;
 export let registry: MavlinkMetadataRegistry = null!;
+export let logViewerService: LogViewerService = null!;
 
 export function setWorkerBridge(bridge: MavlinkWorkerBridge): void {
   workerBridge = bridge;
@@ -68,4 +87,8 @@ export function setConnectionManager(mgr: ConnectionManager): void {
 
 export function setRegistry(reg: MavlinkMetadataRegistry): void {
   registry = reg;
+}
+
+export function setLogViewerService(service: LogViewerService): void {
+  logViewerService = service;
 }

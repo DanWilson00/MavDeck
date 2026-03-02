@@ -3,11 +3,13 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
-import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry } from './store/app-store';
+import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from './store/app-store';
 import { MavlinkWorkerBridge } from './services/worker-bridge';
 import { ConnectionManager } from './services/connection-manager';
 import { MavlinkMetadataRegistry } from './mavlink/registry';
 import { loadSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from './services/settings-service';
+import { LogViewerService } from './services/log-viewer-service';
+import { finalizeSession, recoverStagedSessions, stageSessionChunk, stageSessionStart } from './services/tlog-service';
 
 const MAP_REQUIRED_FIELDS = [
   'GLOBAL_POSITION_INT.lat',
@@ -21,6 +23,12 @@ export default function App() {
   const [settingsLoaded, setSettingsLoaded] = createSignal(false);
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
+  let logViewerSvc: LogViewerService | undefined;
+  let unsubLogViewer: (() => void) | undefined;
+  let unsubLoadComplete: (() => void) | undefined;
+  let unsubLogStart: (() => void) | undefined;
+  let unsubLogChunk: (() => void) | undefined;
+  let unsubLogEnd: (() => void) | undefined;
   let loadedSettings = { ...DEFAULT_SETTINGS };
 
   // Persist settings reactively when display/connection preferences change.
@@ -44,6 +52,25 @@ export default function App() {
   createEffect(() => {
     if (!appState.isReady || !bridge) return;
     bridge.setBufferCapacity(appState.bufferCapacity);
+  });
+
+  // Keep worker pause state in sync with UI/replay mode.
+  createEffect(() => {
+    if (!appState.isReady || !connMgr) return;
+    if (appState.connectionStatus !== 'connected') return;
+    if (appState.logViewerState.isActive) return;
+    if (appState.isPaused) {
+      connMgr.pause();
+    } else {
+      connMgr.resume();
+    }
+  });
+
+  // Migrate away from removed "logs" tab.
+  createEffect(() => {
+    if (appState.activeTab === 'logs') {
+      setAppState('activeTab', 'telemetry');
+    }
   });
 
   // Stream only fields needed by active views.
@@ -74,6 +101,7 @@ export default function App() {
         case ' ': {
           e.preventDefault();
           if (appState.connectionStatus !== 'connected') return;
+          if (appState.logViewerState.isActive) return;
           setAppState('isPaused', !appState.isPaused);
           break;
         }
@@ -86,6 +114,9 @@ export default function App() {
 
   onMount(async () => {
     try {
+      await recoverStagedSessions();
+      setAppState('logsVersion', v => v + 1);
+
       // Load persisted settings and apply to store
       const settings = await loadSettings();
       loadedSettings = settings;
@@ -119,6 +150,36 @@ export default function App() {
       await bridge.init(json);
       setWorkerBridge(bridge);
 
+      // Initialize log viewer service
+      logViewerSvc = new LogViewerService(bridge);
+      setLogViewerService(logViewerSvc);
+      unsubLogViewer = logViewerSvc.subscribe(state => {
+        setAppState('logViewerState', state);
+      });
+      unsubLoadComplete = bridge.onLoadComplete(({ durationSec }) => {
+        setAppState('logViewerState', 'durationSec', durationSec);
+      });
+
+      unsubLogStart = bridge.onLogSessionStart(meta => {
+        stageSessionStart(meta).catch(err => {
+          console.error('[Tlog] Failed to stage session start:', err);
+        });
+      });
+      unsubLogChunk = bridge.onLogChunk(chunk => {
+        stageSessionChunk(chunk).catch(err => {
+          console.error('[Tlog] Failed to stage log chunk:', err);
+        });
+      });
+      unsubLogEnd = bridge.onLogSessionEnd(meta => {
+        finalizeSession(meta).then((fileName) => {
+          if (fileName) {
+            setAppState('logsVersion', v => v + 1);
+          }
+        }).catch(err => {
+          console.error('[Tlog] Failed to finalize session log:', err);
+        });
+      });
+
       // Initialize connection manager
       connMgr = new ConnectionManager(bridge);
       setConnectionManager(connMgr);
@@ -133,6 +194,12 @@ export default function App() {
   });
 
   onCleanup(() => {
+    unsubLogViewer?.();
+    unsubLoadComplete?.();
+    unsubLogStart?.();
+    unsubLogChunk?.();
+    unsubLogEnd?.();
+    logViewerSvc?.unload();
     connMgr?.disconnect();
     connMgr?.dispose();
     bridge?.dispose();

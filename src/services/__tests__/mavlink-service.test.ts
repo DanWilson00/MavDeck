@@ -61,43 +61,22 @@ describe('MavlinkService', () => {
     expect(names.has('GLOBAL_POSITION_INT')).toBe(true);
   });
 
-  it('pause stops onMessage callbacks but tracker keeps running', async () => {
+  it('data always flows to callbacks and timeseries', async () => {
     const messages: MavlinkMessage[] = [];
     service.onMessage(msg => messages.push(msg));
 
     await service.connect();
     vi.advanceTimersByTime(500);
-    const countBeforePause = messages.length;
-    expect(countBeforePause).toBeGreaterThan(0);
+    const countAt500 = messages.length;
+    expect(countAt500).toBeGreaterThan(0);
 
-    service.pause();
-    expect(service.isPaused).toBe(true);
+    // Data continues flowing
     vi.advanceTimersByTime(500);
+    expect(messages.length).toBeGreaterThan(countAt500);
 
-    // No new messages after pause
-    expect(messages.length).toBe(countBeforePause);
-
-    // But tracker still has stats (tracker keeps running)
+    // Tracker has stats
     const stats = tracker.getStats();
     expect(stats.size).toBeGreaterThan(0);
-  });
-
-  it('resume restores onMessage callbacks', async () => {
-    const messages: MavlinkMessage[] = [];
-    service.onMessage(msg => messages.push(msg));
-
-    await service.connect();
-    vi.advanceTimersByTime(200);
-    const countBefore = messages.length;
-
-    service.pause();
-    vi.advanceTimersByTime(200);
-    expect(messages.length).toBe(countBefore);
-
-    service.resume();
-    expect(service.isPaused).toBe(false);
-    vi.advanceTimersByTime(200);
-    expect(messages.length).toBeGreaterThan(countBefore);
   });
 
   it('disconnect stops all callbacks', async () => {

@@ -31,6 +31,7 @@ describe('MavlinkMessageDecoder', () => {
       componentId: 1,
       messageId,
       payload,
+      rawPacket: payload,
       crcValid: true,
     };
   }

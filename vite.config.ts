@@ -9,8 +9,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      devOptions: {
+        enabled: true,
+      },
       workbox: {
         globPatterns: ['**/*.{js,css,html,json,svg,png}'],
+        navigateFallback: 'index.html',
       },
       manifest: {
         name: 'MavDeck',

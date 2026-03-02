@@ -145,13 +145,30 @@ export default function PlotChart(props: PlotChartProps) {
     chart.setScale('x', range);
   }
 
-  function resetToLiveWindow() {
+  function resetToDefaultRange() {
     if (!chart) return;
-    const now = Date.now() / 1000;
-    chart.setScale('x', {
-      min: now - props.timeWindow,
-      max: now,
-    });
+    if (appState.logViewerState.isActive) {
+      fitToLogRange();
+    } else {
+      const now = Date.now() / 1000;
+      chart.setScale('x', {
+        min: now - props.timeWindow,
+        max: now,
+      });
+    }
+  }
+
+  function fitToLogRange() {
+    if (!chart || !chart.data[0] || chart.data[0].length === 0) return;
+    const ts = chart.data[0];
+    const min = ts[0];
+    const max = ts[ts.length - 1];
+    if (min === max) {
+      chart.setScale('x', { min: min - 1, max: max + 1 });
+    } else {
+      const pad = (max - min) * 0.02;
+      chart.setScale('x', { min: min - pad, max: max + pad });
+    }
   }
 
   function recreateChart() {
@@ -217,8 +234,18 @@ export default function PlotChart(props: PlotChartProps) {
       const factor = e.deltaY > 0 ? 1 / 0.75 : 0.75;
       const newRange = range * factor;
       const delta = newRange - range;
-      const nextMin = xMin - delta * cursorFrac;
-      const nextMax = xMax + delta * (1 - cursorFrac);
+      let nextMin = xMin - delta * cursorFrac;
+      let nextMax = xMax + delta * (1 - cursorFrac);
+
+      // On zoom-out, clamp to data bounds with 5% padding
+      if (factor > 1 && chart.data[0] && chart.data[0].length > 0) {
+        const ts = chart.data[0];
+        const dataMin = ts[0];
+        const dataMax = ts[ts.length - 1];
+        const pad = (dataMax - dataMin) * 0.05 || 1;
+        nextMin = Math.max(nextMin, dataMin - pad);
+        nextMax = Math.min(nextMax, dataMax + pad);
+      }
 
       if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax) || nextMax <= nextMin) return;
       props.interactionController.emitZoom({ min: nextMin, max: nextMax }, props.plotId);
@@ -246,7 +273,7 @@ export default function PlotChart(props: PlotChartProps) {
         applyZoomRange(snapshot.zoomRange);
       } else {
         hasNewBuffers = true;
-        resetToLiveWindow();
+        resetToDefaultRange();
       }
     });
 
@@ -320,7 +347,7 @@ export default function PlotChart(props: PlotChartProps) {
       if (interactionMode === 'zoomed' && currentZoomRange) {
         applyZoomRange(currentZoomRange);
       } else {
-        resetToLiveWindow();
+        resetToDefaultRange();
       }
     });
   }

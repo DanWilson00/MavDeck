@@ -236,11 +236,26 @@ export class MavlinkFrameParser {
       componentId: this.componentId,
       messageId: this.messageId,
       payload,
+      rawPacket: this.buildRawPacket(receivedCrc),
       crcValid: true,
     };
     for (const cb of this.callbacks) {
       cb(frame);
     }
+  }
+
+  private buildRawPacket(receivedCrc: number): Uint8Array {
+    const totalLen = 1 + this.headerIndex + this.payloadIndex + 2;
+    const out = new Uint8Array(totalLen);
+    let i = 0;
+    out[i++] = this.version === MavlinkVersion.V2 ? MAVLINK_V2_STX : MAVLINK_V1_STX;
+    out.set(this.headerBuffer.subarray(0, this.headerIndex), i);
+    i += this.headerIndex;
+    out.set(this.payloadBuffer.subarray(0, this.payloadIndex), i);
+    i += this.payloadIndex;
+    out[i++] = receivedCrc & 0xff;
+    out[i] = (receivedCrc >> 8) & 0xff;
+    return out;
   }
 
   private resetFrame(): void {

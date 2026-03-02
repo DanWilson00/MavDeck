@@ -1,5 +1,5 @@
 import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
-import { appState, setAppState, connectionManager } from '../store/app-store';
+import { appState, setAppState, connectionManager, logViewerService } from '../store/app-store';
 import type { ConnectionStatus } from '../services/worker-bridge';
 import type { TimeWindow } from '../models/plot-config';
 import { isWebSerialSupported } from '../services/webserial-byte-source';
@@ -34,6 +34,7 @@ export default function Toolbar() {
 
   function handleConnect() {
     if (!appState.isReady) return;
+    if (appState.logViewerState.isActive) logViewerService.unload();
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
     } else {
@@ -43,6 +44,7 @@ export default function Toolbar() {
 
   function handleConnectSerial() {
     if (!appState.isReady) return;
+    if (appState.logViewerState.isActive) logViewerService.unload();
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
     } else {
@@ -52,6 +54,7 @@ export default function Toolbar() {
 
   function handlePause() {
     if (!appState.isReady) return;
+    if (appState.logViewerState.isActive) return;
     setAppState('isPaused', !appState.isPaused);
   }
 
@@ -69,6 +72,7 @@ export default function Toolbar() {
       <div class="flex items-center gap-1">
         <TabButton id="telemetry" label="Telemetry" />
         <TabButton id="map" label="Map" />
+        <ModeToggle />
       </div>
 
       {/* Right: Controls */}
@@ -107,7 +111,7 @@ export default function Toolbar() {
         />
 
         {/* Pause/Resume — only when connected */}
-        <Show when={status() === 'connected'}>
+        <Show when={status() === 'connected' && !appState.logViewerState.isActive}>
           <button
             onClick={handlePause}
             class="p-1.5 rounded interactive-hover"
@@ -116,6 +120,17 @@ export default function Toolbar() {
             aria-label={appState.isPaused ? 'Resume' : 'Pause'}
           >
             {appState.isPaused ? <PlayIcon /> : <PauseIcon />}
+          </button>
+        </Show>
+
+        {/* Unload log button — only when a log is loaded */}
+        <Show when={appState.logViewerState.isActive}>
+          <button
+            class="px-2 py-1 rounded text-xs interactive-hover"
+            style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            onClick={() => logViewerService.unload()}
+          >
+            Unload Log
           </button>
         </Show>
 
@@ -131,27 +146,28 @@ export default function Toolbar() {
             <PlusIcon />
           </button>
 
-          <div class="flex items-center gap-1">
-            <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>Window:</span>
-            <select
-              class="text-xs rounded px-1 py-0.5"
-              style={{
-                'background-color': 'var(--bg-hover)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border)',
-              }}
-              value={appState.timeWindow}
-              onChange={(e) => setAppState('timeWindow', Number(e.currentTarget.value) as TimeWindow)}
-            >
-              <For each={TIME_WINDOW_OPTIONS}>
-                {(tw) => (
-                  <option value={tw}>
-                    {tw >= 60 ? `${tw / 60}m` : `${tw}s`}
-                  </option>
-                )}
-              </For>
-            </select>
-          </div>
+          <Show when={!appState.logViewerState.isActive}>
+            <div class="flex items-center gap-1">
+              <select
+                class="text-xs rounded px-1 py-0.5"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+                value={appState.timeWindow}
+                onChange={(e) => setAppState('timeWindow', Number(e.currentTarget.value) as TimeWindow)}
+              >
+                <For each={TIME_WINDOW_OPTIONS}>
+                  {(tw) => (
+                    <option value={tw}>
+                      {tw >= 60 ? `${tw / 60}m` : `${tw}s`}
+                    </option>
+                  )}
+                </For>
+              </select>
+            </div>
+          </Show>
         </Show>
 
         <button
@@ -188,6 +204,16 @@ function TabButton(props: { id: string; label: string }) {
     >
       {props.label}
     </button>
+  );
+}
+
+function ModeToggle() {
+  return (
+    <Show when={appState.logViewerState.isActive}>
+      <span class="ml-2 px-2 py-0.5 text-xs rounded" style={{ 'background-color': 'var(--accent)', color: '#000' }}>
+        Log: {appState.logViewerState.sourceName}
+      </span>
+    </Show>
   );
 }
 
