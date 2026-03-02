@@ -2,13 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. Internalize this before writing a single line of code.
 
-The **what** (task specs, phase details, acceptance criteria) lives in `PLAN.md`. Focus on your assigned task.
-
 ## Project
 
-MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry visualization. Replaces the Flutter-based [js_dash](https://github.com/DanWilson00/js_dash) with a faster web architecture. Key feature: dynamic MAVLink message parsing driven by XML dialect definitions (no hardcoded message types).
-
-**Reference code**: `/tmp/js_dash/` — the Flutter project being ported. Key source in `lib/mavlink/`, `lib/services/`, `lib/views/telemetry/`. **This is ephemeral** — if missing, re-clone from `https://github.com/DanWilson00/js_dash`. PLAN.md has enough detail to implement without it but the source is useful for edge cases.
+MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry visualization. Dynamic MAVLink message parsing driven by XML dialect definitions (no hardcoded message types).
 
 **Target**: GitHub Pages PWA, offline-capable, light/dark mode.
 
@@ -23,20 +19,17 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 
 ---
 
-## Universal Protocol (Every Task)
+## Development Workflow
 
-1. Read your task assignment
-2. Review the task's section in `PLAN.md` for specs and acceptance criteria
-3. Check dependency tasks are complete (look for `[x]` markers in `PLAN.md`)
-4. Implement per the conventions in this file
-5. Write/run tests — all acceptance criteria must pass
-6. Run existing tests — nothing previously passing may break
-7. For UI work: verify with Playwright MCP (see Testing Strategy below)
-8. Commit with clear, descriptive message
+1. Understand the change — read relevant code and existing tests
+2. Implement per the conventions in this file
+3. Write/run tests — nothing previously passing may break
+4. For UI work: verify with Playwright MCP (see Testing Strategy below)
+5. Commit with clear, descriptive message
 
 **If you get stuck**, explain clearly what's blocking you. Don't thrash — stop and re-plan.
 
-**Never commit code that fails its acceptance criteria or breaks existing tests.**
+**Never commit code that breaks existing tests.**
 
 ---
 
@@ -68,8 +61,6 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 ---
 
 ## Build & Development
-
-> **Note**: These commands require Phase 0 to be complete (project scaffolded with `package.json`). If `package.json` doesn't exist yet, Phase 0 is your first task.
 
 ```bash
 npm install          # Install dependencies
@@ -147,7 +138,7 @@ dist/
 .env
 ```
 
-Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
+Do NOT gitignore: `public/dialects/common.json` (ships with the app).
 
 ---
 
@@ -156,17 +147,21 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
 ### Key Decisions
 
 1. **Web Worker for MAVLink engine** — All parsing, CRC validation, decoding, and ring buffer writes run in a background Web Worker. The main thread is exclusively for rendering. Data is transferred via `postMessage` with Transferable `ArrayBuffer`s to avoid copies.
-2. **Gridstack for layout** — 12-column Grafana-style grid with snap
-3. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
-4. **Callback-based services** — Simple callback Sets instead of Dart StreamControllers; SolidJS signals consume them
-5. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
-6. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
+2. **Typed worker protocol** — Discriminated unions (`WorkerCommand`/`WorkerEvent`) for type-safe worker communication (`src/workers/worker-protocol.ts`)
+3. **Gridstack for layout** — 12-column Grafana-style grid with snap
+4. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
+5. **EventEmitter-based services** — `EventEmitter<T>` utility in `src/core/event-emitter.ts` for typed pub/sub; SolidJS signals consume them
+6. **Interested-fields optimization** — Worker only streams ring buffer data for fields the UI currently needs
+7. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
+8. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
+9. **Tlog recording to OPFS** — Binary MAVLink session recording via Origin Private File System with crash recovery (`src/services/tlog-service.ts`)
 
 ### Module Structure
 
 - `src/mavlink/` — MAVLink engine (CRC, XML parser, frame parser, decoder, registry)
-- `src/services/` — Data pipeline (byte sources, message tracker, timeseries manager, connection manager)
-- `src/core/` — Shared utilities (ring buffer)
+- `src/services/` — Data pipeline (byte sources, connection manager, message tracker, timeseries manager, tlog recording, log viewer)
+- `src/workers/` — Web Worker (MAVLink pipeline) + typed message protocol
+- `src/core/` — Shared utilities (ring buffer, event emitter)
 - `src/components/` — SolidJS UI components
 - `src/store/` — Application state (SolidJS createStore)
 - `src/models/` — TypeScript type definitions
@@ -177,13 +172,16 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
 ```
 ┌─── Web Worker ──────────────────────────────────────────────┐
 │ ByteSource → FrameParser → Decoder → Tracker → RingBuffers  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ postMessage (Transferable ArrayBuffers)
-                           ↓
+│                                    ↘ TlogEncoder → chunks    │
+└──────────────────────────┬─────────────────┬────────────────┘
+                           │                 │ postMessage
+                           ↓                 ↓
 ┌─── Main Thread ──────────────────────────────────────────────┐
-│ AppStore signals → MessageMonitor (sidebar)                   │
-│                  → uPlot charts (Float64Array direct)         │
-│                  → Map view (lat/lon)                         │
+│ WorkerBridge → AppStore → MessageMonitor (sidebar)           │
+│                         → uPlot charts (Float64Array direct) │
+│                         → Map view (lat/lon)                 │
+│              → TlogService → OPFS (session recording)        │
+│              → LogViewerService (tlog playback)              │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -201,7 +199,7 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app), `PLAN.md`.
 
 ### Three-Tier Testing
 
-**Vitest environment**: Configured with `environment: 'happy-dom'` in `vite.config.ts`. This provides `DOMParser`, `XMLSerializer`, and other browser APIs in Node.js. Without this, tests using `DOMParser` (XML parser) will throw `ReferenceError`. Install `happy-dom` as a dev dependency in Phase 0.
+**Vitest environment**: Configured with `environment: 'happy-dom'` in `vite.config.ts`. This provides `DOMParser`, `XMLSerializer`, and other browser APIs in Node.js. Without this, tests using `DOMParser` (XML parser) will throw `ReferenceError`.
 
 **Tier 1 — Vitest Unit Tests (fast, run always)**
 Pure logic with no DOM or browser dependencies. Target: <5 seconds total.
@@ -215,7 +213,7 @@ Pure logic with no DOM or browser dependencies. Target: <5 seconds total.
 | Registry | Load `common.json`, verify lookups by ID and name | `registry.test.ts` |
 | Message tracker | Feed messages with known timestamps, verify frequency math | `message-tracker.test.ts` |
 
-**Golden data tests are the highest-value tests.** They lock down correctness with zero ambiguity. See PLAN.md "Golden Test Data" section for exact values.
+**Golden data tests are the highest-value tests.** They lock down correctness with zero ambiguity.
 
 **Tier 2 — Vitest Integration Tests (medium, run always)**
 Tests that verify multi-module data flow without a browser.
@@ -225,12 +223,12 @@ Tests that verify multi-module data flow without a browser.
 | Spoof → Parser → Decoder | Create SpoofByteSource, connect to FrameParser + Decoder, verify decoded messages have correct names and field types |
 | TimeSeriesManager | Feed decoded messages, verify ring buffers are populated with correct `MessageName.FieldName` keys |
 
-**Tier 3 — Playwright MCP Visual Verification (targeted, UI phases only)**
+**Tier 3 — Playwright MCP Visual Verification (targeted, UI work only)**
 Use the Playwright MCP tools to autonomously verify UI behavior in the running dev server. This is NOT a test suite — it's an agent-driven verification loop.
 
 ### Playwright MCP Autonomous Iteration
 
-For UI work (Phases 3+), use the Playwright MCP tools in an edit→verify loop:
+For UI work, use the Playwright MCP tools in an edit→verify loop:
 
 1. Start dev server in background: `npm run dev`
 2. `browser_navigate` → `browser_snapshot` → verify elements exist
@@ -243,27 +241,15 @@ For UI work (Phases 3+), use the Playwright MCP tools in an edit→verify loop:
 **Use Playwright MCP for**: UI rendering, data flow to UI, styling, live-update features, "looks wrong" debugging.
 **Don't use for**: Pure logic (use Vitest), type checking (use `npm run build`), performance profiling.
 
-See PLAN.md for phase-specific Playwright verification steps.
-
 ### Test File Conventions
 
 ```
 src/
-  mavlink/
-    __tests__/
-      crc.test.ts
-      registry.test.ts
-      xml-parser.test.ts
-      frame-parser.test.ts
-      decoder.test.ts
-  core/
-    __tests__/
-      ring-buffer.test.ts
-  services/
-    __tests__/
-      spoof-byte-source.test.ts
-      message-tracker.test.ts
-      timeseries-manager.test.ts
+  mavlink/__tests__/     crc, decoder, frame-parser, registry, xml-parser
+  core/__tests__/        ring-buffer, event-emitter
+  services/__tests__/    spoof-byte-source, message-tracker, timeseries-manager,
+                         mavlink-service, external-byte-source, settings-service, tlog-codec
+  store/__tests__/       app-store
 ```
 
 Tests import from the module under test. Use `describe`/`it` blocks. Prefer `expect` assertions over manual checks. Use `beforeEach` for setup, not shared mutable state.
@@ -300,7 +286,7 @@ Dev server may not be running. Check with `browser_console_messages(level="error
 
 ## Git Workflow
 
-Write clear, concise commit messages that describe the change. Commit after each logical unit of work completes successfully. If working from `PLAN.md` tasks, reference the phase in the commit message (e.g., `Phase 1: implement CRC-16 with golden value tests`).
+Write clear, concise commit messages that describe the change. Commit after each logical unit of work completes successfully.
 
 ---
 
@@ -317,19 +303,14 @@ npm run dev                           # Dev server for manual/Playwright verific
 
 ### Typical Verification Workflow
 
-**For logic changes (Phases 1-2):**
+**For logic changes:**
 1. `npx vitest run` — all tests must pass
 2. `npm run build` — no type errors
 
-**For UI changes (Phases 3+):**
+**For UI changes:**
 1. `npx vitest run` — all tests must pass
 2. `npm run build` — no type errors
 3. Start dev server → Playwright MCP: `browser_navigate` → `browser_snapshot` → verify
 4. `browser_console_messages(level="error")` — no JS errors
 5. `browser_take_screenshot` — visual check if needed
 
----
-
-## Implementation Plan
-
-See `PLAN.md` for the full phased implementation plan.
