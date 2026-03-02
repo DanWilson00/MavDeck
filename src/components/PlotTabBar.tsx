@@ -19,8 +19,11 @@ export default function PlotTabBar(props: PlotTabBarProps) {
   const [dragOverIdx, setDragOverIdx] = createSignal<number | null>(null);
 
   function handleTabClick(tabId: string) {
-    // Don't switch tabs when clicking during a rename
-    if (editingTabId() !== null) return;
+    const editing = editingTabId();
+    if (editing === tabId) return; // Don't switch when clicking the tab being edited
+    if (editing !== null) {
+      commitRename(editing); // Commit current edit before switching
+    }
     setActiveSubTab(tabId);
   }
 
