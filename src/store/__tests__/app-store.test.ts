@@ -22,6 +22,8 @@ describe('appStore', () => {
     expect(appState.mapAutoCenter).toBe(true);
     expect(appState.sidebarCollapsed).toBe(false);
     expect(appState.sidebarWidth).toBe(350);
+    expect(appState.dialectName).toBe('');
+    expect(appState.connectionSourceType).toBeNull();
   });
 
   it('setAppState updates theme reactively', () => {

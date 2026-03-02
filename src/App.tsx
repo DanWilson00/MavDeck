@@ -3,6 +3,7 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
+import StatusBar from './components/StatusBar';
 import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from './store';
 import {
   MavlinkWorkerBridge,
@@ -156,6 +157,7 @@ export default function App() {
       const reg = new MavlinkMetadataRegistry();
       reg.loadFromJsonString(json);
       setRegistry(reg);
+      setAppState('dialectName', 'common.json'.replace(/\.json$/, ''));
 
       // Initialize worker bridge
       bridge = new MavlinkWorkerBridge();
@@ -237,6 +239,7 @@ export default function App() {
               <MapView />
             </Show>
           </main>
+          <StatusBar />
         </div>
       </Show>
     </ThemeProvider>

@@ -40,6 +40,8 @@ export interface AppState {
   offlineError: string | null;
   logsVersion: number;
   logViewerState: LogViewerState;
+  dialectName: string;
+  connectionSourceType: 'serial' | 'spoof' | null;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -74,6 +76,8 @@ export const [appState, setAppState] = createStore<AppState>({
     durationSec: 0,
     recordCount: 0,
   },
+  dialectName: '',
+  connectionSourceType: null,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

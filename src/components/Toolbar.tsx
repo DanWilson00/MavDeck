@@ -26,6 +26,7 @@ export default function Toolbar() {
         setAppState('connectionStatus', s);
         if (s === 'disconnected') {
           setAppState('isPaused', false);
+          setAppState('connectionSourceType', null);
         }
       });
     });
@@ -38,6 +39,7 @@ export default function Toolbar() {
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
     } else {
+      setAppState('connectionSourceType', 'spoof');
       connectionManager.connect({ type: 'spoof' });
     }
   }
@@ -48,6 +50,7 @@ export default function Toolbar() {
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
     } else {
+      setAppState('connectionSourceType', 'serial');
       connectionManager.connect({ type: 'webserial', baudRate: appState.baudRate });
     }
   }
