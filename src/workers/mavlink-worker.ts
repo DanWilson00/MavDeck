@@ -2,7 +2,7 @@
  * MAVLink Web Worker.
  *
  * Runs the entire MAVLink pipeline off the main thread:
- * ByteSource → FrameParser → Decoder → Tracker → TimeSeriesManager.
+ * ByteSource -> FrameParser -> Decoder -> Tracker -> TimeSeriesManager.
  *
  * Communicates with the main thread via postMessage.
  */
@@ -28,36 +28,123 @@ function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// State interfaces
+// ---------------------------------------------------------------------------
+
+interface PipelineState {
+  service: MavlinkService | null;
+  spoofSource: SpoofByteSource | null;
+  externalSource: ExternalByteSource | null;
+  tracker: GenericMessageTracker | null;
+  timeseriesManager: TimeSeriesDataManager | null;
+  bufferCapacity: number;
+  interestedFields: Set<string>;
+  lastAvailableFieldsSignature: string;
+  statsUnsub: (() => void) | null;
+  updateUnsub: (() => void) | null;
+  statustextUnsub: (() => void) | null;
+  packetUnsub: (() => void) | null;
+}
+
+interface LogState {
+  sessionId: string | null;
+  startedAtMs: number;
+  firstPacketUs: number | undefined;
+  lastPacketUs: number | undefined;
+  packetCount: number;
+  seq: number;
+  chunkParts: Uint8Array[];
+  chunkBytes: number;
+  chunkPacketCount: number;
+  flushTimer: ReturnType<typeof setTimeout> | null;
+}
+
+// ---------------------------------------------------------------------------
+// Initial state constants
+// ---------------------------------------------------------------------------
+
 const DEFAULT_BUFFER_CAPACITY = 2000;
 
+const INITIAL_PIPELINE_STATE: PipelineState = {
+  service: null,
+  spoofSource: null,
+  externalSource: null,
+  tracker: null,
+  timeseriesManager: null,
+  bufferCapacity: DEFAULT_BUFFER_CAPACITY,
+  interestedFields: new Set(),
+  lastAvailableFieldsSignature: '',
+  statsUnsub: null,
+  updateUnsub: null,
+  statustextUnsub: null,
+  packetUnsub: null,
+};
+
+const INITIAL_LOG_STATE: LogState = {
+  sessionId: null,
+  startedAtMs: 0,
+  firstPacketUs: undefined,
+  lastPacketUs: undefined,
+  packetCount: 0,
+  seq: 0,
+  chunkParts: [],
+  chunkBytes: 0,
+  chunkPacketCount: 0,
+  flushTimer: null,
+};
+
+// ---------------------------------------------------------------------------
+// Module state
+// ---------------------------------------------------------------------------
+
+/** Registry is initialized once via 'init' and persists across connections. */
 let registry: MavlinkMetadataRegistry | null = null;
-let service: MavlinkService | null = null;
-let spoofSource: SpoofByteSource | null = null;
-let externalSource: ExternalByteSource | null = null;
-let tracker: GenericMessageTracker | null = null;
-let timeseriesManager: TimeSeriesDataManager | null = null;
-let bufferCapacity = DEFAULT_BUFFER_CAPACITY;
 
-let statsUnsubscribe: (() => void) | null = null;
-let updateUnsubscribe: (() => void) | null = null;
-let statustextUnsubscribe: (() => void) | null = null;
-let packetUnsubscribe: (() => void) | null = null;
-let interestedFields: Set<string> = new Set();
-let lastAvailableFieldsSignature = '';
-
-let activeLogSessionId: string | null = null;
-let activeLogStartedAtMs = 0;
-let activeLogFirstPacketUs: number | undefined;
-let activeLogLastPacketUs: number | undefined;
-let activeLogPacketCount = 0;
-let activeLogSeq = 0;
-let logChunkParts: Uint8Array[] = [];
-let logChunkBytes = 0;
-let logChunkPacketCount = 0;
-let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
+const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Reset pipeline connection state, preserving bufferCapacity and interestedFields. */
+function resetPipelineConnection(): void {
+  pipeline.service = null;
+  pipeline.spoofSource = null;
+  pipeline.externalSource = null;
+  pipeline.tracker = null;
+  pipeline.timeseriesManager = null;
+  pipeline.lastAvailableFieldsSignature = '';
+  pipeline.statsUnsub = null;
+  pipeline.updateUnsub = null;
+  pipeline.statustextUnsub = null;
+  pipeline.packetUnsub = null;
+}
+
+/** Reset all log state. Caller is responsible for clearing flushTimer first. */
+function resetLogState(): void {
+  log.sessionId = null;
+  log.startedAtMs = 0;
+  log.firstPacketUs = undefined;
+  log.lastPacketUs = undefined;
+  log.packetCount = 0;
+  log.seq = 0;
+  log.chunkParts = [];
+  log.chunkBytes = 0;
+  log.chunkPacketCount = 0;
+  log.flushTimer = null;
+}
+
+/** Reset only the chunk-level accumulation within a log session. */
+function resetLogChunk(): void {
+  log.chunkParts = [];
+  log.chunkBytes = 0;
+  log.chunkPacketCount = 0;
+}
 
 /** Serialize MessageStats map for transfer (Map can't be cloned). */
 function serializeStats(stats: Map<string, MessageStats>): Record<string, MessageStats> {
@@ -68,53 +155,52 @@ function serializeStats(stats: Map<string, MessageStats>): Record<string, Messag
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Service lifecycle
+// ---------------------------------------------------------------------------
+
 function cleanupService(): void {
   disconnectPipeline();
-  statsUnsubscribe?.();
-  updateUnsubscribe?.();
-  statustextUnsubscribe?.();
-  packetUnsubscribe?.();
-  service = null;
-  spoofSource = null;
-  externalSource = null;
-  tracker = null;
-  timeseriesManager?.dispose();
-  timeseriesManager = null;
-  statsUnsubscribe = null;
-  updateUnsubscribe = null;
-  statustextUnsubscribe = null;
-  packetUnsubscribe = null;
-  lastAvailableFieldsSignature = '';
+  pipeline.statsUnsub?.();
+  pipeline.updateUnsub?.();
+  pipeline.statustextUnsub?.();
+  pipeline.packetUnsub?.();
+  pipeline.timeseriesManager?.dispose();
+  resetPipelineConnection();
 }
 
 function disconnectPipeline(): void {
-  service?.disconnect();
-  tracker = null;
-  timeseriesManager?.dispose();
-  timeseriesManager = null;
+  pipeline.service?.disconnect();
+  pipeline.tracker = null;
+  pipeline.timeseriesManager?.dispose();
+  pipeline.timeseriesManager = null;
 }
 
+// ---------------------------------------------------------------------------
+// Log session management
+// ---------------------------------------------------------------------------
+
 function scheduleLogFlush(): void {
-  if (logFlushTimer !== null) return;
-  logFlushTimer = setTimeout(() => {
-    logFlushTimer = null;
+  if (log.flushTimer !== null) return;
+  log.flushTimer = setTimeout(() => {
+    log.flushTimer = null;
     flushLogChunk();
   }, LOG_FLUSH_INTERVAL_MS);
 }
 
 function appendPacketToLog(packet: Uint8Array, timestampUs: number): void {
-  if (!activeLogSessionId) return;
-  if (activeLogFirstPacketUs == null) {
-    activeLogFirstPacketUs = timestampUs;
+  if (!log.sessionId) return;
+  if (log.firstPacketUs == null) {
+    log.firstPacketUs = timestampUs;
   }
-  activeLogLastPacketUs = timestampUs;
-  activeLogPacketCount++;
+  log.lastPacketUs = timestampUs;
+  log.packetCount++;
 
   const record = encodeTlogRecord(timestampUs, packet);
-  logChunkParts.push(record);
-  logChunkBytes += record.byteLength;
-  logChunkPacketCount++;
-  if (logChunkBytes >= LOG_FLUSH_BYTES) {
+  log.chunkParts.push(record);
+  log.chunkBytes += record.byteLength;
+  log.chunkPacketCount++;
+  if (log.chunkBytes >= LOG_FLUSH_BYTES) {
     flushLogChunk();
     return;
   }
@@ -122,72 +208,67 @@ function appendPacketToLog(packet: Uint8Array, timestampUs: number): void {
 }
 
 function flushLogChunk(): void {
-  if (!activeLogSessionId || logChunkBytes === 0 || logChunkParts.length === 0) return;
+  if (!log.sessionId || log.chunkBytes === 0 || log.chunkParts.length === 0) return;
 
-  const out = new Uint8Array(logChunkBytes);
+  const out = new Uint8Array(log.chunkBytes);
   let offset = 0;
-  for (const part of logChunkParts) {
+  for (const part of log.chunkParts) {
     out.set(part, offset);
     offset += part.byteLength;
   }
 
-  const chunkStartUs = activeLogFirstPacketUs ?? 0;
-  const chunkEndUs = activeLogLastPacketUs ?? chunkStartUs;
+  const chunkStartUs = log.firstPacketUs ?? 0;
+  const chunkEndUs = log.lastPacketUs ?? chunkStartUs;
   postEvent({
     type: 'logChunk',
-    sessionId: activeLogSessionId,
-    seq: activeLogSeq++,
+    sessionId: log.sessionId,
+    seq: log.seq++,
     startUs: chunkStartUs,
     endUs: chunkEndUs,
-    packetCount: activeLogPacketCount,
-    chunkPacketCount: logChunkPacketCount,
+    packetCount: log.packetCount,
+    chunkPacketCount: log.chunkPacketCount,
     bytes: out.buffer,
   }, [out.buffer]);
 
-  logChunkParts = [];
-  logChunkBytes = 0;
-  logChunkPacketCount = 0;
+  resetLogChunk();
 }
 
 function startLogSession(): void {
-  if (activeLogSessionId) stopLogSession();
-  activeLogSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  activeLogStartedAtMs = Date.now();
-  activeLogFirstPacketUs = undefined;
-  activeLogLastPacketUs = undefined;
-  activeLogPacketCount = 0;
-  activeLogSeq = 0;
-  logChunkParts = [];
-  logChunkBytes = 0;
-  logChunkPacketCount = 0;
-  if (logFlushTimer !== null) {
-    clearTimeout(logFlushTimer);
-    logFlushTimer = null;
+  if (log.sessionId) stopLogSession();
+  if (log.flushTimer !== null) {
+    clearTimeout(log.flushTimer);
   }
+  resetLogState();
+  log.sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  log.startedAtMs = Date.now();
   postEvent({
     type: 'logSessionStarted',
-    sessionId: activeLogSessionId,
-    startedAtMs: activeLogStartedAtMs,
+    sessionId: log.sessionId,
+    startedAtMs: log.startedAtMs,
   });
 }
 
 function stopLogSession(): void {
-  if (!activeLogSessionId) return;
-  if (logFlushTimer !== null) {
-    clearTimeout(logFlushTimer);
-    logFlushTimer = null;
+  if (!log.sessionId) return;
+  if (log.flushTimer !== null) {
+    clearTimeout(log.flushTimer);
+    log.flushTimer = null;
   }
   flushLogChunk();
   postEvent({
     type: 'logSessionEnded',
-    sessionId: activeLogSessionId,
+    sessionId: log.sessionId,
     endedAtMs: Date.now(),
-    firstPacketUs: activeLogFirstPacketUs,
-    lastPacketUs: activeLogLastPacketUs,
-    packetCount: activeLogPacketCount,
+    firstPacketUs: log.firstPacketUs,
+    lastPacketUs: log.lastPacketUs,
+    packetCount: log.packetCount,
   });
-  activeLogSessionId = null;
+  log.sessionId = null;
 }
+
+// ---------------------------------------------------------------------------
+// Data transfer helpers
+// ---------------------------------------------------------------------------
 
 function buildBuffersRecord(
   manager: TimeSeriesDataManager,
@@ -214,13 +295,13 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
   const availableFields = manager.getAvailableFields();
   const signature = availableFields.join('|');
 
-  if (signature !== lastAvailableFieldsSignature) {
-    lastAvailableFieldsSignature = signature;
+  if (signature !== pipeline.lastAvailableFieldsSignature) {
+    pipeline.lastAvailableFieldsSignature = signature;
     postEvent({ type: 'availableFields', fields: availableFields });
   }
 
-  const streamedFields = interestedFields.size > 0
-    ? availableFields.filter(f => interestedFields.has(f))
+  const streamedFields = pipeline.interestedFields.size > 0
+    ? availableFields.filter(f => pipeline.interestedFields.has(f))
     : [];
   const buffers = buildBuffersRecord(manager, streamedFields);
 
@@ -233,23 +314,27 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
   postEvent({ type: 'update', buffers }, transferables);
 }
 
-function setupService(source: SpoofByteSource | ExternalByteSource): void {
-  tracker = new GenericMessageTracker();
-  timeseriesManager = new TimeSeriesDataManager({ bufferCapacity });
-  service = new MavlinkService(registry!, source, tracker, timeseriesManager);
+// ---------------------------------------------------------------------------
+// Pipeline setup
+// ---------------------------------------------------------------------------
 
-  statsUnsubscribe = tracker.onStats(stats => {
+function setupService(source: SpoofByteSource | ExternalByteSource): void {
+  pipeline.tracker = new GenericMessageTracker();
+  pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
+  pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
+
+  pipeline.statsUnsub = pipeline.tracker.onStats(stats => {
     postEvent({
       type: 'stats',
       stats: serializeStats(stats),
     });
   });
 
-  updateUnsubscribe = timeseriesManager.onUpdate(() => {
-    postUpdateFromManager(timeseriesManager!);
+  pipeline.updateUnsub = pipeline.timeseriesManager.onUpdate(() => {
+    postUpdateFromManager(pipeline.timeseriesManager!);
   });
 
-  statustextUnsubscribe = service.onMessage(msg => {
+  pipeline.statustextUnsub = pipeline.service.onMessage(msg => {
     if (msg.name === 'STATUSTEXT') {
       postEvent({
         type: 'statustext',
@@ -260,34 +345,38 @@ function setupService(source: SpoofByteSource | ExternalByteSource): void {
     }
   });
 
-  packetUnsubscribe = service.onPacket((packet, timestampUs) => {
+  pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
     appendPacketToLog(packet, timestampUs);
   });
 }
 
 function reconnectWithCurrentSource(): void {
   if (!registry) return;
-  const source = spoofSource ?? externalSource;
-  if (!source || !service) return;
+  const source = pipeline.spoofSource ?? pipeline.externalSource;
+  if (!source || !pipeline.service) return;
 
   disconnectPipeline();
-  statsUnsubscribe?.();
-  updateUnsubscribe?.();
-  statustextUnsubscribe?.();
-  packetUnsubscribe?.();
-  statsUnsubscribe = null;
-  updateUnsubscribe = null;
-  statustextUnsubscribe = null;
-  packetUnsubscribe = null;
-  lastAvailableFieldsSignature = '';
+  pipeline.statsUnsub?.();
+  pipeline.updateUnsub?.();
+  pipeline.statustextUnsub?.();
+  pipeline.packetUnsub?.();
+  pipeline.statsUnsub = null;
+  pipeline.updateUnsub = null;
+  pipeline.statustextUnsub = null;
+  pipeline.packetUnsub = null;
+  pipeline.lastAvailableFieldsSignature = '';
 
   setupService(source);
 
-  service?.connect().catch((err: Error) => {
+  pipeline.service?.connect().catch((err: Error) => {
     postEvent({ type: 'error', message: err.message });
     postEvent({ type: 'statusChange', status: 'error' });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Message handler
+// ---------------------------------------------------------------------------
 
 self.onmessage = (e: MessageEvent<WorkerCommand>) => {
   const msg = e.data;
@@ -313,14 +402,14 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       const { config } = msg;
 
       const source = config.type === 'spoof'
-        ? (spoofSource = new SpoofByteSource(registry))
-        : (externalSource = new ExternalByteSource());
+        ? (pipeline.spoofSource = new SpoofByteSource(registry))
+        : (pipeline.externalSource = new ExternalByteSource());
 
       setupService(source);
       startLogSession();
 
       postEvent({ type: 'statusChange', status: 'connecting' });
-      service!.connect().then(() => {
+      pipeline.service!.connect().then(() => {
         postEvent({ type: 'statusChange', status: 'connected' });
       }).catch((err: Error) => {
         postEvent({ type: 'error', message: err.message });
@@ -343,12 +432,12 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       break;
 
     case 'bytes': {
-      externalSource?.emitBytes(msg.data);
+      pipeline.externalSource?.emitBytes(msg.data);
       break;
     }
 
     case 'setInterestedFields': {
-      interestedFields = new Set(msg.fields);
+      pipeline.interestedFields = new Set(msg.fields);
       break;
     }
 
@@ -357,8 +446,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       const normalizedCapacity = Number.isFinite(nextCapacity)
         ? Math.max(1, Math.floor(nextCapacity))
         : DEFAULT_BUFFER_CAPACITY;
-      if (normalizedCapacity === bufferCapacity) break;
-      bufferCapacity = normalizedCapacity;
+      if (normalizedCapacity === pipeline.bufferCapacity) break;
+      pipeline.bufferCapacity = normalizedCapacity;
       reconnectWithCurrentSource();
       break;
     }
@@ -376,21 +465,21 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       cleanupService();
 
       // Set buffer capacity for this log
-      bufferCapacity = logCapacity;
+      pipeline.bufferCapacity = logCapacity;
 
       // Create standalone pipeline components (bypass setupService/MavlinkService)
-      tracker = new GenericMessageTracker();
-      timeseriesManager = new TimeSeriesDataManager({ bufferCapacity });
+      pipeline.tracker = new GenericMessageTracker();
+      pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
       const parser = new MavlinkFrameParser(registry);
       const decoder = new MavlinkMessageDecoder(registry);
 
-      // Parse → decode → track → timeseries with tlog timestamps
+      // Parse -> decode -> track -> timeseries with tlog timestamps
       parser.onFrame(frame => {
         const decoded = decoder.decode(frame);
         if (!decoded) return;
-        tracker!.trackMessage(decoded);
+        pipeline.tracker!.trackMessage(decoded);
         // currentTimestampMs is set per-packet in the loop below
-        timeseriesManager!.processMessageWithTimestamp(decoded, currentTimestampMs);
+        pipeline.timeseriesManager!.processMessageWithTimestamp(decoded, currentTimestampMs);
 
         // Forward STATUSTEXT messages to UI
         if (decoded.name === 'STATUSTEXT') {
@@ -409,16 +498,16 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         parser.parse(packets[i]);
       }
 
-      // Do NOT start tracker timer — stats are static for loaded logs
+      // Do NOT start tracker timer -- stats are static for loaded logs
       // (stopTracking is a no-op since we never called startTracking)
 
       // Compute log duration from timeseries data
       let durationSec = 0;
-      const allFields = timeseriesManager.getAvailableFields();
+      const allFields = pipeline.timeseriesManager.getAvailableFields();
       let minTs = Infinity;
       let maxTs = -Infinity;
       for (const field of allFields) {
-        const buf = timeseriesManager.getBuffer(field);
+        const buf = pipeline.timeseriesManager.getBuffer(field);
         if (!buf || buf.length === 0) continue;
         const [ts] = buf.toUplotData();
         if (ts.length > 0) {
@@ -431,12 +520,12 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       }
 
       // Send all fields so the full dataset is available
-      interestedFields = new Set(allFields);
-      postUpdateFromManager(timeseriesManager);
+      pipeline.interestedFields = new Set(allFields);
+      postUpdateFromManager(pipeline.timeseriesManager);
 
       // Override real-time frequency with log-based frequency
       // Important: call getStats() once and mutate+serialize the same map
-      const statsMap = tracker.getStats();
+      const statsMap = pipeline.tracker.getStats();
       if (durationSec > 0) {
         for (const [, stat] of statsMap) {
           stat.frequency = stat.count / durationSec;
