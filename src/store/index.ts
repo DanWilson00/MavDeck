@@ -9,5 +9,10 @@ export {
   setConnectionManager,
   setRegistry,
   setLogViewerService,
+  addPlotTab,
+  deletePlotTab,
+  renamePlotTab,
+  reorderPlotTabs,
+  setActiveSubTab,
   type AppState,
 } from './app-store';

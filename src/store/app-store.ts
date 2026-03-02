@@ -1,3 +1,4 @@
+import { batch } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import type {
   ConnectionStatus,
@@ -93,4 +94,76 @@ export function setRegistry(reg: MavlinkMetadataRegistry): void {
 
 export function setLogViewerService(service: LogViewerService): void {
   logViewerService = service;
+}
+
+// ---------------------------------------------------------------------------
+// Tab management actions
+// ---------------------------------------------------------------------------
+
+function generateTabId(): string {
+  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Create a new plot tab with an auto-generated name, set it active, and return its id. */
+export function addPlotTab(): string {
+  const id = generateTabId();
+  const name = `Tab ${appState.plotTabs.length + 1}`;
+  const newTab: PlotTab = { id, name, plots: [] };
+  batch(() => {
+    setAppState('plotTabs', tabs => [...tabs, newTab]);
+    setAppState('activeSubTab', id);
+  });
+  return id;
+}
+
+/** Delete a plot tab. If it was the last tab, a fresh "Tab 1" replaces it. Switches to a neighbor if deleting the active tab. */
+export function deletePlotTab(tabId: string): void {
+  batch(() => {
+    const tabs = appState.plotTabs;
+    const idx = tabs.findIndex(t => t.id === tabId);
+    if (idx === -1) return;
+
+    if (tabs.length === 1) {
+      // Last tab — replace with a fresh default
+      const freshId = generateTabId();
+      setAppState('plotTabs', [{ id: freshId, name: 'Tab 1', plots: [] }]);
+      setAppState('activeSubTab', freshId);
+      return;
+    }
+
+    // If deleting the active tab, switch to a neighbor
+    if (appState.activeSubTab === tabId) {
+      const neighborIdx = idx > 0 ? idx - 1 : 1;
+      setAppState('activeSubTab', tabs[neighborIdx].id);
+    }
+
+    setAppState('plotTabs', tabs => tabs.filter(t => t.id !== tabId));
+  });
+}
+
+/** Rename a plot tab. Rejects empty names after trimming. */
+export function renamePlotTab(tabId: string, name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+
+  const idx = appState.plotTabs.findIndex(t => t.id === tabId);
+  if (idx === -1) return;
+
+  setAppState('plotTabs', idx, 'name', trimmed);
+}
+
+/** Reorder plot tabs by moving the tab at fromIdx to toIdx (splice-based). */
+export function reorderPlotTabs(fromIdx: number, toIdx: number): void {
+  if (fromIdx === toIdx) return;
+  const tabs = [...appState.plotTabs];
+  if (fromIdx < 0 || fromIdx >= tabs.length || toIdx < 0 || toIdx >= tabs.length) return;
+
+  const [moved] = tabs.splice(fromIdx, 1);
+  tabs.splice(toIdx, 0, moved);
+  setAppState('plotTabs', tabs);
+}
+
+/** Switch the active sub-tab. */
+export function setActiveSubTab(tabId: string): void {
+  setAppState('activeSubTab', tabId);
 }
