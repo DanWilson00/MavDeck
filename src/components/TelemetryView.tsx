@@ -93,24 +93,24 @@ export default function TelemetryView() {
     setAppState('plotTabs', tabIdx, 'plots', prev => fn(prev));
   }
 
+  function persistLayout(): void {
+    const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
+    saveQueue = saveQueue
+      .then(() => set(LAYOUT_KEY_V2, snapshot))
+      .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
+  }
+
   function scheduleLayoutSave(): void {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      // Serialize entire plotTabs array, stripping SolidJS proxies
-      const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
-      saveQueue = saveQueue
-        .then(() => set(LAYOUT_KEY_V2, snapshot))
-        .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
+      persistLayout();
       saveTimer = undefined;
     }, 300);
   }
 
   function flushLayoutSave(): void {
     clearTimeout(saveTimer);
-    const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
-    saveQueue = saveQueue
-      .then(() => set(LAYOUT_KEY_V2, snapshot))
-      .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
+    persistLayout();
     saveTimer = undefined;
   }
 
@@ -299,10 +299,7 @@ export default function TelemetryView() {
           <For each={appState.plotTabs}>
             {(tab) => {
               const isActive = () => appState.activeSubTab === tab.id;
-              const tabPlots = () => {
-                const t = appState.plotTabs.find(t2 => t2.id === tab.id);
-                return t?.plots ?? [];
-              };
+              const tabPlots = () => tab.plots;
               return (
                 <div
                   class="absolute inset-0"
