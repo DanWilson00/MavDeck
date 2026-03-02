@@ -5,6 +5,7 @@
  * Runs inside the Web Worker (not on the main thread).
  */
 
+import { EventEmitter } from '../core/event-emitter';
 import type { MavlinkMessage } from '../mavlink/decoder';
 import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
@@ -22,8 +23,8 @@ export class MavlinkService {
   private readonly byteSource: IByteSource;
   private readonly tracker: GenericMessageTracker;
   private readonly timeseriesManager: TimeSeriesDataManager;
-  private readonly callbacks = new Set<MessageCallback>();
-  private readonly packetCallbacks = new Set<PacketCallback>();
+  private readonly messageEmitter = new EventEmitter<MessageCallback>();
+  private readonly packetEmitter = new EventEmitter<PacketCallback>();
 
   private unsubBytes: (() => void) | null = null;
   private unsubFrames: (() => void) | null = null;
@@ -51,18 +52,14 @@ export class MavlinkService {
     // Wire parser → decoder → callbacks
     this.unsubFrames = this.parser.onFrame(frame => {
       const nowUs = Date.now() * 1000;
-      for (const cb of this.packetCallbacks) {
-        cb(frame.rawPacket, nowUs);
-      }
+      this.packetEmitter.emit(frame.rawPacket, nowUs);
 
       const msg = this.decoder.decode(frame);
       if (!msg) return;
 
       this.tracker.trackMessage(msg);
       this.timeseriesManager.processMessage(msg);
-      for (const cb of this.callbacks) {
-        cb(msg);
-      }
+      this.messageEmitter.emit(msg);
     });
 
     this.tracker.startTracking();
@@ -81,13 +78,11 @@ export class MavlinkService {
 
   /** Subscribe to decoded messages. Returns unsubscribe function. */
   onMessage(callback: MessageCallback): () => void {
-    this.callbacks.add(callback);
-    return () => this.callbacks.delete(callback);
+    return this.messageEmitter.on(callback);
   }
 
   /** Subscribe to CRC-valid raw MAVLink packets (wire bytes + timestampUs). */
   onPacket(callback: PacketCallback): () => void {
-    this.packetCallbacks.add(callback);
-    return () => this.packetCallbacks.delete(callback);
+    return this.packetEmitter.on(callback);
   }
 }

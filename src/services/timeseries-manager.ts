@@ -10,6 +10,7 @@
  * the rendering thread.
  */
 
+import { EventEmitter } from '../core/event-emitter';
 import { RingBuffer } from '../core/ring-buffer';
 import type { MavlinkMessage } from '../mavlink/decoder';
 
@@ -29,7 +30,7 @@ export interface TimeSeriesManagerOptions {
 
 export class TimeSeriesDataManager {
   private readonly buffers = new Map<string, RingBuffer>();
-  private readonly callbacks = new Set<() => void>();
+  private readonly updateEmitter = new EventEmitter<() => void>();
   private readonly bufferCapacity: number;
   private readonly maxFields: number;
 
@@ -93,10 +94,7 @@ export class TimeSeriesDataManager {
    * Returns an unsubscribe function.
    */
   onUpdate(callback: () => void): () => void {
-    this.callbacks.add(callback);
-    return () => {
-      this.callbacks.delete(callback);
-    };
+    return this.updateEmitter.on(callback);
   }
 
   /** Clean up timers and release callbacks. */
@@ -106,7 +104,7 @@ export class TimeSeriesDataManager {
       this.throttleTimerId = null;
     }
     this.pendingUpdate = false;
-    this.callbacks.clear();
+    this.updateEmitter.clear();
   }
 
   /** Push a value into the ring buffer for the given key, creating it if needed. */
@@ -131,9 +129,7 @@ export class TimeSeriesDataManager {
     this.throttleTimerId = setTimeout(() => {
       this.throttleTimerId = null;
       this.pendingUpdate = false;
-      for (const callback of this.callbacks) {
-        callback();
-      }
+      this.updateEmitter.emit();
     }, THROTTLE_INTERVAL_MS);
   }
 }

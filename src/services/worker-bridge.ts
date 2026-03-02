@@ -5,6 +5,7 @@
  * Translates postMessage calls into typed callbacks.
  */
 
+import { EventEmitter } from '../core/event-emitter';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
 
@@ -32,15 +33,15 @@ type LoadCompleteCallback = (data: { stats: Map<string, MessageStats>; durationS
 
 export class MavlinkWorkerBridge {
   private worker: Worker;
-  private readonly statsCallbacks = new Set<StatsCallback>();
-  private readonly updateCallbacks = new Set<UpdateCallback>();
-  private readonly availableFieldsCallbacks = new Set<AvailableFieldsCallback>();
-  private readonly statusCallbacks = new Set<StatusCallback>();
-  private readonly statustextCallbacks = new Set<StatusTextCallback>();
-  private readonly logSessionStartCallbacks = new Set<LogSessionStartCallback>();
-  private readonly logChunkCallbacks = new Set<LogChunkCallback>();
-  private readonly logSessionEndCallbacks = new Set<LogSessionEndCallback>();
-  private readonly loadCompleteCallbacks = new Set<LoadCompleteCallback>();
+  private readonly statsEmitter = new EventEmitter<StatsCallback>();
+  private readonly updateEmitter = new EventEmitter<UpdateCallback>();
+  private readonly availableFieldsEmitter = new EventEmitter<AvailableFieldsCallback>();
+  private readonly statusEmitter = new EventEmitter<StatusCallback>();
+  private readonly statustextEmitter = new EventEmitter<StatusTextCallback>();
+  private readonly logSessionStartEmitter = new EventEmitter<LogSessionStartCallback>();
+  private readonly logChunkEmitter = new EventEmitter<LogChunkCallback>();
+  private readonly logSessionEndEmitter = new EventEmitter<LogSessionEndCallback>();
+  private readonly loadCompleteEmitter = new EventEmitter<LoadCompleteCallback>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -87,50 +88,43 @@ export class MavlinkWorkerBridge {
 
   /** Subscribe to message stats updates. */
   onStats(callback: StatsCallback): () => void {
-    this.statsCallbacks.add(callback);
-    return () => this.statsCallbacks.delete(callback);
+    return this.statsEmitter.on(callback);
   }
 
   /** Subscribe to ring buffer data updates. New subscribers get the last cached update immediately. */
   onUpdate(callback: UpdateCallback): () => void {
-    this.updateCallbacks.add(callback);
+    const unsub = this.updateEmitter.on(callback);
     if (this.lastUpdate) {
       callback(this.lastUpdate);
     }
-    return () => this.updateCallbacks.delete(callback);
+    return unsub;
   }
 
   /** Subscribe to known field key updates. */
   onAvailableFields(callback: AvailableFieldsCallback): () => void {
-    this.availableFieldsCallbacks.add(callback);
-    return () => this.availableFieldsCallbacks.delete(callback);
+    return this.availableFieldsEmitter.on(callback);
   }
 
   /** Subscribe to connection status changes. */
   onStatusChange(callback: StatusCallback): () => void {
-    this.statusCallbacks.add(callback);
-    return () => this.statusCallbacks.delete(callback);
+    return this.statusEmitter.on(callback);
   }
 
   /** Subscribe to STATUSTEXT message events. */
   onStatusText(callback: StatusTextCallback): () => void {
-    this.statustextCallbacks.add(callback);
-    return () => this.statustextCallbacks.delete(callback);
+    return this.statustextEmitter.on(callback);
   }
 
   onLogSessionStart(callback: LogSessionStartCallback): () => void {
-    this.logSessionStartCallbacks.add(callback);
-    return () => this.logSessionStartCallbacks.delete(callback);
+    return this.logSessionStartEmitter.on(callback);
   }
 
   onLogChunk(callback: LogChunkCallback): () => void {
-    this.logChunkCallbacks.add(callback);
-    return () => this.logChunkCallbacks.delete(callback);
+    return this.logChunkEmitter.on(callback);
   }
 
   onLogSessionEnd(callback: LogSessionEndCallback): () => void {
-    this.logSessionEndCallbacks.add(callback);
-    return () => this.logSessionEndCallbacks.delete(callback);
+    return this.logSessionEndEmitter.on(callback);
   }
 
   /** Set the field keys that should be streamed to the main thread. */
@@ -150,8 +144,7 @@ export class MavlinkWorkerBridge {
 
   /** Subscribe to log load completion events. */
   onLoadComplete(callback: LoadCompleteCallback): () => void {
-    this.loadCompleteCallbacks.add(callback);
-    return () => this.loadCompleteCallbacks.delete(callback);
+    return this.loadCompleteEmitter.on(callback);
   }
 
   /** Terminate the worker. */
@@ -172,9 +165,7 @@ export class MavlinkWorkerBridge {
       case 'stats': {
         const statsRecord = e.data.stats as Record<string, MessageStats>;
         const statsMap = new Map<string, MessageStats>(Object.entries(statsRecord));
-        for (const cb of this.statsCallbacks) {
-          cb(statsMap);
-        }
+        this.statsEmitter.emit(statsMap);
         break;
       }
 
@@ -182,17 +173,13 @@ export class MavlinkWorkerBridge {
         const buffersRecord = e.data.buffers as Record<string, { timestamps: Float64Array; values: Float64Array }>;
         const buffersMap = new Map(Object.entries(buffersRecord));
         this.lastUpdate = buffersMap;
-        for (const cb of this.updateCallbacks) {
-          cb(buffersMap);
-        }
+        this.updateEmitter.emit(buffersMap);
         break;
       }
 
       case 'availableFields': {
         const fields = e.data.fields as string[];
-        for (const cb of this.availableFieldsCallbacks) {
-          cb(fields);
-        }
+        this.availableFieldsEmitter.emit(fields);
         break;
       }
 
@@ -201,9 +188,7 @@ export class MavlinkWorkerBridge {
         if (status === 'disconnected') {
           this.lastUpdate = null;
         }
-        for (const cb of this.statusCallbacks) {
-          cb(status);
-        }
+        this.statusEmitter.emit(status);
         break;
       }
 
@@ -213,9 +198,7 @@ export class MavlinkWorkerBridge {
           text: e.data.text as string,
           timestamp: e.data.timestamp as number,
         };
-        for (const cb of this.statustextCallbacks) {
-          cb(entry);
-        }
+        this.statustextEmitter.emit(entry);
         break;
       }
 
@@ -224,9 +207,7 @@ export class MavlinkWorkerBridge {
           sessionId: e.data.sessionId as string,
           startedAtMs: e.data.startedAtMs as number,
         };
-        for (const cb of this.logSessionStartCallbacks) {
-          cb(meta);
-        }
+        this.logSessionStartEmitter.emit(meta);
         break;
       }
 
@@ -239,9 +220,7 @@ export class MavlinkWorkerBridge {
           packetCount: e.data.chunkPacketCount as number,
           bytes: e.data.bytes as ArrayBuffer,
         };
-        for (const cb of this.logChunkCallbacks) {
-          cb(chunk);
-        }
+        this.logChunkEmitter.emit(chunk);
         break;
       }
 
@@ -253,9 +232,7 @@ export class MavlinkWorkerBridge {
           lastPacketUs: e.data.lastPacketUs as number | undefined,
           packetCount: e.data.packetCount as number,
         };
-        for (const cb of this.logSessionEndCallbacks) {
-          cb(meta);
-        }
+        this.logSessionEndEmitter.emit(meta);
         break;
       }
 
@@ -263,9 +240,7 @@ export class MavlinkWorkerBridge {
         const statsRecord = e.data.stats as Record<string, MessageStats>;
         const statsMap = new Map<string, MessageStats>(Object.entries(statsRecord));
         const durationSec = e.data.durationSec as number;
-        for (const cb of this.loadCompleteCallbacks) {
-          cb({ stats: statsMap, durationSec });
-        }
+        this.loadCompleteEmitter.emit({ stats: statsMap, durationSec });
         break;
       }
 

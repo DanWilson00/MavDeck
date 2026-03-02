@@ -1,3 +1,5 @@
+import { EventEmitter } from '../core/event-emitter';
+
 export type ZoomRange = { min: number; max: number } | null;
 export type InteractionMode = 'live' | 'zoomed';
 
@@ -22,20 +24,11 @@ export function createPlotInteractionController(): PlotInteractionController {
     zoomRange: null,
     lastSourcePlotId: null,
   };
-  const listeners = new Set<Listener>();
-
-  function notify() {
-    for (const listener of listeners) {
-      listener(snapshot);
-    }
-  }
+  const emitter = new EventEmitter<Listener>();
 
   return {
     getSnapshot: () => snapshot,
-    subscribe: (listener: Listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribe: (listener: Listener) => emitter.on(listener),
     emitZoom: (range, sourcePlotId) => {
       if (
         snapshot.mode === 'zoomed' &&
@@ -50,7 +43,7 @@ export function createPlotInteractionController(): PlotInteractionController {
         zoomRange: range,
         lastSourcePlotId: sourcePlotId,
       };
-      notify();
+      emitter.emit(snapshot);
     },
     emitReset: (sourcePlotId) => {
       if (snapshot.mode === 'live' && snapshot.zoomRange === null) {
@@ -61,7 +54,7 @@ export function createPlotInteractionController(): PlotInteractionController {
         zoomRange: null,
         lastSourcePlotId: sourcePlotId,
       };
-      notify();
+      emitter.emit(snapshot);
     },
   };
 }

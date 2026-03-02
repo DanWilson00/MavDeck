@@ -5,6 +5,7 @@
  * Tracks connection status locally.
  */
 
+import { EventEmitter } from '../core/event-emitter';
 import type { MavlinkWorkerBridge, ConnectionConfig, ConnectionStatus } from './worker-bridge';
 import { WebSerialByteSource } from './webserial-byte-source';
 
@@ -12,7 +13,7 @@ type StatusCallback = (status: ConnectionStatus) => void;
 
 export class ConnectionManager {
   private readonly bridge: MavlinkWorkerBridge;
-  private readonly callbacks = new Set<StatusCallback>();
+  private readonly statusChange = new EventEmitter<StatusCallback>();
   private serialSource: WebSerialByteSource | null = null;
   private _status: ConnectionStatus = 'disconnected';
   private unsubBridgeStatus: (() => void) | null = null;
@@ -23,9 +24,7 @@ export class ConnectionManager {
     // Forward status changes from worker
     this.unsubBridgeStatus = this.bridge.onStatusChange(status => {
       this._status = status;
-      for (const cb of this.callbacks) {
-        cb(status);
-      }
+      this.statusChange.emit(status);
     });
   }
 
@@ -84,14 +83,13 @@ export class ConnectionManager {
 
   /** Subscribe to status changes. Returns unsubscribe function. */
   onStatusChange(callback: StatusCallback): () => void {
-    this.callbacks.add(callback);
-    return () => this.callbacks.delete(callback);
+    return this.statusChange.on(callback);
   }
 
   /** Clean up subscriptions. */
   dispose(): void {
     this.unsubBridgeStatus?.();
     this.unsubBridgeStatus = null;
-    this.callbacks.clear();
+    this.statusChange.clear();
   }
 }

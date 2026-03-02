@@ -6,6 +6,7 @@
  * decay for frequency calculation.
  */
 
+import { EventEmitter } from '../core/event-emitter';
 import type { MavlinkMessage } from '../mavlink/decoder';
 
 export interface MessageStats {
@@ -38,7 +39,7 @@ type StatsCallback = (stats: Map<string, MessageStats>) => void;
 export class GenericMessageTracker {
   private readonly recentTimestamps = new Map<string, number[]>();
   private readonly stats = new Map<string, MessageStats>();
-  private readonly callbacks = new Set<StatsCallback>();
+  private readonly statsEmitter = new EventEmitter<StatsCallback>();
   private timerId: ReturnType<typeof setInterval> | null = null;
 
   /** Record an incoming message. Call this for every decoded MAVLink message. */
@@ -83,10 +84,7 @@ export class GenericMessageTracker {
    * Returns an unsubscribe function.
    */
   onStats(callback: StatsCallback): () => void {
-    this.callbacks.add(callback);
-    return () => {
-      this.callbacks.delete(callback);
-    };
+    return this.statsEmitter.on(callback);
   }
 
   /** Returns a snapshot of current stats (deep copy to prevent mutation). */
@@ -159,11 +157,9 @@ export class GenericMessageTracker {
     }
 
     // Notify subscribers with a snapshot
-    if (this.callbacks.size > 0) {
+    if (this.statsEmitter.size > 0) {
       const snapshot = this.getStats();
-      for (const callback of this.callbacks) {
-        callback(snapshot);
-      }
+      this.statsEmitter.emit(snapshot);
     }
   }
 }
