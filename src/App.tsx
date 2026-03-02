@@ -80,16 +80,17 @@ export default function App() {
     }
   });
 
-  // Stream only fields needed by active views.
+  // Stream fields needed by ALL tabs (all charts stay alive for instant switching).
   createEffect(() => {
     if (!appState.isReady || !bridge) return;
 
     const interested = new Set<string>(MAP_REQUIRED_FIELDS);
-    const activeTab = appState.plotTabs.find(t => t.id === appState.activeSubTab);
-    for (const plot of activeTab?.plots ?? []) {
-      for (const signal of plot.signals) {
-        if (signal.visible) {
-          interested.add(signal.fieldKey);
+    for (const tab of appState.plotTabs) {
+      for (const plot of tab.plots) {
+        for (const signal of plot.signals) {
+          if (signal.visible) {
+            interested.add(signal.fieldKey);
+          }
         }
       }
     }
