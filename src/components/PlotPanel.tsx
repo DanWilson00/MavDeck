@@ -3,7 +3,7 @@ import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models/plot-config';
 import { getThemeColor } from '../models/plot-config';
 import { appState } from '../store/app-store';
-import type { PlotInteractionController } from './plot-interactions';
+import type { PlotInteractionController } from '../core/plot-interactions';
 
 interface PlotPanelProps {
   config: PlotConfig;

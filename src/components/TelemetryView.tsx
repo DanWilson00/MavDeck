@@ -7,7 +7,7 @@ import GridLayout from './GridLayout';
 import SignalSelector from './SignalSelector';
 import type { PlotConfig, PlotSignalConfig } from '../models/plot-config';
 import { SIGNAL_COLORS, getThemeColor } from '../models/plot-config';
-import { createPlotInteractionController } from './plot-interactions';
+import { createPlotInteractionController } from '../core/plot-interactions';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
 function pickNextColor(existingSignals: PlotSignalConfig[]): string {

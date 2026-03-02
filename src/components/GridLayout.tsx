@@ -4,7 +4,7 @@ import { GridStack } from 'gridstack';
 import 'gridstack/dist/gridstack.css';
 import PlotPanel from './PlotPanel';
 import type { PlotConfig } from '../models/plot-config';
-import type { PlotInteractionController } from './plot-interactions';
+import type { PlotInteractionController } from '../core/plot-interactions';
 
 interface GridLayoutProps {
   plots: PlotConfig[];

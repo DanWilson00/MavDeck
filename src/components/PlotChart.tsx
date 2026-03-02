@@ -4,7 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models/plot-config';
 import { getThemeColor } from '../models/plot-config';
 import { appState, workerBridge } from '../store/app-store';
-import type { PlotInteractionController } from './plot-interactions';
+import type { PlotInteractionController } from '../core/plot-interactions';
 
 /**
  * Resample `src` onto `target` timestamps using sample-and-hold (zero-order hold).

@@ -1,4 +1,4 @@
-import { EventEmitter } from '../core/event-emitter';
+import { EventEmitter } from './event-emitter';
 
 export type ZoomRange = { min: number; max: number } | null;
 export type InteractionMode = 'live' | 'zoomed';
