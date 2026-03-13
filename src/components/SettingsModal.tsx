@@ -1,11 +1,11 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { appState, setAppState, workerBridge, registry, connectionManager } from '../store';
-import { BAUD_RATES } from '../services';
+import { BAUD_RATES, saveDialect, clearDialect, loadBundledDialect } from '../services';
 import type { BaudRate } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
 
-const UI_SCALE_MIN = 0.8;
-const UI_SCALE_MAX = 1.4;
+const UI_SCALE_MIN = 0.6;
+const UI_SCALE_MAX = 1.8;
 const UI_SCALE_STEP = 0.05;
 const BUFFER_CAPACITY_MIN = 100;
 const BUFFER_CAPACITY_MAX = 20000;
@@ -20,6 +20,7 @@ interface SettingsModalProps {
 
 export default function SettingsModal(props: SettingsModalProps) {
   const [importError, setImportError] = createSignal<string | null>(null);
+  const [refreshing, setRefreshing] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
 
   onMount(() => {
@@ -53,9 +54,8 @@ export default function SettingsModal(props: SettingsModalProps) {
 
   async function handleFileSelected(e: Event) {
     const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    input.value = '';
+    const files = input.files;
+    if (!files || files.length === 0) return;
     setImportError(null);
 
     // Auto-disconnect before re-initializing with a new dialect
@@ -64,15 +64,62 @@ export default function SettingsModal(props: SettingsModalProps) {
     }
 
     try {
-      const text = await file.text();
+      // Read all files into a map
       const fileMap = new Map<string, string>();
-      fileMap.set(file.name, text);
-      const jsonString = parseFromFileMap(fileMap, file.name);
+      for (const file of files) {
+        const text = await file.text();
+        fileMap.set(file.name, text);
+      }
+      input.value = '';
+
+      // Transitively resolve all missing includes from bundled dialects
+      let missing = detectMissingIncludes(fileMap);
+      while (missing.length > 0) {
+        for (const name of missing) {
+          const resp = await fetch(`${import.meta.env.BASE_URL}dialects/${name}`);
+          if (!resp.ok) {
+            throw new Error(`Missing dialect file: ${name}. Select all required XML files together.`);
+          }
+          fileMap.set(name, await resp.text());
+        }
+        missing = detectMissingIncludes(fileMap);
+      }
+
+      // Auto-detect main file: the one not included by any other file
+      const mainFile = detectMainDialect(fileMap);
+
+      const jsonString = parseFromFileMap(fileMap, mainFile);
       await workerBridge.init(jsonString);
       registry.loadFromJsonString(jsonString);
+      setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
+      await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
       console.error('[SettingsModal] Dialect import failed:', err);
-      setImportError('Failed to import dialect file.');
+      setImportError(err instanceof Error ? err.message : 'Failed to import dialect file.');
+    }
+  }
+
+  async function handleRefreshDialect() {
+    setImportError(null);
+    setRefreshing(true);
+
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+      connectionManager.disconnect();
+    }
+
+    try {
+      // Clear any custom dialect, re-parse bundled XML (no caching)
+      await clearDialect();
+
+      const jsonString = await loadBundledDialect();
+      await workerBridge.init(jsonString);
+      registry.loadFromJsonString(jsonString);
+      setAppState('dialectName', 'common');
+    } catch (err) {
+      console.error('[SettingsModal] Dialect refresh failed:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to refresh dialect.');
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -237,18 +284,32 @@ export default function SettingsModal(props: SettingsModalProps) {
             <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
               Dialect
             </h3>
-            <button
-              class="px-3 py-1.5 text-sm rounded border interactive-hover"
-              style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-              onClick={() => fileInputRef?.click()}
-              disabled={!appState.isReady}
-            >
-              Import MAVLink XML
-            </button>
+            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Current: {appState.dialectName}
+            </p>
+            <div class="flex items-center gap-2">
+              <button
+                class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                onClick={() => fileInputRef?.click()}
+                disabled={!appState.isReady}
+              >
+                Import Dialect XML
+              </button>
+              <button
+                class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                onClick={handleRefreshDialect}
+                disabled={!appState.isReady || refreshing()}
+              >
+                {refreshing() ? 'Refreshing...' : 'Reset to Default'}
+              </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
               accept=".xml"
+              multiple
               class="hidden"
               onChange={handleFileSelected}
             />
@@ -294,10 +355,70 @@ export default function SettingsModal(props: SettingsModalProps) {
             <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
               Built by Dan Wilson
             </p>
+            <button
+              class="px-3 py-1.5 text-sm rounded border interactive-hover"
+              style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+              onClick={() => {
+                props.onClose();
+                setAppState('isHelpOpen', true);
+              }}
+            >
+              View Help
+            </button>
           </section>
         </div>
       </div>
     </div>
+  );
+}
+
+function detectMissingIncludes(fileMap: Map<string, string>): string[] {
+  const parser = new DOMParser();
+  const missing: string[] = [];
+  for (const [, content] of fileMap) {
+    const doc = parser.parseFromString(content, 'text/xml');
+    for (const el of doc.querySelectorAll('include')) {
+      const inc = el.textContent?.trim() ?? '';
+      const normalized = inc.split('/').pop()!.split('\\').pop()!;
+      if (normalized && !fileMap.has(normalized)) {
+        missing.push(normalized);
+      }
+    }
+  }
+  return [...new Set(missing)];
+}
+
+function detectMainDialect(fileMap: Map<string, string>): string {
+  const filenames = [...fileMap.keys()];
+  console.log('[detectMainDialect] files:', filenames);
+  if (filenames.length === 1) return filenames[0];
+
+  // Collect all included filenames across all files
+  const included = new Set<string>();
+  const parser = new DOMParser();
+  for (const [name, content] of fileMap) {
+    const doc = parser.parseFromString(content, 'text/xml');
+    const els = doc.querySelectorAll('include');
+    for (const el of els) {
+      const inc = el.textContent?.trim() ?? '';
+      // Normalize: extract just the filename (includes may have paths)
+      const normalized = inc.split('/').pop()!.split('\\').pop()!;
+      included.add(normalized);
+    }
+    console.log('[detectMainDialect]', name, '→ includes:', [...els].map(e => e.textContent?.trim()));
+  }
+
+  // Main file = not referenced by any include
+  const roots = filenames.filter(f => !included.has(f));
+  console.log('[detectMainDialect] included set:', [...included], 'roots:', roots);
+  if (roots.length === 1) return roots[0];
+  if (roots.length > 1) {
+    throw new Error(
+      `Multiple root dialects found: ${roots.join(', ')}. Select only the main dialect and its dependencies.`
+    );
+  }
+  throw new Error(
+    `Cannot auto-detect main dialect. Files: ${filenames.join(', ')}. All appear in include chains: ${[...included].join(', ')}.`
   );
 }
 

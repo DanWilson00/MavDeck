@@ -1,15 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import { SpoofByteSource } from '../spoof-byte-source';
 import { MavlinkMetadataRegistry } from '../../mavlink/registry';
 import { MavlinkFrameParser } from '../../mavlink/frame-parser';
 import { MavlinkMessageDecoder, type MavlinkMessage } from '../../mavlink/decoder';
+import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
 
-const commonJson = readFileSync(
-  resolve(__dirname, '../../../public/dialects/common.json'),
-  'utf-8',
-);
+const commonJson = loadCommonDialectJson();
 
 describe('SpoofByteSource', () => {
   let registry: MavlinkMetadataRegistry;

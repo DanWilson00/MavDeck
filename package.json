@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run build && npm run test"
   },
   "dependencies": {
     "gridstack": "^12.4.2",

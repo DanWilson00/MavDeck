@@ -92,15 +92,41 @@ export default function PlotPanel(props: PlotPanelProps) {
       </div>
 
       {/* Chart area */}
-      <div class="flex-1 min-h-0">
-        <PlotChart
-          plotId={props.config.id}
-          interactionGroupId={props.interactionGroupId}
-          interactionController={props.interactionController}
-          signals={props.config.signals}
-          timeWindow={props.config.timeWindow}
-          isPaused={appState.isPaused}
-        />
+      <div class="relative flex-1 min-h-0">
+        <Show
+          when={props.config.signals.length > 0}
+          fallback={
+            <div class="flex h-full items-center justify-center px-4 text-center">
+              <div class="max-w-xs">
+                <p class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Empty plot
+                </p>
+                <button
+                  class="mt-3 rounded px-3 py-1.5 text-xs font-medium interactive-hover"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onOpenSignalSelector(props.config.id);
+                  }}
+                >
+                  Add signals
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <PlotChart
+            plotId={props.config.id}
+            interactionGroupId={props.interactionGroupId}
+            interactionController={props.interactionController}
+            signals={props.config.signals}
+            timeWindow={props.config.timeWindow}
+            isPaused={appState.isPaused}
+          />
+        </Show>
       </div>
     </div>
   );

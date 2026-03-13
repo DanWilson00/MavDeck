@@ -171,7 +171,7 @@ export default function LogLibraryPane() {
         }
         await deleteLogFile(fileName);
       }
-      setSelectedFiles(new Set());
+      setSelectedFiles(new Set<string>());
       setDeletingSelected(false);
       setAppState('logsVersion', v => v + 1);
     } catch (err) {
@@ -325,7 +325,7 @@ export default function LogLibraryPane() {
                             return;
                           }
                           // Normal click — clear selection, load/unload
-                          if (selectedFiles().size > 0) setSelectedFiles(new Set());
+                          if (selectedFiles().size > 0) setSelectedFiles(new Set<string>());
                           setLastClickedFile(entry.fileName);
                           if (loaded()) {
                             handleUnload();

@@ -5,8 +5,17 @@ export function useKeyboardShortcuts(): void {
   onMount(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Don't handle shortcuts when typing in inputs
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+
+      if (e.key === 'Escape' && appState.isHelpOpen) {
+        e.preventDefault();
+        setAppState('isHelpOpen', false);
+        return;
+      }
+
+      if (appState.isHelpOpen) return;
 
       switch (e.key) {
         case ' ': {

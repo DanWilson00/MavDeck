@@ -63,6 +63,11 @@ export default function MessageMonitor(props: MessageMonitorProps) {
     <div class="flex flex-col h-full">
       {/* Message list */}
       <div class="flex-1 overflow-y-auto">
+        <Show when={knownMessageNames().length === 0}>
+          <div class="px-4 py-5 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            No telemetry yet.
+          </div>
+        </Show>
         <For each={knownMessageNames()}>
           {(name) => {
             const stats = () => messageStats().get(name);
@@ -157,7 +162,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                               class="font-mono ml-2 text-right"
                               style={{ color: 'var(--text-primary)' }}
                             >
-                              {value() !== undefined ? formatValue(value(), field) : '—'}
+                              {value() !== undefined ? formatValue(value()!, field) : '—'}
                               <Show when={field.units && !field.enumType}>
                                 <span style={{ color: 'var(--text-secondary)' }}>
                                   {' '}{field.units}

@@ -25,6 +25,7 @@ export interface AppState {
   baudRate: BaudRate;
   bufferCapacity: number;
   isSettingsOpen: boolean;
+  isHelpOpen: boolean;
   timeWindow: TimeWindow;
   addPlotCounter: number;
   mapShowPath: boolean;
@@ -56,6 +57,7 @@ export const [appState, setAppState] = createStore<AppState>({
   baudRate: DEFAULT_BAUD_RATE,
   bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
   isSettingsOpen: false,
+  isHelpOpen: false,
   timeWindow: DEFAULT_TIME_WINDOW,
   addPlotCounter: 0,
   mapShowPath: DEFAULT_SETTINGS.mapShowPath,

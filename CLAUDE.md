@@ -138,7 +138,7 @@ dist/
 .env
 ```
 
-Do NOT gitignore: `public/dialects/common.json` (ships with the app).
+Do NOT gitignore: `public/dialects/common.xml`, `public/dialects/standard.xml`, and `public/dialects/minimal.xml` (ship with the app).
 
 ---
 
@@ -165,7 +165,7 @@ Do NOT gitignore: `public/dialects/common.json` (ships with the app).
 - `src/components/` — SolidJS UI components
 - `src/store/` — Application state (SolidJS createStore)
 - `src/models/` — TypeScript type definitions
-- `public/dialects/` — MAVLink dialect JSON files
+- `public/dialects/` — MAVLink dialect XML files (parsed to JSON on first load)
 
 ### Data Flow
 

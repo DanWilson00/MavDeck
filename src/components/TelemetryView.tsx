@@ -389,14 +389,32 @@ export default function TelemetryView() {
                   <Show
                     when={tabPlots().length > 0}
                     fallback={
-                      <div class="flex items-center justify-center h-full">
-                        <div class="text-center">
-                          <p class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                            No plots yet
+                      <div class="flex h-full items-center justify-center px-6">
+                        <div
+                          class="max-w-md rounded-xl border px-6 py-5 text-center"
+                          style={{
+                            'background-color': 'var(--bg-panel)',
+                            'border-color': 'var(--border)',
+                          }}
+                        >
+                          <p class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                            No plots in this tab
                           </p>
-                          <p class="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                            Use the "+" button in the toolbar, select a plot, then click fields to add signals
+                          <p class="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                            Add a plot to begin.
                           </p>
+                          <div class="mt-4 flex items-center justify-center gap-3">
+                            <button
+                              class="rounded px-3 py-1.5 text-sm font-medium interactive-hover"
+                              style={{
+                                'background-color': 'var(--bg-hover)',
+                                color: 'var(--text-primary)',
+                              }}
+                              onClick={() => handleAddPlot()}
+                            >
+                              Add first plot
+                            </button>
+                          </div>
                         </div>
                       </div>
                     }

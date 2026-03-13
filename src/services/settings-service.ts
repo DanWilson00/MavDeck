@@ -5,7 +5,7 @@
  * Grid layout positions remain in a separate key owned by TelemetryView.
  */
 
-import { get, set } from 'idb-keyval';
+import { get, set, del } from 'idb-keyval';
 import type { BaudRate } from './webserial-byte-source';
 import { DEFAULT_BAUD_RATE } from './webserial-byte-source';
 
@@ -67,4 +67,23 @@ export function saveSettingsDebounced(settings: MavDeckSettings): void {
     saveSettings(settings);
     debounceTimer = null;
   }, 2000);
+}
+
+const DIALECT_KEY = 'mavdeck-dialect-v1';
+
+export interface PersistedDialect {
+  name: string;       // e.g. "common" or "ardupilotmega"
+  json: string;       // parsed JSON string (registry-compatible)
+}
+
+export async function saveDialect(name: string, json: string): Promise<void> {
+  await set(DIALECT_KEY, { name, json });
+}
+
+export async function loadDialect(): Promise<PersistedDialect | undefined> {
+  return get<PersistedDialect>(DIALECT_KEY);
+}
+
+export async function clearDialect(): Promise<void> {
+  await del(DIALECT_KEY);
 }

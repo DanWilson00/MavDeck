@@ -9,7 +9,7 @@
 
 export type SerialBytesCallback = (data: Uint8Array) => void;
 
-export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 500000, 1000000] as const;
+export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 500000, 921600, 1000000] as const;
 export type BaudRate = (typeof BAUD_RATES)[number];
 export const DEFAULT_BAUD_RATE: BaudRate = 115200;
 

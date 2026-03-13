@@ -4,6 +4,7 @@ import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
 import StatusBar from './components/StatusBar';
+import HelpOverlay from './components/HelpOverlay';
 import { appState, setAppState } from './store';
 import {
   useBootstrap,
@@ -46,6 +47,7 @@ export default function App() {
             </Show>
           </main>
           <StatusBar />
+          <HelpOverlay />
         </div>
       </Show>
     </ThemeProvider>

@@ -1,16 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import { MavlinkMetadataRegistry } from '../registry';
 import { MavlinkFrameParser } from '../frame-parser';
 import { MavlinkFrameBuilder } from '../frame-builder';
 import { MavlinkMessageDecoder, type MavlinkMessage } from '../decoder';
 import type { MavlinkFrame } from '../frame';
+import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
 
-const commonJson = readFileSync(
-  resolve(__dirname, '../../../public/dialects/common.json'),
-  'utf-8',
-);
+const commonJson = loadCommonDialectJson();
 
 describe('MavlinkFrameParser', () => {
   let registry: MavlinkMetadataRegistry;

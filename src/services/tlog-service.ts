@@ -201,7 +201,7 @@ export async function listLogs(): Promise<LogLibraryEntry[]> {
   const entries: LogLibraryEntry[] = [];
   for await (const entry of dir.values()) {
     if (entry.kind !== 'file') continue;
-    const file = await entry.getFile();
+    const file = await (entry as FileSystemFileHandle).getFile();
     const meta = await get<LogMetadata>(logMetaKey(entry.name));
     entries.push({
       fileName: entry.name,
@@ -225,7 +225,7 @@ export async function readLogFile(fileName: string): Promise<Uint8Array> {
 
 export async function exportLogFile(fileName: string): Promise<void> {
   const bytes = await readLogFile(fileName);
-  const blob = new Blob([bytes], { type: 'application/octet-stream' });
+  const blob = new Blob([Uint8Array.from(bytes)], { type: 'application/octet-stream' });
   const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = href;

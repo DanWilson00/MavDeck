@@ -12,7 +12,7 @@ if ('serviceWorker' in navigator) {
       setAppState('offlineStatus', 'ready');
       setAppState('offlineError', null);
     },
-    onRegisterError(error) {
+    onRegisterError(error: unknown) {
       setAppState('offlineStatus', 'error');
       setAppState('offlineError', error instanceof Error ? error.message : String(error));
     },

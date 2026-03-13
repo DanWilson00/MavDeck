@@ -1,4 +1,5 @@
 export type { ByteCallback, IByteSource } from './byte-source';
+export { loadBundledDialect } from './dialect-loader';
 export { ConnectionManager } from './connection-manager';
 export { ExternalByteSource } from './external-byte-source';
 export { LogViewerService, type LogViewerState } from './log-viewer-service';
@@ -10,6 +11,10 @@ export {
   saveSettingsDebounced,
   DEFAULT_SETTINGS,
   type MavDeckSettings,
+  saveDialect,
+  loadDialect,
+  clearDialect,
+  type PersistedDialect,
 } from './settings-service';
 export { SpoofByteSource } from './spoof-byte-source';
 export { TimeSeriesDataManager, type TimeSeriesManagerOptions } from './timeseries-manager';

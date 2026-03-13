@@ -7,6 +7,8 @@
  * Communicates with the main thread via postMessage.
  */
 
+/// <reference lib="webworker" />
+
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
 import {
   SpoofByteSource,
@@ -20,6 +22,8 @@ import {
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import { MavlinkMessageDecoder, type MavlinkMessage } from '../mavlink/decoder';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
+
+declare const self: DedicatedWorkerGlobalScope;
 
 /** Type-safe wrapper around self.postMessage for worker events. */
 function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
@@ -309,8 +313,8 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
 
   const transferables: ArrayBuffer[] = [];
   for (const buf of Object.values(buffers)) {
-    transferables.push(buf.timestamps.buffer);
-    transferables.push(buf.values.buffer);
+    transferables.push(buf.timestamps.buffer as ArrayBuffer);
+    transferables.push(buf.values.buffer as ArrayBuffer);
   }
 
   postEvent({ type: 'update', buffers }, transferables);

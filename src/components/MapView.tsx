@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createSignal, createEffect } from 'solid-js';
+import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { appState, setAppState, workerBridge } from '../store';
@@ -61,6 +61,7 @@ export default function MapView() {
     alt: 0,
     hdg: 0,
   });
+  const [hasMapData, setHasMapData] = createSignal(false);
 
   let latestLat = INITIAL_LAT;
   let latestLon = INITIAL_LON;
@@ -80,9 +81,11 @@ export default function MapView() {
 
       if (latBuf && latBuf.values.length > 0) {
         latestLat = latBuf.values[latBuf.values.length - 1] / 1e7;
+        setHasMapData(true);
       }
       if (lonBuf && lonBuf.values.length > 0) {
         latestLon = lonBuf.values[lonBuf.values.length - 1] / 1e7;
+        setHasMapData(true);
       }
       if (altBuf && altBuf.values.length > 0) {
         latestAlt = altBuf.values[altBuf.values.length - 1] / 1000;
@@ -122,6 +125,7 @@ export default function MapView() {
     // Set the trail polyline to the full path
     trail.setLatLngs(fullPath);
     trailPoints = fullPath;
+    setHasMapData(true);
 
     // Ensure trail is visible on the map
     if (!map.hasLayer(trail)) trail.addTo(map);
@@ -170,6 +174,7 @@ export default function MapView() {
     trailPoints = [];
     trail?.setLatLngs([]);
     latestBuffers = undefined;
+    setHasMapData(false);
 
     // Restore auto-center preference
     if (savedAutoCenter !== undefined) {
@@ -392,6 +397,25 @@ export default function MapView() {
           </button>
         </div>
       </div>
+
+      <Show when={!hasMapData()}>
+        <div class="pointer-events-none absolute left-2 top-2 z-[1000] max-w-sm rounded-lg border px-3 py-2 text-sm"
+          style={{
+            'background-color': 'var(--map-overlay-bg)',
+            color: 'var(--map-overlay-text)',
+            border: '1px solid var(--map-overlay-border)',
+          }}
+        >
+          <div class="font-medium">
+            {appState.logViewerState.isActive ? 'No log path yet' : 'No live position yet'}
+          </div>
+          <div class="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+            {appState.logViewerState.isActive
+              ? 'Path appears when the log contains position data.'
+              : 'Connect telemetry to update the map.'}
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }

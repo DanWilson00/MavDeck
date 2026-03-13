@@ -8,10 +8,13 @@ vi.mock('idb-keyval', () => ({
   set: vi.fn(async (key: string, value: unknown) => {
     mockStore.set(key, value);
   }),
+  del: vi.fn(async (key: string) => {
+    mockStore.delete(key);
+  }),
 }));
 
-import { loadSettings, saveSettings, saveSettingsDebounced, DEFAULT_SETTINGS } from '../settings-service';
-import type { MavDeckSettings } from '../settings-service';
+import { loadSettings, saveSettings, saveSettingsDebounced, DEFAULT_SETTINGS, saveDialect, loadDialect, clearDialect } from '../settings-service';
+import type { MavDeckSettings, PersistedDialect } from '../settings-service';
 
 describe('settings-service', () => {
   beforeEach(() => {
@@ -167,5 +170,39 @@ describe('settings-service', () => {
     expect(DEFAULT_SETTINGS.bufferCapacity).toBe(2000);
     expect(DEFAULT_SETTINGS.dataRetentionMinutes).toBe(10);
     expect(DEFAULT_SETTINGS.updateIntervalMs).toBe(16);
+  });
+
+  describe('dialect persistence', () => {
+    it('loadDialect returns undefined when no dialect is cached', async () => {
+      const result = await loadDialect();
+      expect(result).toBeUndefined();
+    });
+
+    it('saveDialect + loadDialect round-trip', async () => {
+      const json = '{"messages":[],"enums":[]}';
+      await saveDialect('ardupilotmega', json);
+
+      const loaded = await loadDialect();
+      expect(loaded).toBeDefined();
+      expect(loaded!.name).toBe('ardupilotmega');
+      expect(loaded!.json).toBe(json);
+    });
+
+    it('clearDialect removes the cached dialect', async () => {
+      await saveDialect('common', '{"messages":[]}');
+      expect(await loadDialect()).toBeDefined();
+
+      await clearDialect();
+      expect(await loadDialect()).toBeUndefined();
+    });
+
+    it('saveDialect overwrites previous dialect', async () => {
+      await saveDialect('common', '{"v":1}');
+      await saveDialect('ardupilotmega', '{"v":2}');
+
+      const loaded = await loadDialect();
+      expect(loaded!.name).toBe('ardupilotmega');
+      expect(loaded!.json).toBe('{"v":2}');
+    });
   });
 });

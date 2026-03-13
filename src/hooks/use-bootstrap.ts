@@ -4,6 +4,8 @@ import {
   MavlinkWorkerBridge,
   ConnectionManager,
   loadSettings,
+  loadDialect,
+  loadBundledDialect,
   DEFAULT_SETTINGS,
   LogViewerService,
   recoverStagedSessions,
@@ -51,18 +53,26 @@ export function useBootstrap(): BootstrapResult {
       });
       setSettingsReady(true);
 
-      // Load dialect
-      const response = await fetch(`${import.meta.env.BASE_URL}dialects/common.json`);
-      if (!response.ok) {
-        throw new Error(`Failed to load dialect: ${response.status} ${response.statusText}`);
+      // Load dialect: custom from IndexedDB, or parse bundled XML (never cached)
+      let json: string;
+      let dialectName: string;
+
+      const cached = await loadDialect();
+      if (cached) {
+        // Custom dialect was imported previously — restore it
+        json = cached.json;
+        dialectName = cached.name;
+      } else {
+        // Default: parse bundled XML every load (fast enough, avoids stale cache)
+        dialectName = 'common';
+        json = await loadBundledDialect();
       }
-      const json = await response.text();
 
       // Initialize registry
       const reg = new MavlinkMetadataRegistry();
       reg.loadFromJsonString(json);
       setRegistry(reg);
-      setAppState('dialectName', 'common.json'.replace(/\.json$/, ''));
+      setAppState('dialectName', dialectName);
 
       // Initialize worker bridge
       bridge = new MavlinkWorkerBridge();
