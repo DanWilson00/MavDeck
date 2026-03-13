@@ -1,18 +1,11 @@
 import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
 import { appState, setAppState, connectionManager, logViewerService } from '../store';
 import type { ConnectionStatus } from '../services';
-import type { TimeWindow } from '../models';
+import { STATUS_COLORS, type TimeWindow } from '../models';
 import { isWebSerialSupported } from '../services';
 import SettingsModal from './SettingsModal';
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
-
-const STATUS_COLORS: Record<ConnectionStatus, string> = {
-  disconnected: '#71717a', // gray
-  connecting: '#eab308',   // yellow
-  connected: '#22c55e',    // green
-  error: '#ef4444',        // red
-};
 
 export default function Toolbar() {
   const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');

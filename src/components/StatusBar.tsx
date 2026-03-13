@@ -1,13 +1,7 @@
 import { Show } from 'solid-js';
 import { appState } from '../store';
 import { isWebSerialSupported } from '../services';
-
-const STATUS_COLORS: Record<string, string> = {
-  disconnected: '#71717a',
-  connecting: '#eab308',
-  connected: '#00d4ff',
-  error: '#ef4444',
-};
+import { STATUS_COLORS } from '../models';
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
