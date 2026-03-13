@@ -6,6 +6,7 @@ import {
   loadSettings,
   loadDialect,
   loadBundledDialect,
+  initDialect,
   DEFAULT_SETTINGS,
   LogViewerService,
   recoverStagedSessions,
@@ -69,15 +70,12 @@ export function useBootstrap(): BootstrapResult {
         json = await loadBundledDialect();
       }
 
-      // Initialize registry
+      // Initialize registry and worker bridge
       const reg = new MavlinkMetadataRegistry();
-      reg.loadFromJsonString(json);
+      bridge = new MavlinkWorkerBridge();
+      await initDialect(bridge, reg, json);
       setRegistry(reg);
       setAppState('dialectName', dialectName);
-
-      // Initialize worker bridge
-      bridge = new MavlinkWorkerBridge();
-      await bridge.init(json);
       setWorkerBridge(bridge);
 
       // Initialize log viewer service

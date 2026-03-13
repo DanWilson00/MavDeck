@@ -1,5 +1,5 @@
 export type { ByteCallback, IByteSource } from './byte-source';
-export { loadBundledDialect } from './dialect-loader';
+export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect } from './dialect-loader';
 export { ConnectionManager } from './connection-manager';
 export { ExternalByteSource } from './external-byte-source';
 export { LogViewerService, type LogViewerState } from './log-viewer-service';

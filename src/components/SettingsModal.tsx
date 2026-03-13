@@ -1,6 +1,9 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { appState, setAppState, workerBridge, registry, connectionManager } from '../store';
-import { BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect } from '../services';
+import {
+  BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
+  initDialect, detectMissingIncludes, detectMainDialect,
+} from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
 
@@ -52,6 +55,12 @@ export default function SettingsModal(props: SettingsModalProps) {
     setAppState('mapTrailLength', clamped);
   }
 
+  function disconnectIfActive() {
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+      connectionManager.disconnect();
+    }
+  }
+
   async function handleFileSelected(e: Event) {
     const input = e.target as HTMLInputElement;
     const files = input.files;
@@ -59,9 +68,7 @@ export default function SettingsModal(props: SettingsModalProps) {
     setImportError(null);
 
     // Auto-disconnect before re-initializing with a new dialect
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
-      connectionManager.disconnect();
-    }
+    disconnectIfActive();
 
     try {
       // Read all files into a map
@@ -89,8 +96,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       const mainFile = detectMainDialect(fileMap);
 
       const jsonString = parseFromFileMap(fileMap, mainFile);
-      await workerBridge.init(jsonString);
-      registry.loadFromJsonString(jsonString);
+      await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
       await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
@@ -103,17 +109,14 @@ export default function SettingsModal(props: SettingsModalProps) {
     setImportError(null);
     setRefreshing(true);
 
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
-      connectionManager.disconnect();
-    }
+    disconnectIfActive();
 
     try {
       // Clear any custom dialect, re-parse bundled XML (no caching)
       await clearDialect();
 
       const jsonString = await loadBundledDialect();
-      await workerBridge.init(jsonString);
-      registry.loadFromJsonString(jsonString);
+      await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
       console.error('[SettingsModal] Dialect refresh failed:', err);
@@ -391,56 +394,6 @@ export default function SettingsModal(props: SettingsModalProps) {
         </div>
       </div>
     </div>
-  );
-}
-
-function detectMissingIncludes(fileMap: Map<string, string>): string[] {
-  const parser = new DOMParser();
-  const missing: string[] = [];
-  for (const [, content] of fileMap) {
-    const doc = parser.parseFromString(content, 'text/xml');
-    for (const el of doc.querySelectorAll('include')) {
-      const inc = el.textContent?.trim() ?? '';
-      const normalized = inc.split('/').pop()!.split('\\').pop()!;
-      if (normalized && !fileMap.has(normalized)) {
-        missing.push(normalized);
-      }
-    }
-  }
-  return [...new Set(missing)];
-}
-
-function detectMainDialect(fileMap: Map<string, string>): string {
-  const filenames = [...fileMap.keys()];
-  console.log('[detectMainDialect] files:', filenames);
-  if (filenames.length === 1) return filenames[0];
-
-  // Collect all included filenames across all files
-  const included = new Set<string>();
-  const parser = new DOMParser();
-  for (const [name, content] of fileMap) {
-    const doc = parser.parseFromString(content, 'text/xml');
-    const els = doc.querySelectorAll('include');
-    for (const el of els) {
-      const inc = el.textContent?.trim() ?? '';
-      // Normalize: extract just the filename (includes may have paths)
-      const normalized = inc.split('/').pop()!.split('\\').pop()!;
-      included.add(normalized);
-    }
-    console.log('[detectMainDialect]', name, '→ includes:', [...els].map(e => e.textContent?.trim()));
-  }
-
-  // Main file = not referenced by any include
-  const roots = filenames.filter(f => !included.has(f));
-  console.log('[detectMainDialect] included set:', [...included], 'roots:', roots);
-  if (roots.length === 1) return roots[0];
-  if (roots.length > 1) {
-    throw new Error(
-      `Multiple root dialects found: ${roots.join(', ')}. Select only the main dialect and its dependencies.`
-    );
-  }
-  throw new Error(
-    `Cannot auto-detect main dialect. Files: ${filenames.join(', ')}. All appear in include chains: ${[...included].join(', ')}.`
   );
 }
 

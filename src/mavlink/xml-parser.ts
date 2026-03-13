@@ -8,6 +8,11 @@
 
 import { MavlinkCrc } from './crc';
 
+/** Normalize a dialect include path to just the filename (strip directory components). */
+export function normalizeDialectFilename(path: string): string {
+  return path.split('/').pop()!.split('\\').pop()!;
+}
+
 /** Type sizes in bytes for MAVLink types. */
 const TYPE_SIZES: Record<string, number> = {
   'int8_t': 1,
@@ -231,7 +236,7 @@ function parseXmlRecursive(
     const includeFile = includeEl.textContent?.trim() ?? '';
     if (includeFile) {
       // Normalize: extract just the filename
-      const normalized = includeFile.split('/').pop()!.split('\\').pop()!;
+      const normalized = normalizeDialectFilename(includeFile);
       const included = parseXmlRecursive(files, normalized, parsedFiles);
       mergeDialects(dialect, included);
     }
