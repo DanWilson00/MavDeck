@@ -8,12 +8,14 @@
 import { get, set, del } from 'idb-keyval';
 import type { BaudRate } from './webserial-byte-source';
 import { DEFAULT_BAUD_RATE } from './webserial-byte-source';
+import type { UnitProfile } from './unit-display';
 
 const SETTINGS_KEY = 'mavdeck-settings-v1';
 
 export interface MavDeckSettings {
   theme: 'dark' | 'light';
   uiScale: number;
+  unitProfile: UnitProfile;
   baudRate: BaudRate;
   bufferCapacity: number;
   dataRetentionMinutes: number;
@@ -30,6 +32,7 @@ export interface MavDeckSettings {
 export const DEFAULT_SETTINGS: MavDeckSettings = {
   theme: 'dark',
   uiScale: 1,
+  unitProfile: 'raw',
   baudRate: DEFAULT_BAUD_RATE,
   bufferCapacity: 2000,
   dataRetentionMinutes: 10,

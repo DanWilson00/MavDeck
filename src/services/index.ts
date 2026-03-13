@@ -6,6 +6,18 @@ export { LogViewerService, type LogViewerState } from './log-viewer-service';
 export { MavlinkService } from './mavlink-service';
 export { GenericMessageTracker, type MessageStats } from './message-tracker';
 export {
+  UNIT_PROFILES,
+  getDisplayUnit,
+  convertDisplayValue,
+  convertDisplayValues,
+  convertDisplayArray,
+  formatDisplayValue,
+  formatSignalLabel,
+  type UnitProfile,
+  type UnitFamily,
+  type DisplaySurface,
+} from './unit-display';
+export {
   loadSettings,
   saveSettings,
   saveSettingsDebounced,

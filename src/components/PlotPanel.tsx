@@ -1,8 +1,9 @@
-import { For, Show } from 'solid-js';
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models';
 import { getThemeColor } from '../models';
-import { appState } from '../store';
+import { formatSignalLabel } from '../services';
+import { appState, registry } from '../store';
 import type { PlotInteractionController } from '../core';
 
 interface PlotPanelProps {
@@ -17,6 +18,103 @@ interface PlotPanelProps {
 }
 
 export default function PlotPanel(props: PlotPanelProps) {
+  const visibleSignals = createMemo(() => props.config.signals.filter(s => s.visible));
+  const [signalStripWidth, setSignalStripWidth] = createSignal(0);
+  const [measurementVersion, setMeasurementVersion] = createSignal(0);
+  const MORE_BADGE_RESERVE_PX = 72;
+  let signalStripRef: HTMLDivElement | undefined;
+  let measurementRef: HTMLDivElement | undefined;
+  const compactNames = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const sig of visibleSignals()) {
+      counts.set(sig.fieldName, (counts.get(sig.fieldName) ?? 0) + 1);
+    }
+
+    return new Map(
+      visibleSignals().map(sig => [
+        sig.id,
+        counts.get(sig.fieldName)! > 1 ? `${sig.messageType}.${sig.fieldName}` : sig.fieldName,
+      ]),
+    );
+  });
+  const fittedSignalCount = createMemo(() => {
+    measurementVersion();
+    const signals = visibleSignals();
+    const containerWidth = signalStripWidth();
+    if (!measurementRef || containerWidth <= 0 || signals.length === 0) {
+      return signals.length;
+    }
+
+    const chipWidths = Array.from(measurementRef.querySelectorAll<HTMLElement>('[data-measure-chip="true"]')).map(
+      chip => chip.offsetWidth,
+    );
+    if (chipWidths.length !== signals.length) {
+      return signals.length;
+    }
+
+    let usedWidth = 0;
+    let fitCount = 0;
+    for (let i = 0; i < chipWidths.length; i += 1) {
+      const remainingAfterThis = chipWidths.length - (i + 1);
+      const reservedWidth = remainingAfterThis > 0 ? MORE_BADGE_RESERVE_PX : 0;
+      if (usedWidth + chipWidths[i] + reservedWidth > containerWidth) {
+        break;
+      }
+      usedWidth += chipWidths[i];
+      fitCount += 1;
+    }
+
+    return fitCount > 0 ? fitCount : 1;
+  });
+  const inlineSignals = createMemo(() => visibleSignals().slice(0, fittedSignalCount()));
+  const hiddenSignals = createMemo(() => visibleSignals().slice(fittedSignalCount()));
+  const hiddenSignalsTitle = createMemo(() =>
+    hiddenSignals()
+      .map(sig =>
+        formatSignalLabel(
+          sig.fieldKey,
+          registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+          appState.unitProfile,
+          { messageType: sig.messageType, fieldName: sig.fieldName },
+        ),
+      )
+      .join('\n'),
+  );
+
+  onMount(() => {
+    if (!signalStripRef) {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      setSignalStripWidth(entry.contentRect.width);
+    });
+
+    observer.observe(signalStripRef);
+    setSignalStripWidth(signalStripRef.getBoundingClientRect().width);
+
+    onCleanup(() => observer.disconnect());
+  });
+
+  onMount(() => {
+    if (!measurementRef) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      setMeasurementVersion(version => version + 1);
+    });
+
+    observer.observe(measurementRef);
+    setMeasurementVersion(version => version + 1);
+
+    onCleanup(() => observer.disconnect());
+  });
+
   return (
     <div
       class="flex flex-col h-full rounded"
@@ -31,29 +129,86 @@ export default function PlotPanel(props: PlotPanelProps) {
     >
       {/* Header */}
       <div
-        class="flex items-center justify-between px-2 py-1 border-b cursor-grab"
+        class="flex items-center gap-2 px-2 py-1 border-b cursor-grab"
         style={{ 'border-color': 'var(--border)', 'min-height': '32px' }}
         onDblClick={() => props.onOpenSignalSelector(props.config.id)}
       >
         {/* Signal names */}
-        <div class="flex items-center gap-2 flex-1 overflow-hidden">
-          <For each={props.config.signals.filter(s => s.visible)}>
+        <div ref={signalStripRef} class="flex flex-1 min-w-0 items-center gap-1.5 overflow-hidden pr-1">
+          <For each={inlineSignals()}>
             {(sig) => (
               <span
-                class="text-xs font-mono truncate"
-                style={{ color: getThemeColor(sig.color, appState.theme) }}
+                class="inline-flex max-w-[13rem] min-w-0 flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono"
+                style={{
+                  color: getThemeColor(sig.color, appState.theme),
+                  'background-color': 'var(--bg-hover)',
+                }}
+                title={formatSignalLabel(
+                  sig.fieldKey,
+                  registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                  appState.unitProfile,
+                  { messageType: sig.messageType, fieldName: sig.fieldName },
+                )}
               >
-                {sig.fieldKey}
+                <span
+                  class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                  style={{ 'background-color': getThemeColor(sig.color, appState.theme) }}
+                />
+                <span class="truncate">
+                  {compactNames().get(sig.id) ?? sig.fieldName}
+                  {' '}
+                  <span style={{ color: 'var(--text-secondary)' }}>
+                    {registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? ''}
+                  </span>
+                </span>
               </span>
             )}
           </For>
-          <Show when={props.config.signals.filter(s => s.visible).length === 0}>
+          <Show when={hiddenSignals().length > 0}>
+            <span
+              class="inline-flex flex-shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-mono"
+              style={{
+                color: 'var(--text-secondary)',
+                'background-color': 'var(--bg-hover)',
+              }}
+              title={hiddenSignalsTitle()}
+            >
+              +
+              {hiddenSignals().length}
+              {' '}
+              more
+            </span>
+          </Show>
+          <Show when={visibleSignals().length === 0}>
             <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>
               No signals
             </span>
           </Show>
         </div>
-        <div class="flex items-center gap-0.5 flex-shrink-0">
+        <div
+          ref={measurementRef}
+          class="pointer-events-none absolute invisible left-0 top-0 -z-10 flex items-center gap-1.5 px-2 py-1"
+          aria-hidden="true"
+        >
+          <For each={visibleSignals()}>
+            {(sig) => (
+              <span
+                data-measure-chip="true"
+                class="inline-flex max-w-[13rem] min-w-0 flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono"
+              >
+                <span class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0" />
+                <span class="truncate">
+                  {compactNames().get(sig.id) ?? sig.fieldName}
+                  {' '}
+                  <span>
+                    {registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? ''}
+                  </span>
+                </span>
+              </span>
+            )}
+          </For>
+        </div>
+        <div class="flex items-center gap-0.5 flex-shrink-0 ml-auto">
           {/* Clear all signals button */}
           <Show when={props.config.signals.length > 0}>
             <button

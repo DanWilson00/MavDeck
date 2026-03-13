@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { appState, setAppState, workerBridge, registry, connectionManager } from '../store';
-import { BAUD_RATES, saveDialect, clearDialect, loadBundledDialect } from '../services';
-import type { BaudRate } from '../services';
+import { BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect } from '../services';
+import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
 
 const UI_SCALE_MIN = 0.6;
@@ -205,6 +205,28 @@ export default function SettingsModal(props: SettingsModalProps) {
                   Reset
                 </button>
               </div>
+            </div>
+            <div>
+              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="unit-profile-select">
+                Unit Profile
+              </label>
+              <select
+                id="unit-profile-select"
+                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                }}
+                value={appState.unitProfile}
+                onChange={(e) => setAppState('unitProfile', e.currentTarget.value as UnitProfile)}
+              >
+                {UNIT_PROFILES.map(profile => (
+                  <option value={profile}>
+                    {profile[0].toUpperCase() + profile.slice(1)}
+                  </option>
+                ))}
+              </select>
             </div>
           </section>
 

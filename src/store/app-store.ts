@@ -5,6 +5,7 @@ import type {
   MavlinkWorkerBridge,
   ConnectionManager,
   BaudRate,
+  UnitProfile,
   LogViewerService,
   LogViewerState,
 } from '../services';
@@ -17,6 +18,7 @@ export interface AppState {
   connectionStatus: ConnectionStatus;
   theme: 'dark' | 'light';
   uiScale: number;
+  unitProfile: UnitProfile;
   activeTab: string;
   activeSubTab: string;
   plotTabs: PlotTab[];
@@ -49,6 +51,7 @@ export const [appState, setAppState] = createStore<AppState>({
   connectionStatus: 'disconnected',
   theme: 'dark',
   uiScale: 1,
+  unitProfile: DEFAULT_SETTINGS.unitProfile,
   activeTab: 'telemetry',
   activeSubTab: 'default',
   plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],

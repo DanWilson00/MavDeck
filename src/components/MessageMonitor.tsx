@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState, workerBridge, registry } from '../store';
-import type { MessageStats } from '../services';
+import { convertDisplayArray, convertDisplayValue, formatDisplayValue, getDisplayUnit, type MessageStats } from '../services';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
 import StatusTextLog from './StatusTextLog';
 import { toggleSetItem } from './hooks';
@@ -42,14 +42,15 @@ export default function MessageMonitor(props: MessageMonitorProps) {
     }
     // Float formatting
     if (typeof value === 'number') {
-      if (field.baseType === 'float' || field.baseType === 'double') {
-        return value.toFixed(4);
-      }
-      return String(value);
+      const displayValue = convertDisplayValue(value, field.units, appState.unitProfile, { fieldName: field.name });
+      const displayUnit = getDisplayUnit(field.units, appState.unitProfile, { fieldName: field.name });
+      return formatDisplayValue(displayValue, displayUnit, 'monitor', { fieldName: field.name });
     }
     // Arrays
     if (Array.isArray(value)) {
-      return `[${value.map(v => typeof v === 'number' && (field.baseType === 'float' || field.baseType === 'double') ? v.toFixed(4) : String(v)).join(', ')}]`;
+      const displayValues = convertDisplayArray(value, field.units, appState.unitProfile, { fieldName: field.name });
+      const displayUnit = getDisplayUnit(field.units, appState.unitProfile, { fieldName: field.name });
+      return `[${displayValues.map(v => formatDisplayValue(v, displayUnit, 'monitor', { fieldName: field.name })).join(', ')}]`;
     }
     // Strings
     return String(value);
@@ -165,7 +166,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                               {value() !== undefined ? formatValue(value()!, field) : '—'}
                               <Show when={field.units && !field.enumType}>
                                 <span style={{ color: 'var(--text-secondary)' }}>
-                                  {' '}{field.units}
+                                  {' '}{getDisplayUnit(field.units, appState.unitProfile, { fieldName: field.name })}
                                 </span>
                               </Show>
                             </span>

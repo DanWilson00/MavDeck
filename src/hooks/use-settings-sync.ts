@@ -13,6 +13,7 @@ export function useSettingsSync(
       ...loadedSettings(),
       theme: appState.theme,
       uiScale: appState.uiScale,
+      unitProfile: appState.unitProfile,
       baudRate: appState.baudRate,
       bufferCapacity: appState.bufferCapacity,
       mapShowPath: appState.mapShowPath,

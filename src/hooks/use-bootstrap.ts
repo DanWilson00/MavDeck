@@ -41,6 +41,7 @@ export function useBootstrap(): BootstrapResult {
       batch(() => {
         setAppState('theme', settings.theme);
         setAppState('uiScale', settings.uiScale);
+        setAppState('unitProfile', settings.unitProfile);
         setAppState('baudRate', settings.baudRate);
         setAppState('bufferCapacity', settings.bufferCapacity);
         setAppState('mapShowPath', settings.mapShowPath);

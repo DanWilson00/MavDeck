@@ -1,6 +1,7 @@
 import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { convertDisplayValue, formatDisplayValue, getDisplayUnit } from '../services';
 import { appState, setAppState, workerBridge } from '../store';
 
 const INITIAL_LAT = 34.0522;
@@ -67,6 +68,10 @@ export default function MapView() {
   let latestLon = INITIAL_LON;
   let latestAlt = 0;
   let latestHdg = 0;
+  let latestLatRaw = INITIAL_LAT * 1e7;
+  let latestLonRaw = INITIAL_LON * 1e7;
+  let latestAltRaw = 0;
+  let latestHdgRaw = 0;
   let prevHdg = -1;
   let hasNewData = false;
 
@@ -80,18 +85,22 @@ export default function MapView() {
       const hdgBuf = buffers.get('GLOBAL_POSITION_INT.hdg');
 
       if (latBuf && latBuf.values.length > 0) {
-        latestLat = latBuf.values[latBuf.values.length - 1] / 1e7;
+        latestLatRaw = latBuf.values[latBuf.values.length - 1];
+        latestLat = latestLatRaw / 1e7;
         setHasMapData(true);
       }
       if (lonBuf && lonBuf.values.length > 0) {
-        latestLon = lonBuf.values[lonBuf.values.length - 1] / 1e7;
+        latestLonRaw = lonBuf.values[lonBuf.values.length - 1];
+        latestLon = latestLonRaw / 1e7;
         setHasMapData(true);
       }
       if (altBuf && altBuf.values.length > 0) {
-        latestAlt = altBuf.values[altBuf.values.length - 1] / 1000;
+        latestAltRaw = altBuf.values[altBuf.values.length - 1];
+        latestAlt = latestAltRaw / 1000;
       }
       if (hdgBuf && hdgBuf.values.length > 0) {
-        latestHdg = hdgBuf.values[hdgBuf.values.length - 1] / 100;
+        latestHdgRaw = hdgBuf.values[hdgBuf.values.length - 1];
+        latestHdg = latestHdgRaw / 100;
       }
       hasNewData = true;
 
@@ -345,10 +354,38 @@ export default function MapView() {
             border: '1px solid var(--map-overlay-border)',
           }}
         >
-          <div>Lat: {coords().lat.toFixed(6)}</div>
-          <div>Lon: {coords().lon.toFixed(6)}</div>
-          <div>Alt: {coords().alt.toFixed(1)} m</div>
-          <div>Hdg: {coords().hdg.toFixed(1)}&deg;</div>
+          <div>
+            Lat: {formatDisplayValue(
+              convertDisplayValue(latestLatRaw, 'degE7', appState.unitProfile, { fieldName: 'lat' }),
+              getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' }),
+              'map',
+              { fieldName: 'lat' },
+            )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' })}
+          </div>
+          <div>
+            Lon: {formatDisplayValue(
+              convertDisplayValue(latestLonRaw, 'degE7', appState.unitProfile, { fieldName: 'lon' }),
+              getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' }),
+              'map',
+              { fieldName: 'lon' },
+            )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' })}
+          </div>
+          <div>
+            Alt: {formatDisplayValue(
+              convertDisplayValue(latestAltRaw, 'mm', appState.unitProfile, { fieldName: 'alt' }),
+              getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' }),
+              'map',
+              { fieldName: 'alt' },
+            )} {getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' })}
+          </div>
+          <div>
+            Hdg: {formatDisplayValue(
+              convertDisplayValue(latestHdgRaw, 'cdeg', appState.unitProfile, { fieldName: 'hdg' }),
+              getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' }),
+              'map',
+              { fieldName: 'hdg' },
+            )} {getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' })}
+          </div>
         </div>
 
         {/* Map control buttons */}

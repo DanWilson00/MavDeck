@@ -1,6 +1,6 @@
 # Contributing to MavDeck
 
-Thanks for your interest in contributing! This guide will help you get started.
+Thanks for your interest in contributing! This guide covers what you need to get started.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ Thanks for your interest in contributing! This guide will help you get started.
 - **npm** v10+
 - **Browser**: Chrome or Edge for Web Serial testing; any modern browser for everything else
 
-## Dev Setup
+## Development Setup
 
 ```bash
 git clone https://github.com/DanWilson00/MavDeck.git
@@ -17,7 +17,7 @@ npm install
 npm run dev
 ```
 
-The dev server starts at http://localhost:5173 with hot module replacement.
+The dev server runs at http://localhost:5173 with hot module replacement.
 
 ## Coding Conventions
 
@@ -38,36 +38,29 @@ The dev server starts at http://localhost:5173 with hot module replacement.
 
 - TypeScript strict mode — no `any` unless unavoidable (and documented)
 - No hardcoded MAVLink message IDs or field offsets — everything comes from the dialect registry
-- Pre-allocate buffers in hot paths, avoid GC pressure
-- Never destructure SolidJS props (kills reactivity)
-- Clean up subscriptions and timers in `onCleanup`
+- Clean up subscriptions, timers, and observers in `onCleanup`
+- Pre-allocate buffers; avoid object creation in hot paths
 
 ## Testing
 
 All tests must pass before submitting a PR:
 
 ```bash
-npm run verify    # Runs typecheck + build + tests
+npm run verify    # typecheck + build + test (runs all three)
 ```
 
-Or individually:
+You can also run them individually:
 
 ```bash
-npm run typecheck        # TypeScript type checking
-npm run build            # Production build
-npm run test             # Vitest unit/integration tests
+npm run typecheck   # TypeScript type checking
+npm run build       # Production build
+npm run test        # Vitest unit and integration tests
 ```
 
-## PR Checklist
-
-Before submitting a pull request:
+## Pull Request Checklist
 
 - [ ] `npm run verify` passes (typecheck + build + tests)
-- [ ] No previously passing tests are broken
-- [ ] New logic has corresponding tests
-- [ ] Code follows the naming conventions above
+- [ ] New code follows the naming conventions above
+- [ ] No `any` types without justification
+- [ ] New features include tests where applicable
 - [ ] Commit messages are clear and descriptive
-
-## Questions?
-
-Open an issue on GitHub — happy to help!

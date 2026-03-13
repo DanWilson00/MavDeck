@@ -40,6 +40,7 @@ describe('settings-service', () => {
     const saved: MavDeckSettings = {
       theme: 'light',
       uiScale: 1.1,
+      unitProfile: 'raw',
       baudRate: 57600,
       bufferCapacity: 5000,
       dataRetentionMinutes: 30,
@@ -83,6 +84,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       theme: 'light',
       uiScale: 0.95,
+      unitProfile: 'metric',
       baudRate: 230400,
       bufferCapacity: 4000,
       dataRetentionMinutes: 20,
@@ -106,6 +108,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       theme: 'light',
       uiScale: 1.2,
+      unitProfile: 'aviation',
       baudRate: 921600,
       bufferCapacity: 10000,
       dataRetentionMinutes: 60,
@@ -166,6 +169,7 @@ describe('settings-service', () => {
   it('DEFAULT_SETTINGS has expected default values', () => {
     expect(DEFAULT_SETTINGS.theme).toBe('dark');
     expect(DEFAULT_SETTINGS.uiScale).toBe(1);
+    expect(DEFAULT_SETTINGS.unitProfile).toBe('raw');
     expect(DEFAULT_SETTINGS.baudRate).toBe(115200);
     expect(DEFAULT_SETTINGS.bufferCapacity).toBe(2000);
     expect(DEFAULT_SETTINGS.dataRetentionMinutes).toBe(10);

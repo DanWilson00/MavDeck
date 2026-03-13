@@ -6,6 +6,7 @@ describe('appStore', () => {
     expect(appState.connectionStatus).toBe('disconnected');
     expect(appState.theme).toBe('dark');
     expect(appState.uiScale).toBe(1);
+    expect(appState.unitProfile).toBe('raw');
     expect(appState.activeTab).toBe('telemetry');
     expect(appState.activeSubTab).toBe('default');
     expect(appState.plotTabs).toEqual([{ id: 'default', name: 'Tab 1', plots: [] }]);

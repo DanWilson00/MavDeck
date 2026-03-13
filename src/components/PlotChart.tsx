@@ -3,7 +3,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models';
 import { getThemeColor } from '../models';
-import { appState, workerBridge } from '../store';
+import { convertDisplayValues, formatDisplayValue, formatSignalLabel, getDisplayUnit } from '../services';
+import { appState, registry, workerBridge } from '../store';
 import type { PlotInteractionController } from '../core';
 
 /**
@@ -53,13 +54,15 @@ function safeYRange(_u: uPlot, min: number | null, max: number | null): [number,
   return [min, max];
 }
 
-function formatValue(v: number): string {
+function formatValue(v: number, displayUnit: string, fieldName?: string): string {
   if (Number.isNaN(v)) return '--';
-  if (Number.isInteger(v)) return String(v);
-  return v.toFixed(4);
+  return formatDisplayValue(v, displayUnit, 'plot', { fieldName });
 }
 
-function cursorTooltipPlugin(isActive: () => boolean): uPlot.Plugin {
+function cursorTooltipPlugin(
+  isActive: () => boolean,
+  getSignals: () => PlotSignalConfig[],
+): uPlot.Plugin {
   let tooltip: HTMLDivElement;
 
   function init(u: uPlot) {
@@ -79,12 +82,16 @@ function cursorTooltipPlugin(isActive: () => boolean): uPlot.Plugin {
     }
 
     let html = '';
+    const signals = getSignals();
     for (let i = 1; i < u.series.length; i++) {
       const s = u.series[i];
       if (!s.show) continue;
       const val = u.data[i]?.[idx];
       const color = typeof s.stroke === 'function' ? s.stroke(u, i) : s.stroke;
-      html += `<span style="color:${color as string}">\u25CF ${s.label}: ${val != null ? formatValue(val) : '--'}</span><br>`;
+      const sig = signals[i - 1];
+      const rawUnit = sig ? registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '' : '';
+      const displayUnit = getDisplayUnit(rawUnit, appState.unitProfile, { fieldName: sig?.fieldName });
+      html += `<span style="color:${color as string}">\u25CF ${s.label}: ${val != null ? formatValue(val, displayUnit, sig?.fieldName) : '--'}</span><br>`;
     }
 
     if (!html) {
@@ -179,7 +186,12 @@ export default function PlotChart(props: PlotChartProps) {
     const series: uPlot.Series[] = [
       { label: 'Time' },
       ...getVisibleSignals().map(sig => ({
-        label: sig.fieldKey,
+        label: formatSignalLabel(
+          sig.fieldKey,
+          registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+          appState.unitProfile,
+          { messageType: sig.messageType, fieldName: sig.fieldName },
+        ),
         stroke: getThemeColor(sig.color, appState.theme),
         width: 1.5,
         points: { show: false },
@@ -201,7 +213,7 @@ export default function PlotChart(props: PlotChartProps) {
           },
         },
       },
-      plugins: [cursorTooltipPlugin(() => interactionMode === 'zoomed' || props.isPaused)],
+      plugins: [cursorTooltipPlugin(() => interactionMode === 'zoomed' || props.isPaused, getVisibleSignals)],
       series,
       axes: [
         { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
@@ -335,10 +347,18 @@ export default function PlotChart(props: PlotChartProps) {
         const empty = new Float64Array(len);
         empty.fill(NaN);
         data.push(empty);
-      } else if (buf.timestamps === longestTimestamps) {
-        data.push(buf.values);
       } else {
-        data.push(resampleSampleAndHold(buf.timestamps, buf.values, longestTimestamps));
+        const sig = visibleSignals[data.length - 1];
+        const rawValues = buf.timestamps === longestTimestamps
+          ? buf.values
+          : resampleSampleAndHold(buf.timestamps, buf.values, longestTimestamps);
+        const rawUnit = registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '';
+        data.push(convertDisplayValues(
+          rawValues,
+          rawUnit,
+          appState.unitProfile,
+          { messageType: sig.messageType, fieldName: sig.fieldName },
+        ));
       }
     }
 
@@ -358,6 +378,7 @@ export default function PlotChart(props: PlotChartProps) {
 
   createEffect(() => {
     appState.theme;
+    appState.unitProfile;
     signalKey();
     if (!mounted || !containerRef) return;
     recreateChart();
