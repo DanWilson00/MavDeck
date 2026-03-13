@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-j
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models';
 import { getThemeColor } from '../models';
-import { formatSignalLabel } from '../services';
+import { formatSignalLabel, getDisplayUnit } from '../services';
 import { appState, registry } from '../store';
 import type { PlotInteractionController } from '../core';
 
@@ -158,7 +158,11 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {compactNames().get(sig.id) ?? sig.fieldName}
                   {' '}
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? ''}
+                    {getDisplayUnit(
+                      registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                      appState.unitProfile,
+                      { fieldName: sig.fieldName },
+                    )}
                   </span>
                 </span>
               </span>
@@ -201,7 +205,11 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {compactNames().get(sig.id) ?? sig.fieldName}
                   {' '}
                   <span>
-                    {registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? ''}
+                    {getDisplayUnit(
+                      registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                      appState.unitProfile,
+                      { fieldName: sig.fieldName },
+                    )}
                   </span>
                 </span>
               </span>
