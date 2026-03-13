@@ -40,22 +40,31 @@ export class ConnectionManager {
     }
 
     if (config.type === 'webserial') {
+      // Emit connecting status immediately so the UI shows yellow dot
+      this._status = 'connecting';
+      this.statusChange.emit('connecting');
+
       // Web Serial reads on main thread, forwards bytes to worker
-      this.serialSource = new WebSerialByteSource(config.baudRate, (data) => {
-        this.bridge.sendBytes(data);
-      });
+      this.serialSource = new WebSerialByteSource(
+        config.baudRate,
+        (data) => { this.bridge.sendBytes(data); },
+        () => { this.disconnect(); },  // unexpected serial disconnect
+      );
 
       // Open serial port first (triggers browser dialog), then set up worker pipeline.
       // This order prevents a false "connected" flash if the user cancels the dialog.
       this.serialSource.connect().then(() => {
+        console.log('[ConnectionManager] Serial port opened at', config.baudRate, 'baud');
         this.bridge.connect(config);
       }).catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'NotFoundError') {
-          // User cancelled port picker — expected, no action needed
+          // User cancelled port picker — return to disconnected
         } else {
           console.error('[ConnectionManager] Serial connect failed:', err);
         }
         this.serialSource = null;
+        this._status = 'disconnected';
+        this.statusChange.emit('disconnected');
       });
     } else {
       this.bridge.connect(config);

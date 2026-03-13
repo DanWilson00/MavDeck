@@ -464,6 +464,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       break;
 
     case 'bytes': {
+      console.log('[Worker] Received', msg.data.byteLength, 'bytes');
       pipeline.externalSource?.emitBytes(msg.data);
       break;
     }

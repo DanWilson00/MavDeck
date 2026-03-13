@@ -9,7 +9,7 @@
 
 export type SerialBytesCallback = (data: Uint8Array) => void;
 
-export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600] as const;
+export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 500000, 1000000] as const;
 export type BaudRate = (typeof BAUD_RATES)[number];
 export const DEFAULT_BAUD_RATE: BaudRate = 115200;
 
@@ -25,10 +25,12 @@ export class WebSerialByteSource {
   private _isReading = false;
   private readonly baudRate: number;
   private readonly onBytes: SerialBytesCallback;
+  private readonly onDisconnect?: () => void;
 
-  constructor(baudRate: number, onBytes: SerialBytesCallback) {
+  constructor(baudRate: number, onBytes: SerialBytesCallback, onDisconnect?: () => void) {
     this.baudRate = baudRate;
     this.onBytes = onBytes;
+    this.onDisconnect = onDisconnect;
   }
 
   get isConnected(): boolean {
@@ -109,8 +111,9 @@ export class WebSerialByteSource {
     } finally {
       this._isReading = false;
       if (this._isConnected) {
-        // Unexpected disconnect — clean up
+        // Unexpected disconnect — clean up and notify
         this._isConnected = false;
+        this.onDisconnect?.();
       }
     }
   }
