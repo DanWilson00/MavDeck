@@ -61,6 +61,8 @@ Then open http://localhost:5173.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
+GitHub issue and pull request templates are included to keep reports and reviews lightweight and consistent.
+
 ## Support
 
 If MavDeck saves you time, helps you debug a weird flight log, or just spares you from opening a heavier ground station, consider helping to keep the LLM token supply topped off.

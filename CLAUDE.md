@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry visualization. Dynamic MAVLink message parsing driven by XML dialect definitions (no hardcoded message types).
 
-**Target**: GitHub Pages PWA, offline-capable, light/dark mode.
+**Target**: Netlify-hosted PWA, offline-capable, light/dark mode.
 
 ---
 
@@ -36,7 +36,6 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 ## Workflow & Task Management
 
 - **Planning**: Use plan mode for non-trivial tasks. If your approach isn't working, stop and re-plan rather than thrashing.
-- **Subagents**: Offload research and exploration to subagents. One focused task per subagent. Don't duplicate their work in the main context.
 - **Self-improvement**: Record corrections and non-obvious learnings in `CLAUDE.md`. Review it at session start.
 - **Verification before done**: Prove it works (run tests, check output) before claiming completion. Evidence before assertions.
 - **Autonomous bug fixing**: When tests fail or behavior is wrong, debug systematically — read errors, form hypotheses, verify. Don't ask for help until you've genuinely tried.
@@ -48,7 +47,7 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 | Concern | Choice |
 |---------|--------|
 | Framework | SolidJS + TypeScript (strict) |
-| Build | Vite 6 + vite-plugin-pwa |
+| Build | Vite 7 + vite-plugin-pwa |
 | Styling | Tailwind CSS v4 |
 | Serial | Web Serial API |
 | Plotting | uPlot (Float64Array native, sync crosshairs) |
@@ -228,7 +227,7 @@ Use the Playwright MCP tools to autonomously verify UI behavior in the running d
 
 ### Playwright MCP Autonomous Iteration
 
-For UI work, use the Playwright MCP tools in an edit→verify loop:
+For UI work, use the Playwright MCP tools in an edit→verify loop when Playwright MCP is available:
 
 1. Start dev server in background: `npm run dev`
 2. `browser_navigate` → `browser_snapshot` → verify elements exist
@@ -313,4 +312,3 @@ npm run dev                           # Dev server for manual/Playwright verific
 3. Start dev server → Playwright MCP: `browser_navigate` → `browser_snapshot` → verify
 4. `browser_console_messages(level="error")` — no JS errors
 5. `browser_take_screenshot` — visual check if needed
-
