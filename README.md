@@ -7,8 +7,6 @@ A fast, web-based MAVLink telemetry viewer. No install, no MAVLink dependencies 
 
 **[Open MavDeck](https://mavdeck.netlify.app)**
 
-<!-- screenshot placeholder -->
-
 ## Why MavDeck?
 
 - **Web-based and snappy** — opens instantly in any browser, no downloads
