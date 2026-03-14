@@ -65,6 +65,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 If MavDeck saves you time, helps you debug a weird flight log, or just spares you from opening a heavier ground station, consider helping to keep the LLM token supply topped off.
 
+Support MavDeck via [GitHub Sponsors](https://github.com/sponsors/DanWilson00) or [Buy Me a Coffee](https://buymeacoffee.com/danwilson0x).
+
 ## License
 
 [MIT](LICENSE)
