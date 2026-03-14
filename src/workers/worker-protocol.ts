@@ -29,6 +29,7 @@ export type WorkerCommand =
   | { type: 'init'; dialectJson: string }
   | { type: 'connect'; config: ConnectionConfig }
   | { type: 'disconnect' }
+  | { type: 'unloadLog' }
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'bytes'; data: Uint8Array }
@@ -52,7 +53,7 @@ export type WorkerEvent =
   | { type: 'statusChange'; status: ConnectionStatus }
   | { type: 'statustext'; severity: number; text: string; timestamp: number }
   | { type: 'logSessionStarted'; sessionId: string; startedAtMs: number }
-  | { type: 'logChunk'; sessionId: string; seq: number; startUs: number; endUs: number; packetCount: number; chunkPacketCount: number; bytes: ArrayBuffer }
+  | { type: 'logChunk'; sessionId: string; seq: number; startUs: number; endUs: number; packetCount: number; sessionPacketCount: number; bytes: ArrayBuffer }
   | { type: 'logSessionEnded'; sessionId: string; endedAtMs: number; firstPacketUs?: number; lastPacketUs?: number; packetCount: number }
   | { type: 'loadComplete'; stats: Record<string, MessageStats>; durationSec: number }
   | { type: 'error'; message: string }

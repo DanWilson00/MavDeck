@@ -1,8 +1,7 @@
 import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
-import { appState, setAppState, connectionManager, logViewerService, workerBridge } from '../store';
-import type { ConnectionStatus } from '../services';
+import { appState, setAppState } from '../store';
+import { getLogViewerService, getSerialSessionController, type ConnectionStatus, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
-import { isWebSerialSupported } from '../services';
 import SettingsModal from './SettingsModal';
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
@@ -14,7 +13,7 @@ export default function Toolbar() {
   // Subscribe to connection status once services are ready
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = connectionManager.onStatusChange(s => {
+    const unsub = getSerialSessionController().onStatusChange(s => {
       batch(() => {
         setStatus(s);
         setAppState('connectionStatus', s);
@@ -30,50 +29,27 @@ export default function Toolbar() {
 
   async function handleConnectSerial() {
     if (!appState.isReady) return;
-    if (appState.logViewerState.isActive) logViewerService.unload();
     if (status() === 'connected' || status() === 'connecting') {
-      connectionManager.disconnect();
+      getSerialSessionController().disconnect();
       return;
     }
-
-    // Stop probing if auto-connect was active — user is taking manual control
-    connectionManager.stopAutoConnect();
-
-    let port: SerialPort;
-    try {
-      port = await navigator.serial.requestPort();
-    } catch {
-      return; // User cancelled
-    }
-
-    const info = port.getInfo();
-    const portIdentity = info.usbVendorId != null && info.usbProductId != null
-      ? { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }
-      : null;
-
     setAppState('connectionSourceType', 'serial');
-    connectionManager.connect({
-      type: 'webserial',
+    await getSerialSessionController().connectManual({
       baudRate: appState.baudRate,
       autoDetectBaud: appState.autoDetectBaud,
-      portIdentity,
       lastBaudRate: appState.lastSuccessfulBaudRate,
+      unloadLog: appState.logViewerState.isActive,
     });
   }
 
   function handleDisconnectSerial() {
     if (!appState.isReady) return;
-    connectionManager.disconnect();
+    getSerialSessionController().disconnect();
   }
 
   async function handleGrantAccess() {
     if (!appState.isReady) return;
-    try {
-      await navigator.serial.requestPort();
-      workerBridge.notifyPortsChanged();
-    } catch {
-      // User cancelled
-    }
+    await getSerialSessionController().grantAccess();
   }
 
   function handlePause() {
@@ -107,7 +83,7 @@ export default function Toolbar() {
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
         {/* Serial connection */}
-        <Show when={isWebSerialSupported()}>
+        <Show when={isWebSerialSupported() && !appState.logViewerState.isActive}>
           <Show when={!appState.autoConnect} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
@@ -187,7 +163,7 @@ export default function Toolbar() {
           <button
             class="px-2 py-1 rounded text-xs interactive-hover"
             style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
-            onClick={() => logViewerService.unload()}
+            onClick={() => getLogViewerService().unload()}
           >
             Unload Log
           </button>

@@ -1,7 +1,7 @@
 {
   "name": "mavdeck",
   "private": false,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A fast, web-based MAVLink telemetry viewer. No install, no MAVLink dependencies — just load your dialect XML and start plotting.",
   "author": "Dan Wilson",
   "license": "MIT",

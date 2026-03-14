@@ -27,6 +27,7 @@ export {
   loadSettings,
   saveSettings,
   saveSettingsDebounced,
+  flushSettings,
   DEFAULT_SETTINGS,
   type MavDeckSettings,
   saveDialect,
@@ -63,6 +64,9 @@ export {
 export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported, type BaudRate } from './baud-rates';
 export { WebSerialByteSource, type SerialBytesCallback } from './webserial-byte-source';
 export { WorkerSerialByteSource } from './worker-serial-byte-source';
+export { SerialSessionController, type AutoConnectOptions, type ManualConnectOptions } from './serial-session-controller';
+export { setRuntimeServices, clearRuntimeServices, getWorkerBridge, getConnectionManager, getRegistry, getLogViewerService, getSerialSessionController } from './runtime-services';
+export { serializePlotTabs, deserializePlotTabs, type PersistedPlotTabV1, type PersistedPlotV1, type PersistedPlotSignalV1 } from './layout-persistence';
 export {
   MavlinkWorkerBridge,
   type ConnectionConfig,

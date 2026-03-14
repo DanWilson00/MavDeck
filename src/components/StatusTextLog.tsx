@@ -1,5 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState, workerBridge } from '../store';
+import { appState } from '../store';
+import { getWorkerBridge } from '../services';
 
 const MAX_ENTRIES = 100;
 
@@ -51,7 +52,7 @@ export default function StatusTextLog() {
   // Subscribe to STATUSTEXT messages from worker
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = workerBridge.onStatusText(entry => {
+    const unsub = getWorkerBridge().onStatusText(entry => {
       setEntries(prev => {
         const next = [...prev, { ...entry, id: nextId++ }];
         if (next.length > MAX_ENTRIES) {

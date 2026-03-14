@@ -1,4 +1,5 @@
 import type { MavlinkWorkerBridge } from './worker-bridge';
+import type { SerialSessionController } from './serial-session-controller';
 import type { TlogRecord } from './tlog-codec';
 
 export interface LogViewerState {
@@ -12,6 +13,7 @@ type LogViewerStateCallback = (state: LogViewerState) => void;
 
 export class LogViewerService {
   private readonly bridge: MavlinkWorkerBridge;
+  private readonly serialSessionController: SerialSessionController;
   private readonly callbacks = new Set<LogViewerStateCallback>();
   private state: LogViewerState = {
     isActive: false,
@@ -20,8 +22,9 @@ export class LogViewerService {
     recordCount: 0,
   };
 
-  constructor(bridge: MavlinkWorkerBridge) {
+  constructor(bridge: MavlinkWorkerBridge, serialSessionController: SerialSessionController) {
     this.bridge = bridge;
+    this.serialSessionController = serialSessionController;
   }
 
   subscribe(cb: LogViewerStateCallback): () => void {
@@ -38,6 +41,8 @@ export class LogViewerService {
     const capacity = Math.max(2000, records.length);
     const packets = records.map(r => r.packet);
     const timestamps = records.map(r => r.timestampUs / 1000); // microseconds → milliseconds
+
+    this.serialSessionController.enterLogMode();
 
     this.state = {
       isActive: true,
@@ -58,6 +63,6 @@ export class LogViewerService {
       recordCount: 0,
     };
     this.emitState();
-    this.bridge.disconnect();
+    this.bridge.unloadLog();
   }
 }

@@ -1,5 +1,6 @@
 import { createEffect } from 'solid-js';
-import { appState, workerBridge } from '../store';
+import { appState } from '../store';
+import { getWorkerBridge } from '../services';
 
 const MAP_REQUIRED_FIELDS = [
   'GLOBAL_POSITION_INT.lat',
@@ -24,6 +25,6 @@ export function useInterestedFields(): void {
       }
     }
 
-    workerBridge.setInterestedFields([...interested]);
+    getWorkerBridge().setInterestedFields([...interested]);
   });
 }

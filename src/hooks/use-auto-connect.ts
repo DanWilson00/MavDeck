@@ -6,9 +6,9 @@
  * Subscribes to worker events for probe status and serial connected info.
  */
 
-import { createEffect, onCleanup, untrack } from 'solid-js';
-import { appState, setAppState, connectionManager, workerBridge } from '../store';
-import { saveSettingsDebounced, type MavDeckSettings } from '../services';
+import { createEffect, onCleanup } from 'solid-js';
+import { appState, setAppState } from '../store';
+import { getSerialSessionController, type MavDeckSettings } from '../services';
 import type { Accessor, Setter } from 'solid-js';
 
 export function useAutoConnect(
@@ -18,36 +18,32 @@ export function useAutoConnect(
 ): void {
   createEffect(() => {
     if (!appState.isReady || !settingsReady()) return;
+    const isLogActive = appState.logViewerState.isActive;
 
-    const autoConnect = appState.autoConnect;
+    const settings = loadedSettings();
+    const lastPortIdentity = settings.lastPortVendorId != null && settings.lastPortProductId != null
+      ? { usbVendorId: settings.lastPortVendorId, usbProductId: settings.lastPortProductId }
+      : null;
 
-    if (autoConnect) {
-      // Don't start probing if already connected.
-      // Use untrack() to avoid making connectionStatus a reactive dependency —
-      // otherwise status changes re-trigger this effect, aborting probes immediately.
-      if (untrack(() => appState.connectionStatus) === 'connected' ||
-          untrack(() => appState.connectionStatus) === 'connecting') {
-        return;
-      }
-
-      const settings = loadedSettings();
-      const lastPortIdentity = settings.lastPortVendorId != null && settings.lastPortProductId != null
-        ? { usbVendorId: settings.lastPortVendorId, usbProductId: settings.lastPortProductId }
-        : null;
-
-      connectionManager.startAutoConnect({
+    if (isLogActive) {
+      getSerialSessionController().stopAutoConnect();
+      setAppState('probeStatus', null);
+    } else {
+      getSerialSessionController().syncAutoConnect({
+        enabled: appState.autoConnect,
         autoBaud: appState.autoDetectBaud,
         manualBaudRate: appState.baudRate,
         lastPortIdentity,
         lastBaudRate: settings.lastSuccessfulBaudRate,
       });
-    } else {
-      connectionManager.stopAutoConnect();
+    }
+
+    if (!appState.autoConnect || isLogActive) {
       setAppState('probeStatus', null);
     }
 
     onCleanup(() => {
-      connectionManager.stopAutoConnect();
+      getSerialSessionController().stopAutoConnect();
       setAppState('probeStatus', null);
     });
   });
@@ -56,24 +52,22 @@ export function useAutoConnect(
   createEffect(() => {
     if (!appState.isReady) return;
 
-    const unsubProbe = workerBridge.onProbeStatus(status => {
+    const serialController = getSerialSessionController();
+    const unsubProbe = serialController.onProbeStatus(status => {
       setAppState('probeStatus', status);
     });
 
-    const unsubConnected = workerBridge.onSerialConnected(info => {
+    const unsubConnected = serialController.onSerialConnected(info => {
       setAppState('connectionSourceType', 'serial');
       setAppState('connectedBaudRate', info.baudRate);
       setAppState('lastSuccessfulBaudRate', info.baudRate);
-      const updatedSettings: MavDeckSettings = {
-        ...loadedSettings(),
-        autoConnect: appState.autoConnect,
-        autoDetectBaud: appState.autoDetectBaud,
-        lastPortVendorId: info.portIdentity?.usbVendorId ?? null,
-        lastPortProductId: info.portIdentity?.usbProductId ?? null,
-        lastSuccessfulBaudRate: info.baudRate,
-      };
-      saveSettingsDebounced(updatedSettings);
-      setLoadedSettings(updatedSettings);
+      serialController.persistSerialSettings(
+        info,
+        loadedSettings,
+        setLoadedSettings,
+        appState.autoConnect,
+        appState.autoDetectBaud,
+      );
     });
 
     onCleanup(() => {

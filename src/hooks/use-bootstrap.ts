@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, batch, type Accessor, type Setter } from 'solid-js';
-import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from '../store';
+import { appState, setAppState } from '../store';
 import {
+  clearRuntimeServices,
   MavlinkWorkerBridge,
   ConnectionManager,
   loadSettings,
@@ -10,6 +11,8 @@ import {
   DEFAULT_SETTINGS,
   LogViewerService,
   recoverStagedSessions,
+  SerialSessionController,
+  setRuntimeServices,
   type MavDeckSettings,
 } from '../services';
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
@@ -28,6 +31,7 @@ export function useBootstrap(): BootstrapResult {
 
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
+  let serialController: SerialSessionController | undefined;
   let logViewerSvc: LogViewerService | undefined;
   let unsubLogViewer: (() => void) | undefined;
   let unsubLoadComplete: (() => void) | undefined;
@@ -78,13 +82,18 @@ export function useBootstrap(): BootstrapResult {
       const reg = new MavlinkMetadataRegistry();
       bridge = new MavlinkWorkerBridge();
       await initDialect(bridge, reg, json);
-      setRegistry(reg);
       setAppState('dialectName', dialectName);
-      setWorkerBridge(bridge);
+
+      // Initialize connection manager
+      connMgr = new ConnectionManager(bridge);
+      serialController = new SerialSessionController({
+        connectionManager: connMgr,
+        workerBridge: bridge,
+      });
 
       // Initialize log viewer service
-      logViewerSvc = new LogViewerService(bridge);
-      setLogViewerService(logViewerSvc);
+      logViewerSvc = new LogViewerService(bridge, serialController);
+      serialController.setLogViewerService(logViewerSvc);
       unsubLogViewer = logViewerSvc.subscribe(state => {
         setAppState('logViewerState', state);
       });
@@ -92,9 +101,13 @@ export function useBootstrap(): BootstrapResult {
         setAppState('logViewerState', 'durationSec', durationSec);
       });
 
-      // Initialize connection manager
-      connMgr = new ConnectionManager(bridge);
-      setConnectionManager(connMgr);
+      setRuntimeServices({
+        workerBridge: bridge,
+        connectionManager: connMgr,
+        registry: reg,
+        logViewerService: logViewerSvc,
+        serialSessionController: serialController,
+      });
 
       setAppState('isReady', true);
       setLoading(false);
@@ -112,6 +125,7 @@ export function useBootstrap(): BootstrapResult {
     connMgr?.disconnect();
     connMgr?.dispose();
     bridge?.dispose();
+    clearRuntimeServices();
   });
 
   return { loading, settingsReady, loadedSettings, setLoadedSettings };

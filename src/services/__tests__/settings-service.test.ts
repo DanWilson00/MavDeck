@@ -13,7 +13,7 @@ vi.mock('idb-keyval', () => ({
   }),
 }));
 
-import { loadSettings, saveSettings, saveSettingsDebounced, DEFAULT_SETTINGS, saveDialect, loadDialect, clearDialect } from '../settings-service';
+import { loadSettings, saveSettings, saveSettingsDebounced, flushSettings, DEFAULT_SETTINGS, saveDialect, loadDialect, clearDialect } from '../settings-service';
 import type { MavDeckSettings, PersistedDialect } from '../settings-service';
 
 describe('settings-service', () => {
@@ -179,6 +179,15 @@ describe('settings-service', () => {
 
     const stored = mockStore.get('mavdeck-settings-v1') as MavDeckSettings;
     expect(stored).toEqual(settings2);
+  });
+
+  it('flushSettings persists the last debounced settings immediately', async () => {
+    const settings: MavDeckSettings = { ...DEFAULT_SETTINGS, mapZoom: 17 };
+
+    saveSettingsDebounced(settings);
+    await flushSettings();
+
+    expect(mockStore.get('mavdeck-settings-v1')).toEqual(settings);
   });
 
   it('DEFAULT_SETTINGS has expected default values', () => {

@@ -1,8 +1,10 @@
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
-import { appState, setAppState, workerBridge, registry, connectionManager, logViewerService } from '../store';
+import { appState, setAppState } from '../store';
+import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect, isWebSerialSupported,
+  initDialect, detectMissingIncludes, detectMainDialect, getConnectionManager,
+  getLogViewerService, getRegistry, getSerialSessionController, getWorkerBridge, isWebSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -66,7 +68,7 @@ export default function SettingsModal(props: SettingsModalProps) {
 
   function disconnectIfActive() {
     if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
-      connectionManager.disconnect();
+      getConnectionManager().disconnect();
     }
   }
 
@@ -105,7 +107,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       const mainFile = detectMainDialect(fileMap);
 
       const jsonString = parseFromFileMap(fileMap, mainFile);
-      await initDialect(workerBridge, registry, jsonString);
+      await initDialect(getWorkerBridge(), getRegistry(), jsonString);
       setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
       await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
@@ -125,7 +127,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await clearDialect();
 
       const jsonString = await loadBundledDialect();
-      await initDialect(workerBridge, registry, jsonString);
+      await initDialect(getWorkerBridge(), getRegistry(), jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
       console.error('[SettingsModal] Dialect refresh failed:', err);
@@ -356,12 +358,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                   class="px-3 py-1.5 text-sm rounded border interactive-hover"
                   style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                   onClick={async () => {
-                    if (appState.connectionSourceType === 'serial') {
-                      connectionManager.disconnect();
-                    }
-                    connectionManager.stopAutoConnect();
-                    const ports = await navigator.serial.getPorts();
-                    await Promise.all(ports.map(p => p.forget()));
+                    await getSerialSessionController().forgetAllPorts();
                   }}
                 >
                   Forget All Ports
@@ -442,11 +439,11 @@ export default function SettingsModal(props: SettingsModalProps) {
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                 onClick={() => {
                   if (appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof') {
-                    connectionManager.disconnect();
+                    getConnectionManager().disconnect();
                   } else {
-                    if (appState.logViewerState.isActive) logViewerService.unload();
+                    if (appState.logViewerState.isActive) getLogViewerService().unload();
                     setAppState('connectionSourceType', 'spoof');
-                    connectionManager.connect({ type: 'spoof' });
+                    getConnectionManager().connect({ type: 'spoof' });
                   }
                 }}
               >
@@ -463,7 +460,7 @@ export default function SettingsModal(props: SettingsModalProps) {
           class="flex items-center justify-between px-4 py-2 border-t text-xs"
           style={{ 'border-color': 'var(--border)', color: 'var(--text-secondary)' }}
         >
-          <span>MavDeck v0.0.1</span>
+          <span>MavDeck v{packageJson.version}</span>
           <span class="flex items-center gap-1.5">
             <span
               class="inline-block w-2 h-2 rounded-full"

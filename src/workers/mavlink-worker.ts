@@ -63,6 +63,8 @@ interface LogState {
   firstPacketUs: number | undefined;
   lastPacketUs: number | undefined;
   packetCount: number;
+  chunkStartUs: number | undefined;
+  chunkEndUs: number | undefined;
   seq: number;
   chunkParts: Uint8Array[];
   chunkBytes: number;
@@ -97,6 +99,8 @@ const INITIAL_LOG_STATE: LogState = {
   firstPacketUs: undefined,
   lastPacketUs: undefined,
   packetCount: 0,
+  chunkStartUs: undefined,
+  chunkEndUs: undefined,
   seq: 0,
   chunkParts: [],
   chunkBytes: 0,
@@ -150,6 +154,8 @@ function resetLogState(): void {
   log.firstPacketUs = undefined;
   log.lastPacketUs = undefined;
   log.packetCount = 0;
+  log.chunkStartUs = undefined;
+  log.chunkEndUs = undefined;
   log.seq = 0;
   log.chunkParts = [];
   log.chunkBytes = 0;
@@ -162,6 +168,8 @@ function resetLogChunk(): void {
   log.chunkParts = [];
   log.chunkBytes = 0;
   log.chunkPacketCount = 0;
+  log.chunkStartUs = undefined;
+  log.chunkEndUs = undefined;
 }
 
 /** Serialize MessageStats map for transfer (Map can't be cloned). */
@@ -299,6 +307,10 @@ function appendPacketToLog(packet: Uint8Array, timestampUs: number): void {
     log.firstPacketUs = timestampUs;
   }
   log.lastPacketUs = timestampUs;
+  if (log.chunkStartUs == null) {
+    log.chunkStartUs = timestampUs;
+  }
+  log.chunkEndUs = timestampUs;
   log.packetCount++;
 
   const record = encodeTlogRecord(timestampUs, packet);
@@ -322,16 +334,16 @@ function flushLogChunk(): void {
     offset += part.byteLength;
   }
 
-  const chunkStartUs = log.firstPacketUs ?? 0;
-  const chunkEndUs = log.lastPacketUs ?? chunkStartUs;
+  const chunkStartUs = log.chunkStartUs ?? 0;
+  const chunkEndUs = log.chunkEndUs ?? chunkStartUs;
   postEvent({
     type: 'logChunk',
     sessionId: log.sessionId,
     seq: log.seq++,
     startUs: chunkStartUs,
     endUs: chunkEndUs,
-    packetCount: log.packetCount,
-    chunkPacketCount: log.chunkPacketCount,
+    packetCount: log.chunkPacketCount,
+    sessionPacketCount: log.packetCount,
     bytes: out.buffer,
   }, [out.buffer]);
 
@@ -417,6 +429,13 @@ function postUpdateFromManager(manager: TimeSeriesDataManager): void {
   }
 
   postEvent({ type: 'update', buffers }, transferables);
+}
+
+function clearMainThreadTelemetryState(): void {
+  pipeline.lastAvailableFieldsSignature = '';
+  postEvent({ type: 'availableFields', fields: [] });
+  postEvent({ type: 'update', buffers: {} });
+  postEvent({ type: 'stats', stats: {} });
 }
 
 /** Forward STATUSTEXT messages to the main thread. */
@@ -557,7 +576,15 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       stopLogSession();
       cleanupService();
       cleanupSerial();
-      postEvent({ type: 'stats', stats: {} });
+      clearMainThreadTelemetryState();
+      postEvent({ type: 'statusChange', status: 'disconnected' });
+      break;
+    }
+
+    case 'unloadLog': {
+      stopLogSession();
+      cleanupService();
+      clearMainThreadTelemetryState();
       postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
     }
@@ -600,6 +627,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       // Stop any active log session and clean up existing service
       stopLogSession();
       cleanupService();
+      cleanupSerial();
+      clearMainThreadTelemetryState();
+      postEvent({ type: 'statusChange', status: 'disconnected' });
 
       // Set buffer capacity for this log
       pipeline.bufferCapacity = logCapacity;
@@ -653,8 +683,6 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         stats,
         durationSec,
       });
-
-      postEvent({ type: 'statusChange', status: 'connected' });
       break;
     }
 

@@ -3,8 +3,8 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models';
 import { getThemeColor } from '../models';
-import { convertDisplayValues, formatDisplayValue, formatSignalLabel, getDisplayUnit } from '../services';
-import { appState, registry, workerBridge } from '../store';
+import { convertDisplayValues, formatDisplayValue, formatSignalLabel, getDisplayUnit, getRegistry, getWorkerBridge } from '../services';
+import { appState } from '../store';
 import type { PlotInteractionController } from '../core';
 
 /**
@@ -89,7 +89,7 @@ function cursorTooltipPlugin(
       const val = u.data[i]?.[idx];
       const color = typeof s.stroke === 'function' ? s.stroke(u, i) : s.stroke;
       const sig = signals[i - 1];
-      const rawUnit = sig ? registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '' : '';
+      const rawUnit = sig ? getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '' : '';
       const displayUnit = getDisplayUnit(rawUnit, appState.unitProfile, { fieldName: sig?.fieldName });
       html += `<span style="color:${color as string}">\u25CF ${s.label}: ${val != null ? formatValue(val, displayUnit, sig?.fieldName) : '--'}</span><br>`;
     }
@@ -188,7 +188,7 @@ export default function PlotChart(props: PlotChartProps) {
       ...getVisibleSignals().map(sig => ({
         label: formatSignalLabel(
           sig.fieldKey,
-          registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+          getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
           appState.unitProfile,
           { messageType: sig.messageType, fieldName: sig.fieldName },
         ),
@@ -268,7 +268,7 @@ export default function PlotChart(props: PlotChartProps) {
     if (!containerRef) return;
 
     if (appState.isReady) {
-      unsubUpdate = workerBridge.onUpdate(buffers => {
+      unsubUpdate = getWorkerBridge().onUpdate(buffers => {
         latestBuffers = buffers;
         hasNewBuffers = true;
       });
@@ -352,7 +352,7 @@ export default function PlotChart(props: PlotChartProps) {
         const rawValues = buf.timestamps === longestTimestamps
           ? buf.values
           : resampleSampleAndHold(buf.timestamps, buf.values, longestTimestamps);
-        const rawUnit = registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '';
+        const rawUnit = getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '';
         data.push(convertDisplayValues(
           rawValues,
           rawUnit,

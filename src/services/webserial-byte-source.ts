@@ -12,6 +12,7 @@ export type SerialBytesCallback = (data: Uint8Array) => void;
 // Re-export baud rate constants from the shared module for backward compatibility.
 export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported } from './baud-rates';
 export type { BaudRate } from './baud-rates';
+import { isWebSerialSupported } from './baud-rates';
 
 export class WebSerialByteSource {
   private port: SerialPort | null = null;

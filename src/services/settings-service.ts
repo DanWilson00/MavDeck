@@ -72,14 +72,32 @@ export async function saveSettings(settings: MavDeckSettings): Promise<void> {
 }
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingSettings: MavDeckSettings | null = null;
 
 /** Save settings with a 2-second debounce to avoid thrashing IndexedDB. */
 export function saveSettingsDebounced(settings: MavDeckSettings): void {
+  pendingSettings = settings;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    saveSettings(settings);
+    const nextSettings = pendingSettings;
+    pendingSettings = null;
+    if (nextSettings) {
+      void saveSettings(nextSettings);
+    }
     debounceTimer = null;
   }, 2000);
+}
+
+export async function flushSettings(): Promise<void> {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  const nextSettings = pendingSettings;
+  pendingSettings = null;
+  if (nextSettings) {
+    await saveSettings(nextSettings);
+  }
 }
 
 const DIALECT_KEY = 'mavdeck-dialect-v1';

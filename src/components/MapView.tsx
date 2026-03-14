@@ -1,8 +1,8 @@
 import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { convertDisplayValue, formatDisplayValue, getDisplayUnit } from '../services';
-import { appState, setAppState, workerBridge } from '../store';
+import { convertDisplayValue, formatDisplayValue, getDisplayUnit, getWorkerBridge } from '../services';
+import { appState, setAppState } from '../store';
 
 const INITIAL_LAT = 34.0522;
 const INITIAL_LON = -118.2437;
@@ -76,7 +76,7 @@ export default function MapView() {
   let hasNewData = false;
 
   function subscribeToUpdates() {
-    unsubUpdate = workerBridge.onUpdate(buffers => {
+    unsubUpdate = getWorkerBridge().onUpdate(buffers => {
       latestBuffers = buffers;
 
       const latBuf = buffers.get('GLOBAL_POSITION_INT.lat');

@@ -79,6 +79,11 @@ export class MavlinkWorkerBridge {
     this.postCommand({ type: 'disconnect' });
   }
 
+  /** Clear log playback data without changing future reconnect eligibility. */
+  unloadLog(): void {
+    this.postCommand({ type: 'unloadLog' });
+  }
+
   /** Pause message processing. */
   pause(): void {
     this.postCommand({ type: 'pause' });
@@ -224,9 +229,6 @@ export class MavlinkWorkerBridge {
       }
 
       case 'statusChange': {
-        if (msg.status === 'disconnected') {
-          this.lastUpdate = null;
-        }
         this.statusEmitter.emit(msg.status);
         break;
       }
@@ -256,7 +258,7 @@ export class MavlinkWorkerBridge {
           seq: msg.seq,
           startUs: msg.startUs,
           endUs: msg.endUs,
-          packetCount: msg.chunkPacketCount,
+          packetCount: msg.packetCount,
           bytes: msg.bytes,
         };
         this.logChunkEmitter.emit(chunk);

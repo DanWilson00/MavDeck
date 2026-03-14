@@ -18,7 +18,7 @@ export interface LogSessionChunk {
   seq: number;
   startUs: number;
   endUs: number;
-  packetCount: number;
+  packetCount: number; // chunk-local packet count
   bytes: ArrayBuffer;
 }
 

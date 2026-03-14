@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState, workerBridge, registry } from '../store';
-import { convertDisplayArray, convertDisplayValue, formatDisplayValue, getDisplayUnit, type MessageStats } from '../services';
+import { appState } from '../store';
+import { convertDisplayArray, convertDisplayValue, formatDisplayValue, getDisplayUnit, getRegistry, getWorkerBridge, type MessageStats } from '../services';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
 import StatusTextLog from './StatusTextLog';
 import { toggleSetItem } from './hooks';
@@ -18,6 +18,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   // Subscribe to stats from worker bridge
   createEffect(() => {
     if (!appState.isReady) return;
+    const workerBridge = getWorkerBridge();
     const unsub = workerBridge.onStats(stats => {
       setMessageStats(stats);
       // Only update the name list when new message types appear
@@ -37,7 +38,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   function formatValue(value: number | string | number[], field: MavlinkFieldMetadata): string {
     // Enum resolution
     if (field.enumType && typeof value === 'number') {
-      const resolved = registry.resolveEnumValue(field.enumType, value);
+      const resolved = getRegistry().resolveEnumValue(field.enumType, value);
       if (resolved) return resolved;
     }
     // Float formatting
@@ -72,7 +73,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
         <For each={knownMessageNames()}>
           {(name) => {
             const stats = () => messageStats().get(name);
-            const meta = () => registry.getMessageByName(name);
+            const meta = () => getRegistry().getMessageByName(name);
             const isExpanded = () => expandedMessages().has(name);
 
             return (

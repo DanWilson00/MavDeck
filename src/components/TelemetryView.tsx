@@ -9,6 +9,7 @@ import PlotTabBar from './PlotTabBar';
 import type { PlotConfig, PlotSignalConfig, PlotTab } from '../models';
 import { SIGNAL_COLORS, getThemeColor } from '../models';
 import { createPlotInteractionController } from '../core';
+import { deserializePlotTabs, serializePlotTabs, type PersistedPlotTabV1 } from '../services';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
 function pickNextColor(existingSignals: PlotSignalConfig[]): string {
@@ -93,7 +94,7 @@ export default function TelemetryView() {
   }
 
   function persistLayout(): void {
-    const snapshot = JSON.parse(JSON.stringify(appState.plotTabs)) as PlotTab[];
+    const snapshot = serializePlotTabs(appState.plotTabs);
     saveQueue = saveQueue
       .then(() => set(LAYOUT_KEY_V2, snapshot))
       .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
@@ -115,7 +116,7 @@ export default function TelemetryView() {
 
   onMount(async () => {
     // Try v2 first
-    let savedTabs = await get<PlotTab[]>(LAYOUT_KEY_V2);
+    let savedTabs = await get<PersistedPlotTabV1[]>(LAYOUT_KEY_V2);
 
     if (!savedTabs) {
       // Try v1 migration
@@ -124,7 +125,7 @@ export default function TelemetryView() {
         savedTabs = Object.entries(v1).map(([tabId, plots], i) => ({
           id: tabId,
           name: `Tab ${i + 1}`,
-          plots,
+          plots: serializePlotTabs([{ id: tabId, name: `Tab ${i + 1}`, plots }])[0].plots,
         }));
         // Save as v2 and remove v1
         await set(LAYOUT_KEY_V2, savedTabs);
@@ -133,9 +134,10 @@ export default function TelemetryView() {
     }
 
     if (!savedTabs || savedTabs.length === 0) return;
+    const restoredTabs = deserializePlotTabs(savedTabs);
 
     // Restore plotIdCounter from ALL tabs' plots
-    for (const tab of savedTabs) {
+    for (const tab of restoredTabs) {
       for (const p of tab.plots) {
         const num = parseInt(p.id.replace('plot-', ''), 10);
         if (!isNaN(num) && num >= plotIdCounter) {
@@ -145,8 +147,8 @@ export default function TelemetryView() {
     }
 
     batch(() => {
-      setAppState('plotTabs', savedTabs!);
-      setAppState('activeSubTab', savedTabs![0].id);
+      setAppState('plotTabs', restoredTabs);
+      setAppState('activeSubTab', restoredTabs[0].id);
     });
   });
 

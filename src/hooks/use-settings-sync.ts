@@ -1,6 +1,6 @@
 import { createEffect, type Accessor } from 'solid-js';
-import { appState, workerBridge, connectionManager } from '../store';
-import { saveSettingsDebounced, type MavDeckSettings } from '../services';
+import { appState } from '../store';
+import { flushSettings, getConnectionManager, getWorkerBridge, saveSettingsDebounced, type MavDeckSettings } from '../services';
 
 export function useSettingsSync(
   settingsReady: Accessor<boolean>,
@@ -31,7 +31,7 @@ export function useSettingsSync(
   // Apply telemetry buffer-capacity changes immediately in worker.
   createEffect(() => {
     if (!appState.isReady) return;
-    workerBridge.setBufferCapacity(appState.bufferCapacity);
+    getWorkerBridge().setBufferCapacity(appState.bufferCapacity);
   });
 
   // Keep worker pause state in sync with UI/replay mode.
@@ -40,9 +40,22 @@ export function useSettingsSync(
     if (appState.connectionStatus !== 'connected') return;
     if (appState.logViewerState.isActive) return;
     if (appState.isPaused) {
-      connectionManager.pause();
+      getConnectionManager().pause();
     } else {
-      connectionManager.resume();
+      getConnectionManager().resume();
     }
+  });
+
+  createEffect(() => {
+    if (!settingsReady()) return;
+
+    const flush = () => { void flushSettings(); };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', flush);
+
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
   });
 }

@@ -2,15 +2,11 @@ import { batch } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import type {
   ConnectionStatus,
-  MavlinkWorkerBridge,
-  ConnectionManager,
   BaudRate,
   UnitProfile,
-  LogViewerService,
   LogViewerState,
 } from '../services';
 import { DEFAULT_BAUD_RATE, DEFAULT_SETTINGS } from '../services';
-import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import type { PlotTab, TimeWindow } from '../models';
 import { DEFAULT_TIME_WINDOW } from '../models';
 
@@ -94,30 +90,6 @@ export const [appState, setAppState] = createStore<AppState>({
   lastSuccessfulBaudRate: null,
   connectedBaudRate: null,
 });
-
-// Class instances with methods and TypedArrays — MUST NOT go in createStore.
-// SolidJS's deep proxy would wrap their internals, breaking class methods.
-// Initialized in App.tsx onMount before any UI reads them.
-export let workerBridge: MavlinkWorkerBridge = null!;
-export let connectionManager: ConnectionManager = null!;
-export let registry: MavlinkMetadataRegistry = null!;
-export let logViewerService: LogViewerService = null!;
-
-export function setWorkerBridge(bridge: MavlinkWorkerBridge): void {
-  workerBridge = bridge;
-}
-
-export function setConnectionManager(mgr: ConnectionManager): void {
-  connectionManager = mgr;
-}
-
-export function setRegistry(reg: MavlinkMetadataRegistry): void {
-  registry = reg;
-}
-
-export function setLogViewerService(service: LogViewerService): void {
-  logViewerService = service;
-}
 
 // ---------------------------------------------------------------------------
 // Tab management actions

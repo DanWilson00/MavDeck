@@ -2,8 +2,8 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-j
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models';
 import { getThemeColor } from '../models';
-import { formatSignalLabel, getDisplayUnit } from '../services';
-import { appState, registry } from '../store';
+import { formatSignalLabel, getDisplayUnit, getRegistry } from '../services';
+import { appState } from '../store';
 import type { PlotInteractionController } from '../core';
 
 interface PlotPanelProps {
@@ -73,7 +73,7 @@ export default function PlotPanel(props: PlotPanelProps) {
       .map(sig =>
         formatSignalLabel(
           sig.fieldKey,
-          registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+          getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
           appState.unitProfile,
           { messageType: sig.messageType, fieldName: sig.fieldName },
         ),
@@ -145,7 +145,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                 }}
                 title={formatSignalLabel(
                   sig.fieldKey,
-                  registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                  getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
                   appState.unitProfile,
                   { messageType: sig.messageType, fieldName: sig.fieldName },
                 )}
@@ -159,7 +159,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {' '}
                   <span style={{ color: 'var(--text-secondary)' }}>
                     {getDisplayUnit(
-                      registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                      getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
                       appState.unitProfile,
                       { fieldName: sig.fieldName },
                     )}
@@ -206,7 +206,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {' '}
                   <span>
                     {getDisplayUnit(
-                      registry.getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
+                      getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
                       appState.unitProfile,
                       { fieldName: sig.fieldName },
                     )}

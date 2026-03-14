@@ -1,9 +1,10 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { appState, logViewerService, setAppState } from '../store';
+import { appState, setAppState } from '../store';
 import {
   clearAllLogs,
   deleteLogFile,
   exportLogFile,
+  getLogViewerService,
   getLogMetadata,
   listLogs,
   readLogFile,
@@ -75,7 +76,7 @@ export default function LogLibraryPane() {
     try {
       const bytes = await readLogFile(fileName);
       const records = parseTlogBytes(bytes);
-      logViewerService.load(records, fileName);
+      getLogViewerService().load(records, fileName);
       setAppState('isPaused', true);
     } catch (err) {
       console.error('[LogLibraryPane] Failed to load log:', err);
@@ -86,7 +87,7 @@ export default function LogLibraryPane() {
   }
 
   function handleUnload() {
-    logViewerService.unload();
+    getLogViewerService().unload();
   }
 
   async function openEdit(fileName: string) {
@@ -135,7 +136,7 @@ export default function LogLibraryPane() {
     try {
       await deleteLogFile(current.fileName);
       if (appState.logViewerState.isActive && appState.logViewerState.sourceName === current.fileName) {
-        logViewerService.unload();
+        getLogViewerService().unload();
       }
       setDeleting(null);
       setAppState('logsVersion', v => v + 1);
@@ -150,7 +151,7 @@ export default function LogLibraryPane() {
   async function confirmClearAll() {
     try {
       if (appState.logViewerState.isActive) {
-        logViewerService.unload();
+        getLogViewerService().unload();
       }
       await clearAllLogs();
       setClearingAll(false);
@@ -167,7 +168,7 @@ export default function LogLibraryPane() {
     try {
       for (const fileName of files) {
         if (appState.logViewerState.isActive && appState.logViewerState.sourceName === fileName) {
-          logViewerService.unload();
+          getLogViewerService().unload();
         }
         await deleteLogFile(fileName);
       }
