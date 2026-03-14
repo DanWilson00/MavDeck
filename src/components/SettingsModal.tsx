@@ -17,11 +17,20 @@ const TRAIL_LENGTH_MIN = 50;
 const TRAIL_LENGTH_MAX = 5000;
 const TRAIL_LENGTH_STEP = 50;
 
+type SettingsTab = 'general' | 'serial' | 'advanced';
+
+const TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'serial', label: 'Serial' },
+  { id: 'advanced', label: 'Advanced' },
+];
+
 interface SettingsModalProps {
   onClose: () => void;
 }
 
 export default function SettingsModal(props: SettingsModalProps) {
+  const [activeTab, setActiveTab] = createSignal<SettingsTab>('general');
   const [importError, setImportError] = createSignal<string | null>(null);
   const [refreshing, setRefreshing] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
@@ -140,104 +149,294 @@ export default function SettingsModal(props: SettingsModalProps) {
       aria-label="Settings"
     >
       <div
-        class="w-[440px] max-w-[92vw] max-h-[88vh] overflow-y-auto rounded-lg border shadow-xl"
+        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border shadow-xl"
         style={{
           'background-color': 'var(--bg-panel)',
           'border-color': 'var(--border)',
         }}
       >
+        {/* Header */}
         <div class="flex items-center justify-between px-4 py-3 border-b" style={{ 'border-color': 'var(--border)' }}>
           <h2 class="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h2>
-          <button
-            class="rounded p-1.5 interactive-hover"
-            style={{ color: 'var(--text-secondary)' }}
-            onClick={props.onClose}
-            aria-label="Close settings"
-          >
-            <CloseIcon />
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              class="rounded p-1.5 interactive-hover"
+              style={{ color: 'var(--text-secondary)' }}
+              onClick={() => {
+                props.onClose();
+                setAppState('isHelpOpen', true);
+              }}
+              aria-label="Help"
+            >
+              <HelpIcon />
+            </button>
+            <button
+              class="rounded p-1.5 interactive-hover"
+              style={{ color: 'var(--text-secondary)' }}
+              onClick={props.onClose}
+              aria-label="Close settings"
+            >
+              <CloseIcon />
+            </button>
+          </div>
         </div>
 
-        <div class="p-4 space-y-5">
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              Appearance
-            </h3>
-            <div class="flex items-center gap-2">
-              <button
-                class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                style={{
-                  'border-color': appState.theme === 'dark' ? 'var(--accent)' : 'var(--border)',
-                  color: appState.theme === 'dark' ? 'var(--accent)' : 'var(--text-primary)',
-                }}
-                onClick={() => setAppState('theme', 'dark')}
-              >
-                Dark
-              </button>
-              <button
-                class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                style={{
-                  'border-color': appState.theme === 'light' ? 'var(--accent)' : 'var(--border)',
-                  color: appState.theme === 'light' ? 'var(--accent)' : 'var(--text-primary)',
-                }}
-                onClick={() => setAppState('theme', 'light')}
-              >
-                Light
-              </button>
-            </div>
-            <div>
-              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="ui-scale-range">
-                UI Zoom ({Math.round(appState.uiScale * 100)}%)
-              </label>
-              <div class="flex items-center gap-3 mt-1.5">
-                <input
-                  id="ui-scale-range"
-                  type="range"
-                  min={UI_SCALE_MIN}
-                  max={UI_SCALE_MAX}
-                  step={UI_SCALE_STEP}
-                  value={appState.uiScale}
-                  onInput={(e) => setUiScale(Number(e.currentTarget.value))}
-                  class="w-full"
-                />
+        {/* Tab bar */}
+        <div
+          class="flex gap-1 px-4 pt-2 pb-0 border-b"
+          style={{ 'border-color': 'var(--border)' }}
+          role="tablist"
+        >
+          {TABS.map(tab => (
+            <button
+              role="tab"
+              aria-selected={activeTab() === tab.id}
+              class="px-3 py-1.5 text-xs font-medium rounded-t transition-colors"
+              style={{
+                color: activeTab() === tab.id ? 'var(--accent)' : 'var(--text-secondary)',
+                'border-bottom': activeTab() === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+                'margin-bottom': '-1px',
+              }}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* General tab */}
+          <Show when={activeTab() === 'general'}>
+            <div role="tabpanel" class="space-y-4">
+              <SectionLabel>Theme</SectionLabel>
+              <div class="flex items-center gap-2">
                 <button
-                  class="px-2 py-1 text-xs rounded border interactive-hover"
-                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-                  onClick={() => setUiScale(1)}
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{
+                    'border-color': appState.theme === 'dark' ? 'var(--accent)' : 'var(--border)',
+                    color: appState.theme === 'dark' ? 'var(--accent)' : 'var(--text-primary)',
+                  }}
+                  onClick={() => setAppState('theme', 'dark')}
                 >
-                  Reset
+                  Dark
+                </button>
+                <button
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{
+                    'border-color': appState.theme === 'light' ? 'var(--accent)' : 'var(--border)',
+                    color: appState.theme === 'light' ? 'var(--accent)' : 'var(--text-primary)',
+                  }}
+                  onClick={() => setAppState('theme', 'light')}
+                >
+                  Light
                 </button>
               </div>
-            </div>
-            <div>
-              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="unit-profile-select">
-                Unit Profile
-              </label>
-              <select
-                id="unit-profile-select"
-                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                style={{
-                  'background-color': 'var(--bg-hover)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
-                }}
-                value={appState.unitProfile}
-                onChange={(e) => setAppState('unitProfile', e.currentTarget.value as UnitProfile)}
-              >
-                {UNIT_PROFILES.map(profile => (
-                  <option value={profile}>
-                    {profile[0].toUpperCase() + profile.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </section>
 
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              Connection
-            </h3>
-            <div class="flex items-center gap-2">
+              <SectionLabel>Display</SectionLabel>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="ui-scale-range">
+                  UI Zoom ({Math.round(appState.uiScale * 100)}%)
+                </label>
+                <div class="flex items-center gap-3 mt-1.5">
+                  <input
+                    id="ui-scale-range"
+                    type="range"
+                    min={UI_SCALE_MIN}
+                    max={UI_SCALE_MAX}
+                    step={UI_SCALE_STEP}
+                    value={appState.uiScale}
+                    onInput={(e) => setUiScale(Number(e.currentTarget.value))}
+                    class="w-full"
+                  />
+                  <button
+                    class="px-2 py-1 text-xs rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    onClick={() => setUiScale(1)}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="unit-profile-select">
+                  Unit Profile
+                </label>
+                <select
+                  id="unit-profile-select"
+                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  value={appState.unitProfile}
+                  onChange={(e) => setAppState('unitProfile', e.currentTarget.value as UnitProfile)}
+                >
+                  {UNIT_PROFILES.map(profile => (
+                    <option value={profile}>
+                      {profile[0].toUpperCase() + profile.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <SectionLabel>Map</SectionLabel>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="trail-length-input">
+                  Trail Length (data points)
+                </label>
+                <input
+                  id="trail-length-input"
+                  type="number"
+                  min={TRAIL_LENGTH_MIN}
+                  max={TRAIL_LENGTH_MAX}
+                  step={TRAIL_LENGTH_STEP}
+                  value={appState.mapTrailLength}
+                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  onInput={(e) => setTrailLength(Number(e.currentTarget.value))}
+                  onBlur={(e) => setTrailLength(Number(e.currentTarget.value))}
+                />
+              </div>
+            </div>
+          </Show>
+
+          {/* Serial tab */}
+          <Show when={activeTab() === 'serial'}>
+            <div role="tabpanel" class="space-y-4">
+              <Show
+                when={isWebSerialSupported()}
+                fallback={
+                  <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Web Serial is not supported in this browser. Use Chrome or Edge for serial connections.
+                  </p>
+                }
+              >
+                <ToggleSwitch
+                  id="auto-connect-toggle"
+                  label="Auto-connect serial"
+                  description="Automatically connect to a MAVLink device when one is detected."
+                  checked={appState.autoConnect}
+                  onChange={(v) => setAppState('autoConnect', v)}
+                />
+                <ToggleSwitch
+                  id="auto-baud-toggle"
+                  label="Auto-detect baud rate"
+                  description="Try different baud rates to find the correct one."
+                  checked={appState.autoDetectBaud}
+                  onChange={(v) => setAppState('autoDetectBaud', v)}
+                />
+                <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
+                  <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
+                    Serial Baud Rate
+                  </label>
+                  <select
+                    id="baud-rate-select"
+                    class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                    style={{
+                      'background-color': 'var(--bg-hover)',
+                      color: 'var(--text-primary)',
+                      border: '1px solid var(--border)',
+                    }}
+                    value={appState.baudRate}
+                    onChange={(e) => setAppState('baudRate', Number(e.currentTarget.value) as BaudRate)}
+                  >
+                    {BAUD_RATES.map(rate => <option value={rate}>{rate}</option>)}
+                  </select>
+                </div>
+
+                <Divider />
+
+                <button
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={async () => {
+                    if (appState.connectionSourceType === 'serial') {
+                      connectionManager.disconnect();
+                    }
+                    connectionManager.stopAutoConnect();
+                    const ports = await navigator.serial.getPorts();
+                    await Promise.all(ports.map(p => p.forget()));
+                  }}
+                >
+                  Forget All Ports
+                </button>
+              </Show>
+            </div>
+          </Show>
+
+          {/* Advanced tab */}
+          <Show when={activeTab() === 'advanced'}>
+            <div role="tabpanel" class="space-y-4">
+              <SectionLabel>Data</SectionLabel>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
+                  Telemetry Buffer Capacity (samples per field)
+                </label>
+                <input
+                  id="buffer-capacity-input"
+                  type="number"
+                  min={BUFFER_CAPACITY_MIN}
+                  max={BUFFER_CAPACITY_MAX}
+                  step={BUFFER_CAPACITY_STEP}
+                  value={appState.bufferCapacity}
+                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                  onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                />
+              </div>
+
+              <Divider />
+
+              <SectionLabel>Dialect</SectionLabel>
+              <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                Current: {appState.dialectName}
+              </p>
+              <div class="flex items-center gap-2">
+                <button
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={() => fileInputRef?.click()}
+                  disabled={!appState.isReady}
+                >
+                  Import Dialect XML
+                </button>
+                <button
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={handleRefreshDialect}
+                  disabled={!appState.isReady || refreshing()}
+                >
+                  {refreshing() ? 'Refreshing...' : 'Reset to Default'}
+                </button>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xml"
+                multiple
+                class="hidden"
+                onChange={handleFileSelected}
+              />
+              {importError() && (
+                <p class="text-xs" style={{ color: '#ef4444' }}>
+                  {importError()}
+                </p>
+              )}
+
+              <Divider />
+
+              <SectionLabel>Simulator</SectionLabel>
               <button
                 class="px-3 py-1.5 text-sm rounded border interactive-hover"
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
@@ -255,195 +454,54 @@ export default function SettingsModal(props: SettingsModalProps) {
                   ? 'Disconnect Simulator'
                   : 'Connect Simulator'}
               </button>
-              <Show when={isWebSerialSupported()}>
-                <button
-                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-                  onClick={async () => {
-                    if (appState.connectionSourceType === 'serial') {
-                      connectionManager.disconnect();
-                    }
-                    connectionManager.stopAutoConnect();
-                    const ports = await navigator.serial.getPorts();
-                    await Promise.all(ports.map(p => p.forget()));
-                  }}
-                >
-                  Forget All Ports
-                </button>
-              </Show>
             </div>
-            <ToggleSwitch
-              id="auto-connect-toggle"
-              label="Auto-connect serial"
-              description="Automatically connect to a MAVLink device when one is detected."
-              checked={appState.autoConnect}
-              onChange={(v) => setAppState('autoConnect', v)}
-            />
-            <ToggleSwitch
-              id="auto-baud-toggle"
-              label="Auto-detect baud rate"
-              description="Try different baud rates to find the correct one."
-              checked={appState.autoDetectBaud}
-              onChange={(v) => setAppState('autoDetectBaud', v)}
-            />
-            <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
-              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
-                Serial Baud Rate
-              </label>
-              <select
-                id="baud-rate-select"
-                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                style={{
-                  'background-color': 'var(--bg-hover)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
-                }}
-                value={appState.baudRate}
-                onChange={(e) => setAppState('baudRate', Number(e.currentTarget.value) as BaudRate)}
-              >
-                {BAUD_RATES.map(rate => <option value={rate}>{rate}</option>)}
-              </select>
-            </div>
-            <div>
-              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
-                Telemetry Buffer Capacity (samples per field)
-              </label>
-              <input
-                id="buffer-capacity-input"
-                type="number"
-                min={BUFFER_CAPACITY_MIN}
-                max={BUFFER_CAPACITY_MAX}
-                step={BUFFER_CAPACITY_STEP}
-                value={appState.bufferCapacity}
-                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                style={{
-                  'background-color': 'var(--bg-hover)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
-                }}
-                onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-                onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-              />
-            </div>
-          </section>
+          </Show>
+        </div>
 
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              Map
-            </h3>
-            <div>
-              <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="trail-length-input">
-                Trail Length (data points)
-              </label>
-              <input
-                id="trail-length-input"
-                type="number"
-                min={TRAIL_LENGTH_MIN}
-                max={TRAIL_LENGTH_MAX}
-                step={TRAIL_LENGTH_STEP}
-                value={appState.mapTrailLength}
-                class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                style={{
-                  'background-color': 'var(--bg-hover)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
-                }}
-                onInput={(e) => setTrailLength(Number(e.currentTarget.value))}
-                onBlur={(e) => setTrailLength(Number(e.currentTarget.value))}
-              />
-            </div>
-          </section>
-
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              Dialect
-            </h3>
-            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Current: {appState.dialectName}
-            </p>
-            <div class="flex items-center gap-2">
-              <button
-                class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-                onClick={() => fileInputRef?.click()}
-                disabled={!appState.isReady}
-              >
-                Import Dialect XML
-              </button>
-              <button
-                class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-                onClick={handleRefreshDialect}
-                disabled={!appState.isReady || refreshing()}
-              >
-                {refreshing() ? 'Refreshing...' : 'Reset to Default'}
-              </button>
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xml"
-              multiple
-              class="hidden"
-              onChange={handleFileSelected}
-            />
-            {importError() && (
-              <p class="text-xs" style={{ color: '#ef4444' }}>
-                {importError()}
-              </p>
-            )}
-          </section>
-
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              Offline
-            </h3>
-            <p
-              class="text-xs"
+        {/* Footer */}
+        <div
+          class="flex items-center justify-between px-4 py-2 border-t text-xs"
+          style={{ 'border-color': 'var(--border)', color: 'var(--text-secondary)' }}
+        >
+          <span>MavDeck v0.0.1</span>
+          <span class="flex items-center gap-1.5">
+            <span
+              class="inline-block w-2 h-2 rounded-full"
               style={{
-                color:
+                'background-color':
                   appState.offlineStatus === 'ready'
                     ? '#22c55e'
                     : appState.offlineStatus === 'error'
                       ? '#ef4444'
-                      : 'var(--text-secondary)',
+                      : appState.offlineStatus === 'unsupported'
+                        ? 'var(--text-secondary)'
+                        : '#f59e0b',
               }}
-            >
-              {appState.offlineStatus === 'ready'
-                ? 'Offline ready: app shell is cached for reopen without internet.'
-                : appState.offlineStatus === 'error'
-                  ? `Offline cache setup failed: ${appState.offlineError ?? 'unknown error'}`
-                  : appState.offlineStatus === 'unsupported'
-                    ? 'Offline cache is not supported in this browser.'
-                    : 'Preparing offline cache. Open once online to finish setup.'}
-            </p>
-          </section>
-
-          <section class="space-y-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
-              About
-            </h3>
-            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              MavDeck v0.0.1
-            </p>
-            <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Built by Dan Wilson
-            </p>
-            <button
-              class="px-3 py-1.5 text-sm rounded border interactive-hover"
-              style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-              onClick={() => {
-                props.onClose();
-                setAppState('isHelpOpen', true);
-              }}
-            >
-              View Help
-            </button>
-          </section>
+            />
+            {appState.offlineStatus === 'ready'
+              ? 'Offline ready'
+              : appState.offlineStatus === 'error'
+                ? 'Offline error'
+                : appState.offlineStatus === 'unsupported'
+                  ? 'Offline N/A'
+                  : 'Caching...'}
+          </span>
         </div>
       </div>
     </div>
   );
+}
+
+function SectionLabel(props: { children: string }) {
+  return (
+    <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+      {props.children}
+    </h3>
+  );
+}
+
+function Divider() {
+  return <hr class="border-0 border-t" style={{ 'border-color': 'var(--border)' }} />;
 }
 
 function ToggleSwitch(props: { id: string; label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
@@ -475,6 +533,16 @@ function ToggleSwitch(props: { id: string; label: string; description: string; c
         <p class="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{props.description}</p>
       </div>
     </div>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
   );
 }
 
