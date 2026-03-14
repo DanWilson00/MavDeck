@@ -9,14 +9,16 @@ import { appState, setAppState } from './store';
 import {
   useBootstrap,
   useSettingsSync,
+  useAutoConnect,
   useInterestedFields,
   useLogSession,
   useKeyboardShortcuts,
 } from './hooks';
 
 export default function App() {
-  const { loading, settingsReady, loadedSettings } = useBootstrap();
+  const { loading, settingsReady, loadedSettings, setLoadedSettings } = useBootstrap();
   useSettingsSync(settingsReady, loadedSettings);
+  useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
   useInterestedFields();
   useLogSession();
   useKeyboardShortcuts();

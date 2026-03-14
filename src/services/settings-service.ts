@@ -27,6 +27,11 @@ export interface MavDeckSettings {
   mapAutoCenter: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
+  autoConnect: boolean;
+  autoDetectBaud: boolean;
+  lastPortVendorId: number | null;
+  lastPortProductId: number | null;
+  lastSuccessfulBaudRate: BaudRate | null;
 }
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
@@ -44,6 +49,11 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   mapAutoCenter: true,
   sidebarCollapsed: false,
   sidebarWidth: 350,
+  autoConnect: false,
+  autoDetectBaud: false,
+  lastPortVendorId: null,
+  lastPortProductId: null,
+  lastSuccessfulBaudRate: null,
 };
 
 /**

@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, batch, type Accessor } from 'solid-js';
+import { createSignal, onCleanup, onMount, batch, type Accessor, type Setter } from 'solid-js';
 import { appState, setAppState, setWorkerBridge, setConnectionManager, setRegistry, setLogViewerService } from '../store';
 import {
   MavlinkWorkerBridge,
@@ -18,6 +18,7 @@ interface BootstrapResult {
   loading: Accessor<boolean>;
   settingsReady: Accessor<boolean>;
   loadedSettings: Accessor<MavDeckSettings>;
+  setLoadedSettings: Setter<MavDeckSettings>;
 }
 
 export function useBootstrap(): BootstrapResult {
@@ -52,6 +53,9 @@ export function useBootstrap(): BootstrapResult {
         setAppState('mapAutoCenter', settings.mapAutoCenter);
         setAppState('sidebarCollapsed', settings.sidebarCollapsed);
         setAppState('sidebarWidth', settings.sidebarWidth);
+        setAppState('autoConnect', settings.autoConnect);
+        setAppState('autoDetectBaud', settings.autoDetectBaud);
+        setAppState('lastSuccessfulBaudRate', settings.lastSuccessfulBaudRate);
       });
       setSettingsReady(true);
 
@@ -110,5 +114,5 @@ export function useBootstrap(): BootstrapResult {
     bridge?.dispose();
   });
 
-  return { loading, settingsReady, loadedSettings };
+  return { loading, settingsReady, loadedSettings, setLoadedSettings };
 }

@@ -7,16 +7,19 @@
  */
 
 import type { MessageStats } from '../services';
+import type { SerialPortIdentity } from '../services/serial-probe-service';
+import type { BaudRate } from '../services/baud-rates';
 
 // ---------------------------------------------------------------------------
 // Shared types used by both directions
 // ---------------------------------------------------------------------------
 
+/** Worker-safe connection config (no DOM objects — must be cloneable via postMessage). */
 export type ConnectionConfig =
   | { type: 'spoof' }
   | { type: 'webserial'; baudRate: number };
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'probing';
 
 // ---------------------------------------------------------------------------
 // Main thread → Worker commands
@@ -31,7 +34,11 @@ export type WorkerCommand =
   | { type: 'bytes'; data: Uint8Array }
   | { type: 'setInterestedFields'; fields: string[] }
   | { type: 'setBufferCapacity'; bufferCapacity: number }
-  | { type: 'loadLog'; packets: Uint8Array[]; timestamps: number[]; bufferCapacity: number };
+  | { type: 'loadLog'; packets: Uint8Array[]; timestamps: number[]; bufferCapacity: number }
+  | { type: 'connectSerial'; baudRate: BaudRate; autoDetectBaud: boolean; portIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
+  | { type: 'startAutoConnect'; autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
+  | { type: 'stopAutoConnect' }
+  | { type: 'portsChanged' };
 
 // ---------------------------------------------------------------------------
 // Worker → Main thread events
@@ -48,4 +55,7 @@ export type WorkerEvent =
   | { type: 'logChunk'; sessionId: string; seq: number; startUs: number; endUs: number; packetCount: number; chunkPacketCount: number; bytes: ArrayBuffer }
   | { type: 'logSessionEnded'; sessionId: string; endedAtMs: number; firstPacketUs?: number; lastPacketUs?: number; packetCount: number }
   | { type: 'loadComplete'; stats: Record<string, MessageStats>; durationSec: number }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'probeStatus'; status: string | null }
+  | { type: 'serialConnected'; baudRate: BaudRate; portIdentity: SerialPortIdentity | null }
+  | { type: 'needPermission' };

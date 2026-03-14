@@ -9,14 +9,9 @@
 
 export type SerialBytesCallback = (data: Uint8Array) => void;
 
-export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 500000, 921600, 1000000] as const;
-export type BaudRate = (typeof BAUD_RATES)[number];
-export const DEFAULT_BAUD_RATE: BaudRate = 115200;
-
-/** Check if the browser supports Web Serial. */
-export function isWebSerialSupported(): boolean {
-  return typeof navigator !== 'undefined' && 'serial' in navigator;
-}
+// Re-export baud rate constants from the shared module for backward compatibility.
+export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported } from './baud-rates';
+export type { BaudRate } from './baud-rates';
 
 export class WebSerialByteSource {
   private port: SerialPort | null = null;
@@ -38,18 +33,17 @@ export class WebSerialByteSource {
   }
 
   /**
-   * Request a serial port (triggers browser picker dialog) and connect.
-   * Must be called from a user gesture (click handler).
+   * Connect to a serial port. If `existingPort` is provided, uses it directly
+   * (no browser picker dialog). Otherwise, calls `requestPort()` which requires
+   * a user gesture.
    */
-  async connect(): Promise<void> {
+  async connect(existingPort?: SerialPort): Promise<void> {
     if (!isWebSerialSupported()) {
       throw new Error('Web Serial API is not supported in this browser');
     }
 
-    // Request port — browser shows device picker
-    this.port = await navigator.serial.requestPort();
-
-    // Open with 8N1 configuration (Web Serial defaults)
+    // Use provided port or request one via browser picker
+    this.port = existingPort ?? await navigator.serial.requestPort();
     await this.port.open({ baudRate: this.baudRate });
 
     this._isConnected = true;

@@ -23,6 +23,8 @@ export function useSettingsSync(
       mapAutoCenter: appState.mapAutoCenter,
       sidebarCollapsed: appState.sidebarCollapsed,
       sidebarWidth: appState.sidebarWidth,
+      autoConnect: appState.autoConnect,
+      autoDetectBaud: appState.autoDetectBaud,
     });
   });
 

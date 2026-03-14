@@ -8,6 +8,7 @@ const STATUS_LABELS: Record<string, string> = {
   connecting: 'Connecting',
   connected: 'Connected',
   error: 'Error',
+  probing: 'Probing',
 };
 
 function formatDuration(sec: number): string {
@@ -78,7 +79,7 @@ export default function StatusBar() {
       {/* Baud rate — only when connected via serial */}
       <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'serial' && appState.connectionStatus === 'connected'}>
         <Divider />
-        <span>{appState.baudRate} baud</span>
+        <span>{appState.connectedBaudRate ?? appState.baudRate} baud</span>
       </Show>
 
       {/* Spoof label — only when connected via spoof */}

@@ -1,6 +1,12 @@
 export type { ByteCallback, IByteSource } from './byte-source';
 export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect } from './dialect-loader';
 export { ConnectionManager } from './connection-manager';
+export {
+  SerialProbeService,
+  type SerialPortIdentity,
+  type ProbeResult,
+  type ProbeStatusCallback,
+} from './serial-probe-service';
 export { ExternalByteSource } from './external-byte-source';
 export { LogViewerService, type LogViewerState } from './log-viewer-service';
 export { MavlinkService } from './mavlink-service';
@@ -54,14 +60,9 @@ export {
   type LogMetadata,
   type LogLibraryEntry,
 } from './tlog-service';
-export {
-  BAUD_RATES,
-  DEFAULT_BAUD_RATE,
-  isWebSerialSupported,
-  WebSerialByteSource,
-  type BaudRate,
-  type SerialBytesCallback,
-} from './webserial-byte-source';
+export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported, type BaudRate } from './baud-rates';
+export { WebSerialByteSource, type SerialBytesCallback } from './webserial-byte-source';
+export { WorkerSerialByteSource } from './worker-serial-byte-source';
 export {
   MavlinkWorkerBridge,
   type ConnectionConfig,

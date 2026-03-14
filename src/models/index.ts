@@ -5,6 +5,7 @@ export const STATUS_COLORS: Record<ConnectionStatus, string> = {
   connecting: '#eab308',
   connected: '#00d4ff',
   error: '#ef4444',
+  probing: '#eab308',
 };
 
 export {

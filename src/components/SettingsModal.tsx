@@ -1,8 +1,8 @@
-import { createSignal, onMount, onCleanup } from 'solid-js';
-import { appState, setAppState, workerBridge, registry, connectionManager } from '../store';
+import { createSignal, onMount, onCleanup, Show } from 'solid-js';
+import { appState, setAppState, workerBridge, registry, connectionManager, logViewerService } from '../store';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect,
+  initDialect, detectMissingIncludes, detectMainDialect, isWebSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -237,7 +237,56 @@ export default function SettingsModal(props: SettingsModalProps) {
             <h3 class="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
               Connection
             </h3>
-            <div>
+            <div class="flex items-center gap-2">
+              <button
+                class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                onClick={() => {
+                  if (appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof') {
+                    connectionManager.disconnect();
+                  } else {
+                    if (appState.logViewerState.isActive) logViewerService.unload();
+                    setAppState('connectionSourceType', 'spoof');
+                    connectionManager.connect({ type: 'spoof' });
+                  }
+                }}
+              >
+                {appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof'
+                  ? 'Disconnect Simulator'
+                  : 'Connect Simulator'}
+              </button>
+              <Show when={isWebSerialSupported()}>
+                <button
+                  class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                  style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={async () => {
+                    if (appState.connectionSourceType === 'serial') {
+                      connectionManager.disconnect();
+                    }
+                    connectionManager.stopAutoConnect();
+                    const ports = await navigator.serial.getPorts();
+                    await Promise.all(ports.map(p => p.forget()));
+                  }}
+                >
+                  Forget All Ports
+                </button>
+              </Show>
+            </div>
+            <ToggleSwitch
+              id="auto-connect-toggle"
+              label="Auto-connect serial"
+              description="Automatically connect to a MAVLink device when one is detected."
+              checked={appState.autoConnect}
+              onChange={(v) => setAppState('autoConnect', v)}
+            />
+            <ToggleSwitch
+              id="auto-baud-toggle"
+              label="Auto-detect baud rate"
+              description="Try different baud rates to find the correct one."
+              checked={appState.autoDetectBaud}
+              onChange={(v) => setAppState('autoDetectBaud', v)}
+            />
+            <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
               <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
                 Serial Baud Rate
               </label>
@@ -392,6 +441,38 @@ export default function SettingsModal(props: SettingsModalProps) {
             </button>
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ToggleSwitch(props: { id: string; label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return (
+    <div class="flex items-start gap-3">
+      <button
+        id={props.id}
+        role="switch"
+        aria-checked={props.checked}
+        class="mt-0.5 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors"
+        style={{
+          'background-color': props.checked ? 'var(--accent)' : 'var(--bg-hover)',
+          border: '1px solid var(--border)',
+        }}
+        onClick={() => props.onChange(!props.checked)}
+      >
+        <span
+          class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
+          style={{
+            'background-color': props.checked ? '#000' : 'var(--text-secondary)',
+            transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
+          }}
+        />
+      </button>
+      <div>
+        <label class="text-xs font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }} for={props.id}>
+          {props.label}
+        </label>
+        <p class="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{props.description}</p>
       </div>
     </div>
   );

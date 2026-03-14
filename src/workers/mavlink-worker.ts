@@ -19,6 +19,10 @@ import {
   encodeTlogRecord,
   type MessageStats,
 } from '../services';
+import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
+import { SerialProbeService } from '../services/serial-probe-service';
+import type { SerialPortIdentity } from '../services/serial-probe-service';
+import type { BaudRate } from '../services/baud-rates';
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import { MavlinkMessageDecoder, type MavlinkMessage } from '../mavlink/decoder';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
@@ -107,8 +111,16 @@ const INITIAL_LOG_STATE: LogState = {
 /** Registry is initialized once via 'init' and persists across connections. */
 let registry: MavlinkMetadataRegistry | null = null;
 
+interface SerialState {
+  serialSource: WorkerSerialByteSource | null;
+  probeService: SerialProbeService | null;
+  autoConnectConfig: { autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null } | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+}
+
 const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
+const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
@@ -180,6 +192,93 @@ function disconnectPipeline(): void {
   pipeline.tracker = null;
   pipeline.timeseriesManager?.dispose();
   pipeline.timeseriesManager = null;
+}
+
+// ---------------------------------------------------------------------------
+// Serial lifecycle helpers
+// ---------------------------------------------------------------------------
+
+/** Find a previously-granted serial port by its USB identity. */
+function findPortByIdentity(ports: SerialPort[], identity: SerialPortIdentity | null): SerialPort | null {
+  if (ports.length === 0) return null;
+  if (!identity) return ports[0];
+  for (const port of ports) {
+    const info = port.getInfo();
+    if (info.usbVendorId === identity.usbVendorId && info.usbProductId === identity.usbProductId) {
+      return port;
+    }
+  }
+  return null;
+}
+
+/** Full serial cleanup — disconnect source, stop probe, clear reconnect timer, reset state. */
+function cleanupSerial(): void {
+  serial.serialSource?.disconnect();
+  serial.serialSource = null;
+  serial.probeService?.stopProbing();
+  serial.probeService = null;
+  serial.autoConnectConfig = null;
+  if (serial.reconnectTimer !== null) {
+    clearTimeout(serial.reconnectTimer);
+    serial.reconnectTimer = null;
+  }
+}
+
+/** Called when WorkerSerialByteSource detects an unexpected disconnect. */
+function handleSerialDisconnect(): void {
+  // Clean up source only — don't call cleanupSerial which would also stop probing/auto-connect
+  serial.serialSource = null;
+
+  stopLogSession();
+  cleanupService();
+
+  postEvent({ type: 'statusChange', status: 'disconnected' });
+  postEvent({ type: 'stats', stats: {} });
+
+  // If auto-connect is configured, schedule reconnect
+  if (serial.autoConnectConfig) {
+    serial.reconnectTimer = setTimeout(() => {
+      serial.reconnectTimer = null;
+      doStartAutoConnect();
+    }, 2000);
+  }
+}
+
+/** Start (or restart) auto-connect probing. */
+function doStartAutoConnect(): void {
+  if (!registry) return;
+
+  // Stop existing probe if any
+  serial.probeService?.stopProbing();
+
+  serial.probeService = new SerialProbeService(registry);
+
+  postEvent({ type: 'statusChange', status: 'probing' });
+
+  const config = serial.autoConnectConfig;
+  if (!config) return;
+
+  serial.probeService.startProbing({
+    autoBaud: config.autoBaud,
+    manualBaudRate: config.manualBaudRate,
+    lastPortIdentity: config.lastPortIdentity,
+    lastBaudRate: config.lastBaudRate,
+    onResult: (result) => {
+      serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
+      setupService(serial.serialSource);
+      startLogSession();
+      pipeline.service!.connect().then(() => {
+        postEvent({ type: 'statusChange', status: 'connected' });
+        postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
+      }).catch((err: Error) => {
+        postEvent({ type: 'error', message: err.message });
+        postEvent({ type: 'statusChange', status: 'error' });
+      });
+    },
+    onStatus: (status) => {
+      postEvent({ type: 'probeStatus', status });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -361,7 +460,7 @@ function batchProcessPackets(
 // Pipeline setup
 // ---------------------------------------------------------------------------
 
-function setupService(source: SpoofByteSource | ExternalByteSource): void {
+function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSerialByteSource): void {
   pipeline.tracker = new GenericMessageTracker();
   pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
   pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
@@ -457,6 +556,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     case 'disconnect': {
       stopLogSession();
       cleanupService();
+      cleanupSerial();
       postEvent({ type: 'stats', stats: {} });
       postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
@@ -555,6 +655,116 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       });
 
       postEvent({ type: 'statusChange', status: 'connected' });
+      break;
+    }
+
+    case 'connectSerial': {
+      if (!registry) {
+        postEvent({ type: 'error', message: 'Registry not initialized' });
+        return;
+      }
+
+      stopLogSession();
+      cleanupService();
+      cleanupSerial();
+
+      const { baudRate: serialBaudRate, autoDetectBaud, portIdentity, lastBaudRate: serialLastBaud } = msg;
+
+      navigator.serial.getPorts().then(async (ports) => {
+        const port = findPortByIdentity(ports, portIdentity);
+        if (!port) {
+          postEvent({ type: 'needPermission' });
+          return;
+        }
+
+        if (autoDetectBaud) {
+          const probeService = new SerialProbeService(registry!);
+          const abortController = new AbortController();
+          serial.probeService = probeService;
+
+          postEvent({ type: 'statusChange', status: 'probing' });
+
+          try {
+            const result = await probeService.probeSinglePort(port, {
+              autoBaud: true,
+              manualBaudRate: serialBaudRate,
+              lastBaudRate: serialLastBaud,
+              onStatus: (s) => postEvent({ type: 'probeStatus', status: s }),
+            }, abortController.signal);
+
+            if (result) {
+              serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
+              setupService(serial.serialSource);
+              startLogSession();
+              await pipeline.service!.connect();
+              postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
+              postEvent({ type: 'statusChange', status: 'connected' });
+              postEvent({ type: 'probeStatus', status: null });
+            } else {
+              postEvent({ type: 'probeStatus', status: null });
+              postEvent({ type: 'statusChange', status: 'disconnected' });
+            }
+          } catch (err) {
+            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+            postEvent({ type: 'probeStatus', status: null });
+            postEvent({ type: 'statusChange', status: 'disconnected' });
+          }
+        } else {
+          try {
+            serial.serialSource = new WorkerSerialByteSource(port, serialBaudRate, handleSerialDisconnect);
+            setupService(serial.serialSource);
+            startLogSession();
+            await pipeline.service!.connect();
+            const portInfo = port.getInfo();
+            const connectedIdentity: SerialPortIdentity | null =
+              portInfo.usbVendorId != null && portInfo.usbProductId != null
+                ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
+                : null;
+            postEvent({ type: 'serialConnected', baudRate: serialBaudRate, portIdentity: connectedIdentity });
+            postEvent({ type: 'statusChange', status: 'connected' });
+          } catch (err) {
+            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+            postEvent({ type: 'statusChange', status: 'error' });
+          }
+        }
+      }).catch((err) => {
+        postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+        postEvent({ type: 'statusChange', status: 'error' });
+      });
+      break;
+    }
+
+    case 'startAutoConnect': {
+      serial.autoConnectConfig = {
+        autoBaud: msg.autoBaud,
+        manualBaudRate: msg.manualBaudRate,
+        lastPortIdentity: msg.lastPortIdentity,
+        lastBaudRate: msg.lastBaudRate,
+      };
+      doStartAutoConnect();
+      break;
+    }
+
+    case 'stopAutoConnect': {
+      if (serial.reconnectTimer !== null) {
+        clearTimeout(serial.reconnectTimer);
+        serial.reconnectTimer = null;
+      }
+      const wasProbing = serial.probeService?.isProbing ?? false;
+      serial.probeService?.stopProbing();
+      serial.probeService = null;
+      serial.autoConnectConfig = null;
+      if (wasProbing) {
+        postEvent({ type: 'statusChange', status: 'disconnected' });
+      }
+      break;
+    }
+
+    case 'portsChanged': {
+      if (serial.probeService?.isProbing) {
+        serial.probeService.stopProbing();
+        doStartAutoConnect();
+      }
       break;
     }
   }

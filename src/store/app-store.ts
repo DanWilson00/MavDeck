@@ -45,6 +45,11 @@ export interface AppState {
   logViewerState: LogViewerState;
   dialectName: string;
   connectionSourceType: 'serial' | 'spoof' | null;
+  autoConnect: boolean;
+  autoDetectBaud: boolean;
+  probeStatus: string | null;
+  lastSuccessfulBaudRate: BaudRate | null;
+  connectedBaudRate: BaudRate | null;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -83,6 +88,11 @@ export const [appState, setAppState] = createStore<AppState>({
   },
   dialectName: '',
   connectionSourceType: null,
+  autoConnect: false,
+  autoDetectBaud: false,
+  probeStatus: null,
+  lastSuccessfulBaudRate: null,
+  connectedBaudRate: null,
 });
 
 // Class instances with methods and TypedArrays — MUST NOT go in createStore.

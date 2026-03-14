@@ -20,8 +20,9 @@ A fast, web-based MAVLink telemetry viewer. No install, no MAVLink dependencies 
 - Message monitor with real-time frequency tracking
 - Status text display
 - Dark and light mode
-- Logs autosave to the browser (crash-resistant) and can be reloaded later
-- Tlog file import and playback
+- Auto-connect for previously granted serial devices, with optional auto-baud detection
+- Logs autosave to the browser (crash-resistant) and can be replayed later
+- In-browser log library for replaying previously saved sessions
 - Unit profiles — switch between raw, metric, imperial, and aviation units globally
 
 ### Unit Profiles
@@ -39,7 +40,7 @@ Angles and coordinates are automatically converted to degrees in all profiles. C
 
 ## Browser Support
 
-**Web Serial** (live telemetry from a serial device) requires a Chromium-based browser (Chrome, Edge). Everything else — tlog playback, plotting, map, offline mode — works in any modern browser including Firefox and Safari.
+**Web Serial** (live telemetry from a serial device) requires a Chromium-based browser (Chrome, Edge) and previously granted serial access. Everything else — replaying logs already saved by MavDeck, plotting, map, offline mode — works in any modern browser including Firefox and Safari.
 
 ## Quick Start
 
@@ -59,6 +60,10 @@ Then open http://localhost:5173.
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+
+## Support
+
+If MavDeck saves you time, helps you debug a weird flight log, or just spares you from opening a heavier ground station, consider helping to keep the LLM token supply topped off.
 
 ## License
 

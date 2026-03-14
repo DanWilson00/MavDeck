@@ -9,6 +9,8 @@ import { EventEmitter } from '../core';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
 import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
+import type { SerialPortIdentity } from './serial-probe-service';
+import type { BaudRate } from './baud-rates';
 
 // Re-export protocol types so existing consumers don't need to change imports.
 export type { ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
@@ -40,6 +42,9 @@ export class MavlinkWorkerBridge {
   private readonly logChunkEmitter = new EventEmitter<LogChunkCallback>();
   private readonly logSessionEndEmitter = new EventEmitter<LogSessionEndCallback>();
   private readonly loadCompleteEmitter = new EventEmitter<LoadCompleteCallback>();
+  private readonly probeStatusEmitter = new EventEmitter<(status: string | null) => void>();
+  private readonly serialConnectedEmitter = new EventEmitter<(info: { baudRate: BaudRate; portIdentity: SerialPortIdentity | null }) => void>();
+  private readonly needPermissionEmitter = new EventEmitter<() => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -145,6 +150,41 @@ export class MavlinkWorkerBridge {
     this.postCommand({ type: 'loadLog', packets, timestamps, bufferCapacity });
   }
 
+  /** Connect to a serial port in the worker. */
+  connectSerial(config: { baudRate: BaudRate; autoDetectBaud: boolean; portIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }): void {
+    this.postCommand({ type: 'connectSerial', ...config });
+  }
+
+  /** Start auto-connect probing in the worker. */
+  startAutoConnect(config: { autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }): void {
+    this.postCommand({ type: 'startAutoConnect', ...config });
+  }
+
+  /** Stop auto-connect probing. */
+  stopAutoConnect(): void {
+    this.postCommand({ type: 'stopAutoConnect' });
+  }
+
+  /** Notify the worker that available serial ports have changed. */
+  notifyPortsChanged(): void {
+    this.postCommand({ type: 'portsChanged' });
+  }
+
+  /** Subscribe to probe status updates. */
+  onProbeStatus(callback: (status: string | null) => void): () => void {
+    return this.probeStatusEmitter.on(callback);
+  }
+
+  /** Subscribe to serial connected events. */
+  onSerialConnected(callback: (info: { baudRate: BaudRate; portIdentity: SerialPortIdentity | null }) => void): () => void {
+    return this.serialConnectedEmitter.on(callback);
+  }
+
+  /** Subscribe to permission-needed events. */
+  onNeedPermission(callback: () => void): () => void {
+    return this.needPermissionEmitter.on(callback);
+  }
+
   /** Subscribe to log load completion events. */
   onLoadComplete(callback: LoadCompleteCallback): () => void {
     return this.loadCompleteEmitter.on(callback);
@@ -238,6 +278,21 @@ export class MavlinkWorkerBridge {
       case 'loadComplete': {
         const statsMap = new Map<string, MessageStats>(Object.entries(msg.stats));
         this.loadCompleteEmitter.emit({ stats: statsMap, durationSec: msg.durationSec });
+        break;
+      }
+
+      case 'probeStatus': {
+        this.probeStatusEmitter.emit(msg.status);
+        break;
+      }
+
+      case 'serialConnected': {
+        this.serialConnectedEmitter.emit({ baudRate: msg.baudRate, portIdentity: msg.portIdentity });
+        break;
+      }
+
+      case 'needPermission': {
+        this.needPermissionEmitter.emit();
         break;
       }
 

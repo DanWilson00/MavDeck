@@ -52,6 +52,11 @@ describe('settings-service', () => {
       mapAutoCenter: false,
       sidebarCollapsed: true,
       sidebarWidth: 400,
+      autoConnect: false,
+      autoDetectBaud: false,
+      lastPortVendorId: null,
+      lastPortProductId: null,
+      lastSuccessfulBaudRate: null,
     };
     mockStore.set('mavdeck-settings-v1', saved);
 
@@ -96,6 +101,11 @@ describe('settings-service', () => {
       mapAutoCenter: true,
       sidebarCollapsed: false,
       sidebarWidth: 350,
+      autoConnect: false,
+      autoDetectBaud: false,
+      lastPortVendorId: null,
+      lastPortProductId: null,
+      lastSuccessfulBaudRate: null,
     };
 
     await saveSettings(settings);
@@ -120,6 +130,11 @@ describe('settings-service', () => {
       mapAutoCenter: false,
       sidebarCollapsed: true,
       sidebarWidth: 500,
+      autoConnect: false,
+      autoDetectBaud: false,
+      lastPortVendorId: null,
+      lastPortProductId: null,
+      lastSuccessfulBaudRate: null,
     };
 
     await saveSettings(settings);

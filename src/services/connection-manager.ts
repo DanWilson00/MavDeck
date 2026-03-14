@@ -7,16 +7,34 @@
 
 import { EventEmitter } from '../core';
 import type { MavlinkWorkerBridge, ConnectionConfig, ConnectionStatus } from './worker-bridge';
-import { WebSerialByteSource } from './webserial-byte-source';
+import type { BaudRate } from './baud-rates';
+import type { SerialPortIdentity } from './serial-probe-service';
+
+/** Serial connection config for manual connect via user gesture. */
+export interface WebSerialConnectConfig {
+  type: 'webserial';
+  baudRate: BaudRate;
+  autoDetectBaud: boolean;
+  portIdentity: SerialPortIdentity | null;
+  lastBaudRate: BaudRate | null;
+}
+
+/** Auto-connect configuration. */
+export interface AutoConnectStartConfig {
+  autoBaud: boolean;
+  manualBaudRate: BaudRate;
+  lastPortIdentity: SerialPortIdentity | null;
+  lastBaudRate: BaudRate | null;
+}
 
 type StatusCallback = (status: ConnectionStatus) => void;
 
 export class ConnectionManager {
   private readonly bridge: MavlinkWorkerBridge;
   private readonly statusChange = new EventEmitter<StatusCallback>();
-  private serialSource: WebSerialByteSource | null = null;
   private _status: ConnectionStatus = 'disconnected';
   private unsubBridgeStatus: (() => void) | null = null;
+  private _autoConnectActive = false;
 
   constructor(bridge: MavlinkWorkerBridge) {
     this.bridge = bridge;
@@ -34,50 +52,51 @@ export class ConnectionManager {
   }
 
   /** Connect with the given configuration. Disconnects first if already connected. */
-  connect(config: ConnectionConfig): void {
+  connect(config: ConnectionConfig | WebSerialConnectConfig): void {
     if (this._status === 'connected' || this._status === 'connecting') {
       this.disconnect();
     }
 
-    if (config.type === 'webserial') {
-      // Emit connecting status immediately so the UI shows yellow dot
-      this._status = 'connecting';
-      this.statusChange.emit('connecting');
-
-      // Web Serial reads on main thread, forwards bytes to worker
-      this.serialSource = new WebSerialByteSource(
-        config.baudRate,
-        (data) => { this.bridge.sendBytes(data); },
-        () => { this.disconnect(); },  // unexpected serial disconnect
-      );
-
-      // Open serial port first (triggers browser dialog), then set up worker pipeline.
-      // This order prevents a false "connected" flash if the user cancels the dialog.
-      this.serialSource.connect().then(() => {
-        console.log('[ConnectionManager] Serial port opened at', config.baudRate, 'baud');
-        this.bridge.connect(config);
-      }).catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'NotFoundError') {
-          // User cancelled port picker — return to disconnected
-        } else {
-          console.error('[ConnectionManager] Serial connect failed:', err);
-        }
-        this.serialSource = null;
-        this._status = 'disconnected';
-        this.statusChange.emit('disconnected');
+    if (config.type === 'webserial' && 'autoDetectBaud' in config) {
+      // Worker-side serial connect
+      this.bridge.connectSerial({
+        baudRate: config.baudRate,
+        autoDetectBaud: config.autoDetectBaud,
+        portIdentity: config.portIdentity,
+        lastBaudRate: config.lastBaudRate,
       });
     } else {
-      this.bridge.connect(config);
+      this.bridge.connect(config as ConnectionConfig);
     }
   }
 
-  /** Disconnect and clean up. Serial port cleanup is fire-and-forget (async). */
+  /** Disconnect and clean up. */
   disconnect(): void {
-    // Serial cleanup is async but fire-and-forget is safe here:
-    // WebSerialByteSource.disconnect() has internal try/catch for all async ops.
-    this.serialSource?.disconnect();
-    this.serialSource = null;
+    this.bridge.stopAutoConnect();
+    this._autoConnectActive = false;
     this.bridge.disconnect();
+  }
+
+  /** Start auto-connect probing (delegated to worker). */
+  startAutoConnect(config: AutoConnectStartConfig): void {
+    this._autoConnectActive = true;
+    this.bridge.startAutoConnect(config);
+  }
+
+  /** Stop auto-connect probing. */
+  stopAutoConnect(): void {
+    this._autoConnectActive = false;
+    this.bridge.stopAutoConnect();
+
+    if (this._status === 'probing') {
+      this._status = 'disconnected';
+      this.statusChange.emit('disconnected');
+    }
+  }
+
+  /** Whether auto-connect is active. */
+  get isAutoConnectActive(): boolean {
+    return this._autoConnectActive;
   }
 
   /** Pause message processing. */

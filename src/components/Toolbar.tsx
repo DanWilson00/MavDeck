@@ -1,5 +1,5 @@
 import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
-import { appState, setAppState, connectionManager, logViewerService } from '../store';
+import { appState, setAppState, connectionManager, logViewerService, workerBridge } from '../store';
 import type { ConnectionStatus } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import { isWebSerialSupported } from '../services';
@@ -9,6 +9,7 @@ const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
 export default function Toolbar() {
   const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
+
 
   // Subscribe to connection status once services are ready
   createEffect(() => {
@@ -20,31 +21,58 @@ export default function Toolbar() {
         if (s === 'disconnected') {
           setAppState('isPaused', false);
           setAppState('connectionSourceType', null);
+          setAppState('connectedBaudRate', null);
         }
       });
     });
     onCleanup(unsub);
   });
 
-  function handleConnect() {
+  async function handleConnectSerial() {
     if (!appState.isReady) return;
     if (appState.logViewerState.isActive) logViewerService.unload();
     if (status() === 'connected' || status() === 'connecting') {
       connectionManager.disconnect();
-    } else {
-      setAppState('connectionSourceType', 'spoof');
-      connectionManager.connect({ type: 'spoof' });
+      return;
     }
+
+    // Stop probing if auto-connect was active — user is taking manual control
+    connectionManager.stopAutoConnect();
+
+    let port: SerialPort;
+    try {
+      port = await navigator.serial.requestPort();
+    } catch {
+      return; // User cancelled
+    }
+
+    const info = port.getInfo();
+    const portIdentity = info.usbVendorId != null && info.usbProductId != null
+      ? { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId }
+      : null;
+
+    setAppState('connectionSourceType', 'serial');
+    connectionManager.connect({
+      type: 'webserial',
+      baudRate: appState.baudRate,
+      autoDetectBaud: appState.autoDetectBaud,
+      portIdentity,
+      lastBaudRate: appState.lastSuccessfulBaudRate,
+    });
   }
 
-  function handleConnectSerial() {
+  function handleDisconnectSerial() {
     if (!appState.isReady) return;
-    if (appState.logViewerState.isActive) logViewerService.unload();
-    if (status() === 'connected' || status() === 'connecting') {
-      connectionManager.disconnect();
-    } else {
-      setAppState('connectionSourceType', 'serial');
-      connectionManager.connect({ type: 'webserial', baudRate: appState.baudRate });
+    connectionManager.disconnect();
+  }
+
+  async function handleGrantAccess() {
+    if (!appState.isReady) return;
+    try {
+      await navigator.serial.requestPort();
+      workerBridge.notifyPortsChanged();
+    } catch {
+      // User cancelled
     }
   }
 
@@ -78,30 +106,60 @@ export default function Toolbar() {
 
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
-        {/* Connection button */}
-        <button
-          onClick={handleConnect}
-          class="px-3 py-1 rounded text-sm font-medium transition-colors"
-          style={{
-            'background-color': 'var(--bg-hover)',
-            color: 'var(--text-primary)',
-          }}
-        >
-          {isConnected() ? 'Disconnect' : 'Connect Spoof'}
-        </button>
-
-        {/* Serial connection — only when Web Serial is supported and not connected */}
-        <Show when={isWebSerialSupported() && !isConnected()}>
-          <button
-            onClick={handleConnectSerial}
-            class="px-3 py-1 rounded text-sm font-medium transition-colors"
-            style={{
-              'background-color': 'var(--bg-hover)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            Connect Serial
-          </button>
+        {/* Serial connection */}
+        <Show when={isWebSerialSupported()}>
+          <Show when={!appState.autoConnect} fallback={
+            /* Auto-connect mode: only grant access + probe status */
+            <>
+              <Show when={!isConnected()}>
+                <button
+                  onClick={handleGrantAccess}
+                  class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Grant Serial Access
+                </button>
+              </Show>
+              <Show when={appState.probeStatus && !isConnected()}>
+                <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  {appState.probeStatus}
+                </span>
+              </Show>
+            </>
+          }>
+            {/* Manual mode */}
+            <Show when={!isConnected()} fallback={
+              <button
+                onClick={handleDisconnectSerial}
+                class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Disconnect
+              </button>
+            }>
+              <button
+                onClick={handleConnectSerial}
+                class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Connect Serial
+              </button>
+            </Show>
+            <Show when={appState.probeStatus}>
+              <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                {appState.probeStatus}
+              </span>
+            </Show>
+          </Show>
         </Show>
 
         {/* Status dot */}
