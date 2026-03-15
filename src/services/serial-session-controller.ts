@@ -34,6 +34,12 @@ export interface SessionStateSnapshot {
   connectedBaudRate: BaudRate | null;
 }
 
+interface SuspendedLiveSessionSnapshot {
+  phase: SessionPhase;
+  sessionState: SessionStateSnapshot;
+  pendingLiveSourceType: 'serial' | 'spoof' | null;
+}
+
 export type SessionPhase =
   | 'idle'
   | 'probing'
@@ -62,6 +68,8 @@ export class SerialSessionController {
   private unsubProbeStatus: (() => void) | null = null;
   private unsubSerialConnected: (() => void) | null = null;
   private pendingLiveSourceType: 'serial' | 'spoof' | null = null;
+  private isSuspendedForLogPlayback = false;
+  private suspendedLiveSession: SuspendedLiveSessionSnapshot | null = null;
   private phase: SessionPhase = 'idle';
   private sessionState: SessionStateSnapshot = {
     sourceType: null,
@@ -107,6 +115,10 @@ export class SerialSessionController {
     return this.phase;
   }
 
+  get hasSuspendedLiveSession(): boolean {
+    return this.suspendedLiveSession !== null;
+  }
+
   onStatusChange(callback: StatusCallback): () => void {
     return this.statusEmitter.on(callback);
   }
@@ -133,15 +145,47 @@ export class SerialSessionController {
 
   disconnectLiveSession(): void {
     this.pendingLiveSourceType = null;
+    this.isSuspendedForLogPlayback = false;
+    this.suspendedLiveSession = null;
     this.setPhase('idle');
     this.connectionManager.disconnect();
   }
 
   enterLogMode(): void {
+    this.isSuspendedForLogPlayback = false;
+    this.suspendedLiveSession = null;
     this.pendingLiveSourceType = null;
     this.setPhase('idle');
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
+  }
+
+  suspendForLogPlayback(): boolean {
+    if (this.sessionState.sourceType !== 'serial') {
+      this.enterLogMode();
+      return false;
+    }
+
+    this.suspendedLiveSession = {
+      phase: this.phase,
+      sessionState: { ...this.sessionState },
+      pendingLiveSourceType: this.pendingLiveSourceType,
+    };
+    this.isSuspendedForLogPlayback = true;
+    this.workerBridge.suspendLiveForLog();
+    return true;
+  }
+
+  resumeAfterLogPlayback(): void {
+    if (!this.suspendedLiveSession) {
+      return;
+    }
+
+    this.pendingLiveSourceType = this.suspendedLiveSession.pendingLiveSourceType;
+    this.setSessionState(this.suspendedLiveSession.sessionState);
+    this.setPhase(this.suspendedLiveSession.phase);
+    this.isSuspendedForLogPlayback = true;
+    this.workerBridge.resumeSuspendedLive();
   }
 
   async grantAccess(): Promise<void> {
@@ -199,6 +243,9 @@ export class SerialSessionController {
   }
 
   stopAutoConnect(): void {
+    if (this.isSuspendedForLogPlayback) {
+      return;
+    }
     if (this.phase === 'probing') {
       this.setPhase('idle');
     }
@@ -207,6 +254,8 @@ export class SerialSessionController {
 
   async forgetAllPorts(): Promise<void> {
     this.pendingLiveSourceType = null;
+    this.isSuspendedForLogPlayback = false;
+    this.suspendedLiveSession = null;
     this.setPhase('idle');
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
@@ -283,17 +332,25 @@ export class SerialSessionController {
         this.setPhase('connected_spoof');
         this.setSessionState({ sourceType: 'spoof', connectedBaudRate: null });
       }
+      if (this.sessionState.sourceType === 'serial') {
+        this.isSuspendedForLogPlayback = false;
+        this.suspendedLiveSession = null;
+      }
       return;
     }
 
     if (status === 'no_data') {
       if (this.sessionState.sourceType === 'serial') {
         this.setPhase('connected_serial_idle');
+        this.isSuspendedForLogPlayback = false;
+        this.suspendedLiveSession = null;
       }
       return;
     }
 
     if (status === 'error') {
+      this.isSuspendedForLogPlayback = false;
+      this.suspendedLiveSession = null;
       this.pendingLiveSourceType = null;
       this.setPhase('error');
       this.setSessionState({ sourceType: null, connectedBaudRate: null });
@@ -301,6 +358,8 @@ export class SerialSessionController {
     }
 
     if (status === 'disconnected') {
+      this.isSuspendedForLogPlayback = false;
+      this.suspendedLiveSession = null;
       this.pendingLiveSourceType = null;
       this.setPhase('idle');
       this.setSessionState({ sourceType: null, connectedBaudRate: null });

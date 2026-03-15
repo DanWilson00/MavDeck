@@ -30,6 +30,8 @@ export type WorkerCommand =
   | { type: 'connect'; config: ConnectionConfig }
   | { type: 'disconnect' }
   | { type: 'unloadLog' }
+  | { type: 'suspendLiveForLog' }
+  | { type: 'resumeSuspendedLive' }
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'bytes'; data: Uint8Array }

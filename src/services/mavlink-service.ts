@@ -44,6 +44,12 @@ export class MavlinkService {
 
   /** Connect and start receiving messages. */
   async connect(): Promise<void> {
+    this.attach();
+    await this.byteSource.connect();
+  }
+
+  /** Rewire the pipeline to an already-connected byte source. */
+  attach(): void {
     // Wire byte source → parser
     this.unsubBytes = this.byteSource.onData(data => {
       this.parser.parse(data);
@@ -63,7 +69,6 @@ export class MavlinkService {
     });
 
     this.tracker.startTracking();
-    await this.byteSource.connect();
   }
 
   /** Disconnect and stop all processing. */

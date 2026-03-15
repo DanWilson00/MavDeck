@@ -85,6 +85,14 @@ export class MavlinkWorkerBridge {
     this.postCommand({ type: 'unloadLog' });
   }
 
+  suspendLiveForLog(): void {
+    this.postCommand({ type: 'suspendLiveForLog' });
+  }
+
+  resumeSuspendedLive(): void {
+    this.postCommand({ type: 'resumeSuspendedLive' });
+  }
+
   /** Pause message processing. */
   pause(): void {
     this.postCommand({ type: 'pause' });

@@ -59,6 +59,28 @@ export class WorkerSerialByteSource implements IByteSource {
     this.dataCallbacks.clear();
   }
 
+  /** Pause reading and release the reader lock without closing the port. */
+  async suspend(): Promise<void> {
+    this.isDetached = true;
+    this._isReading = false;
+    this.dataCallbacks.clear();
+
+    try {
+      if (this.reader) {
+        await this.reader.cancel();
+      }
+    } catch {
+      // Reader may already be released
+    }
+  }
+
+  /** Reattach callbacks and resume reading on an already-open port. */
+  resumeAttached(): void {
+    this.isDetached = false;
+    this._isConnected = true;
+    void this.readLoop();
+  }
+
   /** Cancel the reader and close the port. */
   async disconnect(): Promise<void> {
     this.detach();

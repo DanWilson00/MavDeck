@@ -7,6 +7,7 @@ const serialController = {
   onProbeStatus: vi.fn(() => () => {}),
   onSerialConnected: vi.fn(() => () => {}),
   persistSerialSettings: vi.fn(),
+  hasSuspendedLiveSession: false,
 };
 
 vi.mock('../../services', async () => {
@@ -28,6 +29,7 @@ describe('useAutoConnect', () => {
     serialController.onProbeStatus.mockClear();
     serialController.onSerialConnected.mockClear();
     serialController.persistSerialSettings.mockClear();
+    serialController.hasSuspendedLiveSession = false;
 
     setAppState('isReady', true);
     setAppState('autoConnect', true);
@@ -106,6 +108,38 @@ describe('useAutoConnect', () => {
         lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
         lastBaudRate: 57600,
       });
+
+      dispose();
+    });
+  });
+
+  it('does not restart probing while a suspended live session is being restored after log unload', async () => {
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+        autoConnect: true,
+        autoDetectBaud: true,
+        lastPortVendorId: 11,
+        lastPortProductId: 22,
+        lastSuccessfulBaudRate: 57600 as const,
+      });
+
+      useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      serialController.syncAutoConnect.mockClear();
+      serialController.hasSuspendedLiveSession = true;
+
+      setAppState('logViewerState', {
+        isActive: false,
+        sourceName: '',
+        durationSec: 0,
+        recordCount: 0,
+      });
+      await Promise.resolve();
+
+      expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
 
       dispose();
     });

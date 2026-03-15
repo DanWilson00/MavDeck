@@ -114,11 +114,21 @@ interface SerialState {
   autoConnectConfig: { autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null } | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   logGraceTimer: ReturnType<typeof setTimeout> | null;
+  suspendedForLog: boolean;
+  suspendedStatus: 'connected' | 'no_data' | null;
 }
 
 const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
-const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null, logGraceTimer: null };
+const serial: SerialState = {
+  serialSource: null,
+  probeService: null,
+  autoConnectConfig: null,
+  reconnectTimer: null,
+  logGraceTimer: null,
+  suspendedForLog: false,
+  suspendedStatus: null,
+};
 const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
 const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
 
@@ -212,10 +222,7 @@ async function cleanupService(): Promise<void> {
   dataActivity.noDataActive = false;
   stopThroughputCounter();
   await disconnectPipeline();
-  pipeline.statsUnsub?.();
-  pipeline.updateUnsub?.();
-  pipeline.statustextUnsub?.();
-  pipeline.packetUnsub?.();
+  releasePipelineSubscriptions();
   resetPipelineConnection();
 }
 
@@ -226,6 +233,17 @@ async function disconnectPipeline(): Promise<void> {
   pipeline.tracker = null;
   pipeline.timeseriesManager?.dispose();
   pipeline.timeseriesManager = null;
+}
+
+function releasePipelineSubscriptions(): void {
+  pipeline.statsUnsub?.();
+  pipeline.updateUnsub?.();
+  pipeline.statustextUnsub?.();
+  pipeline.packetUnsub?.();
+  pipeline.statsUnsub = null;
+  pipeline.updateUnsub = null;
+  pipeline.statustextUnsub = null;
+  pipeline.packetUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +270,8 @@ async function cleanupSerial(options?: { preserveAutoConnect?: boolean }): Promi
   stopActiveProbe();
   clearNoDataTimer();
   dataActivity.noDataActive = false;
+  serial.suspendedForLog = false;
+  serial.suspendedStatus = null;
   if (!options?.preserveAutoConnect) {
     serial.autoConnectConfig = null;
   }
@@ -274,6 +294,50 @@ async function resetForSerialConnect(): Promise<void> {
 function stopActiveProbe(): void {
   serial.probeService?.stopProbing();
   serial.probeService = null;
+}
+
+async function suspendLiveSerialForLog(): Promise<void> {
+  if (!serial.serialSource || !pipeline.service) {
+    return;
+  }
+
+  serial.suspendedForLog = true;
+  serial.suspendedStatus = dataActivity.noDataActive ? 'no_data' : 'connected';
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
+  stopThroughputCounter();
+  pipeline.service.detach();
+  await serial.serialSource.suspend();
+  releasePipelineSubscriptions();
+  resetPipelineConnection();
+  clearMainThreadTelemetryState(pipeline, postEvent);
+}
+
+async function resumeSuspendedLiveSerial(): Promise<void> {
+  if (!registry || !serial.serialSource || !serial.suspendedForLog) {
+    return;
+  }
+
+  await cleanupService();
+  clearMainThreadTelemetryState(pipeline, postEvent);
+
+  serial.suspendedForLog = false;
+  dataActivity.noDataActive = serial.suspendedStatus === 'no_data';
+  const resumeStatus = serial.suspendedStatus ?? 'connected';
+  serial.suspendedStatus = null;
+
+  setupService(serial.serialSource);
+  serial.serialSource.resumeAttached();
+  pipeline.service!.attach();
+  startThroughputCounter(serial.serialSource);
+
+  if (resumeStatus === 'connected') {
+    resetNoDataTimer();
+  } else {
+    clearNoDataTimer();
+  }
+
+  postEvent({ type: 'statusChange', status: resumeStatus });
 }
 
 /** Called when WorkerSerialByteSource detects an unexpected disconnect. */
@@ -436,25 +500,28 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
 
 async function reconnectWithCurrentSource(): Promise<void> {
   if (!registry) return;
-  const source = pipeline.spoofSource ?? pipeline.externalSource;
+  const source = pipeline.spoofSource ?? pipeline.externalSource ?? serial.serialSource;
   if (!source || !pipeline.service) return;
 
   await disconnectPipeline();
-  pipeline.statsUnsub?.();
-  pipeline.updateUnsub?.();
-  pipeline.statustextUnsub?.();
-  pipeline.packetUnsub?.();
-  pipeline.statsUnsub = null;
-  pipeline.updateUnsub = null;
-  pipeline.statustextUnsub = null;
-  pipeline.packetUnsub = null;
+  releasePipelineSubscriptions();
   pipeline.lastAvailableFieldsSignature = '';
 
   setupService(source);
 
   try {
-    await pipeline.service?.connect();
-    startThroughputCounter(source);
+    if (source === serial.serialSource) {
+      serial.serialSource.resumeAttached();
+      pipeline.service?.attach();
+      startThroughputCounter(source);
+      if (!dataActivity.noDataActive) {
+        resetNoDataTimer();
+      }
+      postEvent({ type: 'statusChange', status: dataActivity.noDataActive ? 'no_data' : 'connected' });
+    } else {
+      await pipeline.service?.connect();
+      startThroughputCounter(source);
+    }
   } catch (err) {
     await cleanupService();
     postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
@@ -516,11 +583,25 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
       break;
     }
 
+    case 'suspendLiveForLog': {
+      cancelLogGraceTimer();
+      await suspendLiveSerialForLog();
+      break;
+    }
+
+    case 'resumeSuspendedLive': {
+      cancelLogGraceTimer();
+      await resumeSuspendedLiveSerial();
+      break;
+    }
+
     case 'unloadLog': {
       cancelLogGraceTimer();
       await cleanupService();
       clearMainThreadTelemetryState(pipeline, postEvent);
-      postEvent({ type: 'statusChange', status: 'disconnected' });
+      if (!serial.suspendedForLog) {
+        postEvent({ type: 'statusChange', status: 'disconnected' });
+      }
       break;
     }
 
@@ -561,9 +642,13 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
       // Stop any active log session and clean up existing service
       cancelLogGraceTimer();
       await cleanupService();
-      await cleanupSerial();
+      if (!serial.suspendedForLog) {
+        await cleanupSerial();
+      }
       clearMainThreadTelemetryState(pipeline, postEvent);
-      postEvent({ type: 'statusChange', status: 'disconnected' });
+      if (!serial.suspendedForLog) {
+        postEvent({ type: 'statusChange', status: 'disconnected' });
+      }
 
       // Set buffer capacity for this log
       pipeline.bufferCapacity = logCapacity;

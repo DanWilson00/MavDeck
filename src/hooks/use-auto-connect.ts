@@ -26,8 +26,13 @@ export function useAutoConnect(
       : null;
 
     if (isLogActive) {
-      serialController.stopAutoConnect();
+      if (!serialController.hasSuspendedLiveSession) {
+        serialController.stopAutoConnect();
+      }
     } else {
+      if (serialController.hasSuspendedLiveSession) {
+        return;
+      }
       serialController.syncAutoConnect({
         enabled: appState.autoConnect,
         autoBaud: appState.autoDetectBaud,

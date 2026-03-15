@@ -131,4 +131,63 @@ describe('WorkerSerialByteSource', () => {
 
     expect(close).toHaveBeenCalledOnce();
   });
+
+  it('suspend keeps the port open and resumeAttached restarts reads', async () => {
+    let readerIndex = 0;
+    let resumedReadCount = 0;
+    const cancelA = vi.fn(async () => {});
+    const cancelB = vi.fn(async () => {});
+    const releaseLockA = vi.fn();
+    const releaseLockB = vi.fn();
+    const firstRead = createDeferredRead();
+    const open = vi.fn(async () => {});
+    const close = vi.fn(async () => {});
+
+    const port = {
+      open,
+      close,
+      readable: {
+        getReader: vi.fn(() => {
+          readerIndex++;
+          if (readerIndex === 1) {
+            return {
+              read: vi.fn(() => firstRead.promise),
+              cancel: cancelA,
+              releaseLock: releaseLockA,
+            };
+          }
+          return {
+            read: vi.fn(async () => {
+              resumedReadCount++;
+              if (resumedReadCount === 1) {
+                return { done: false, value: new Uint8Array([7, 8, 9]) };
+              }
+              return new Promise(() => {});
+            }),
+            cancel: cancelB,
+            releaseLock: releaseLockB,
+          };
+        }),
+      },
+    } as unknown as SerialPort;
+
+    const source = new WorkerSerialByteSource(port, 115200);
+    const onData = vi.fn();
+    source.onData(onData);
+
+    await source.connect();
+    await source.suspend();
+    firstRead.resolve({ done: true, value: undefined });
+    await Promise.resolve();
+
+    source.onData(onData);
+    source.resumeAttached();
+    await vi.waitFor(() => expect(onData).toHaveBeenCalledWith(new Uint8Array([7, 8, 9])));
+    await source.suspend();
+
+    expect(open).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    expect(cancelA).toHaveBeenCalledOnce();
+    expect(cancelB).toHaveBeenCalledOnce();
+  });
 });
