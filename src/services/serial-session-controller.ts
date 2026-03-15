@@ -39,6 +39,7 @@ export type SessionPhase =
   | 'probing'
   | 'connecting_serial'
   | 'connected_serial'
+  | 'connected_serial_idle'
   | 'connected_spoof'
   | 'error';
 
@@ -275,9 +276,19 @@ export class SerialSessionController {
     }
 
     if (status === 'connected') {
+      if (this.pendingLiveSourceType === 'serial' && this.sessionState.sourceType === 'serial') {
+        this.setPhase('connected_serial');
+      }
       if (this.pendingLiveSourceType === 'spoof') {
         this.setPhase('connected_spoof');
         this.setSessionState({ sourceType: 'spoof', connectedBaudRate: null });
+      }
+      return;
+    }
+
+    if (status === 'no_data') {
+      if (this.sessionState.sourceType === 'serial') {
+        this.setPhase('connected_serial_idle');
       }
       return;
     }

@@ -19,7 +19,7 @@ export type ConnectionConfig =
   | { type: 'spoof' }
   | { type: 'webserial'; baudRate: number };
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'probing';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'no_data' | 'error' | 'probing';
 
 // ---------------------------------------------------------------------------
 // Main thread → Worker commands

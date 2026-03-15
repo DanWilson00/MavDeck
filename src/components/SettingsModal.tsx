@@ -70,7 +70,7 @@ export default function SettingsModal(props: SettingsModalProps) {
   }
 
   function disconnectIfActive() {
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
       serialSessionController.disconnectLiveSession();
     }
   }
@@ -441,14 +441,14 @@ export default function SettingsModal(props: SettingsModalProps) {
                 class="px-3 py-1.5 text-sm rounded border interactive-hover"
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                 onClick={() => {
-                  if (appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof') {
+                  if ((appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof') {
                     serialSessionController.disconnectLiveSession();
                   } else {
                     serialSessionController.connectSpoof({ unloadLog: appState.logViewerState.isActive });
                   }
                 }}
               >
-                {appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof'
+                {(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof'
                   ? 'Disconnect Simulator'
                   : 'Connect Simulator'}
               </button>

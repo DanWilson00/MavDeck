@@ -16,7 +16,7 @@ export default function Toolbar(props: ToolbarProps) {
 
   async function handleConnectSerial() {
     if (!appState.isReady) return;
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
       serialSessionController.disconnectLiveSession();
       return;
     }
@@ -44,7 +44,7 @@ export default function Toolbar(props: ToolbarProps) {
     setAppState('isPaused', !appState.isPaused);
   }
 
-  const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting';
+  const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data';
 
   return (
     <header
@@ -132,7 +132,7 @@ export default function Toolbar(props: ToolbarProps) {
         />
 
         {/* Pause/Resume — only when connected */}
-        <Show when={appState.connectionStatus === 'connected' && !appState.logViewerState.isActive}>
+        <Show when={(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && !appState.logViewerState.isActive}>
           <button
             onClick={handlePause}
             class="p-1.5 rounded interactive-hover"

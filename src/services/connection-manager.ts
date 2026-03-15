@@ -53,7 +53,7 @@ export class ConnectionManager {
 
   /** Connect with the given configuration. Disconnects first if already connected. */
   connect(config: ConnectionConfig | WebSerialConnectConfig): void {
-    if (this._status === 'connected' || this._status === 'connecting') {
+    if (this._status === 'connected' || this._status === 'connecting' || this._status === 'no_data') {
       this.disconnect();
     }
 
@@ -79,7 +79,7 @@ export class ConnectionManager {
 
   /** Start auto-connect probing (delegated to worker). */
   startAutoConnect(config: AutoConnectStartConfig): void {
-    if (this._status === 'probing' || this._status === 'connected' || this._status === 'connecting') {
+    if (this._status === 'probing' || this._status === 'connected' || this._status === 'connecting' || this._status === 'no_data') {
       return;
     }
     this._autoConnectActive = true;

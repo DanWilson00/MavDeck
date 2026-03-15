@@ -37,6 +37,8 @@ describe('appStore', () => {
   it('setAppState updates connectionStatus', () => {
     setAppState('connectionStatus', 'connected');
     expect(appState.connectionStatus).toBe('connected');
+    setAppState('connectionStatus', 'no_data');
+    expect(appState.connectionStatus).toBe('no_data');
     setAppState('connectionStatus', 'disconnected');
   });
 });

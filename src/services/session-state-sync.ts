@@ -15,6 +15,7 @@ export function bindSessionState(
       if (status === 'disconnected') {
         setAppState('isPaused', false);
         setAppState('probeStatus', null);
+        setAppState('throughputBytesPerSec', 0);
       }
     });
   });

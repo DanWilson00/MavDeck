@@ -7,6 +7,7 @@ const STATUS_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
   connecting: 'Connecting',
   connected: 'Connected',
+  no_data: 'No Data',
   error: 'Error',
   probing: 'Probing',
 };
@@ -83,7 +84,7 @@ export default function StatusBar() {
       </Show>
 
       {/* Baud rate — only when connected via serial */}
-      <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'serial' && appState.connectionStatus === 'connected'}>
+      <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'serial' && (appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data')}>
         <Divider />
         <span>{appState.connectedBaudRate ?? appState.baudRate} baud</span>
       </Show>

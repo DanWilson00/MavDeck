@@ -187,4 +187,21 @@ describe('serial-session-controller', () => {
     serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
     expect(controller.currentPhase).toBe('connected_serial');
   });
+
+  it('treats no_data as an idle live serial phase without clearing session state', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    statusListener?.('no_data');
+
+    expect(controller.currentPhase).toBe('connected_serial_idle');
+    expect(controller.currentSessionState).toEqual({
+      sourceType: 'serial',
+      connectedBaudRate: 57600,
+    });
+  });
 });

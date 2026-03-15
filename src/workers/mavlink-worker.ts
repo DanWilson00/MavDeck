@@ -60,6 +60,11 @@ interface ThroughputState {
   unsub: (() => void) | null;
 }
 
+interface DataActivityState {
+  noDataTimer: ReturnType<typeof setTimeout> | null;
+  noDataActive: boolean;
+}
+
 interface PipelineState {
   service: MavlinkService | null;
   spoofSource: SpoofByteSource | null;
@@ -115,10 +120,12 @@ const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: n
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
 const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null, logGraceTimer: null };
 const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
+const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
 const LOG_GRACE_PERIOD_MS = 30_000;
+const NO_DATA_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -163,7 +170,46 @@ function stopThroughputCounter(): void {
   postEvent({ type: 'throughput', bytesPerSec: 0 });
 }
 
+function clearNoDataTimer(): void {
+  if (dataActivity.noDataTimer !== null) {
+    clearTimeout(dataActivity.noDataTimer);
+    dataActivity.noDataTimer = null;
+  }
+}
+
+function handleNoDataTimeout(): void {
+  dataActivity.noDataTimer = null;
+  if (!serial.serialSource?.isConnected) {
+    dataActivity.noDataActive = false;
+    return;
+  }
+
+  dataActivity.noDataActive = true;
+  stopThroughputCounter();
+  stopLogSession(log, postEvent);
+  postEvent({ type: 'statusChange', status: 'no_data' });
+}
+
+function resetNoDataTimer(): void {
+  if (!serial.serialSource?.isConnected) return;
+  clearNoDataTimer();
+  dataActivity.noDataTimer = setTimeout(() => {
+    handleNoDataTimeout();
+  }, NO_DATA_TIMEOUT_MS);
+}
+
+function recordPacketActivity(): void {
+  if (!serial.serialSource) return;
+  resetNoDataTimer();
+  if (dataActivity.noDataActive) {
+    dataActivity.noDataActive = false;
+    postEvent({ type: 'statusChange', status: 'connected' });
+  }
+}
+
 async function cleanupService(): Promise<void> {
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
   stopThroughputCounter();
   await disconnectPipeline();
   pipeline.statsUnsub?.();
@@ -204,6 +250,8 @@ async function cleanupSerial(options?: { preserveAutoConnect?: boolean }): Promi
   await serial.serialSource?.disconnect();
   serial.serialSource = null;
   stopActiveProbe();
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
   if (!options?.preserveAutoConnect) {
     serial.autoConnectConfig = null;
   }
@@ -287,10 +335,13 @@ async function completeSerialConnect(
   options?: { clearProbeStatus?: boolean },
 ): Promise<void> {
   stopActiveProbe();
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
   serial.serialSource = new WorkerSerialByteSource(port, baudRate, handleSerialDisconnect);
   setupService(serial.serialSource);
   await pipeline.service!.connect();
   startThroughputCounter(serial.serialSource);
+  resetNoDataTimer();
   postEvent({ type: 'statusChange', status: 'connected' });
   postEvent({ type: 'serialConnected', baudRate, portIdentity: getSerialPortIdentity(port) });
   if (options?.clearProbeStatus) {
@@ -378,6 +429,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
+    recordPacketActivity();
     appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
   });
 }
