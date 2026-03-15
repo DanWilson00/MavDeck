@@ -13,10 +13,10 @@ https://github.com/DanWilson00/MavDeck/raw/main/demo.mp4
 
 ## Why MavDeck?
 
-- **Web-based and snappy** — opens instantly in any browser, no downloads
-- **Works offline** — full PWA that persists across browser close, no internet needed after first load
-- **No MAVLink dependencies** — drop in any MAVLink XML dialect file and it just works, no recompile
-- **Easy plotting** — drag-and-drop grid of time-series plots, pick any message field, synchronized zoom
+- **Web-based** — opens instantly in any browser with no installation required
+- **Offline-capable** — full PWA that persists across sessions without an internet connection
+- **Dialect-driven** — load any MAVLink XML dialect file with no recompilation
+- **Flexible plotting** — drag-and-drop grid of time-series plots with synchronized zoom across any message field
 
 ## Features
 
@@ -34,7 +34,7 @@ Web Serial (live telemetry) requires Chrome or Edge. Everything else works in an
 
 ## Quick Start
 
-Just visit **[mavdeck.netlify.app](https://mavdeck.netlify.app)** — no setup required.
+Visit **[mavdeck.netlify.app](https://mavdeck.netlify.app)** — no setup required.
 
 To run locally:
 
@@ -53,9 +53,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Support
 
-If MavDeck saves you time, helps you debug a weird flight log, or just spares you from opening a heavier ground station, consider helping to keep the LLM token supply topped off.
+If MavDeck has been useful to you, consider supporting continued development.
 
-Support MavDeck via [GitHub Sponsors](https://github.com/sponsors/DanWilson00) or [Buy Me a Coffee](https://buymeacoffee.com/danwilson0x).
+[GitHub Sponsors](https://github.com/sponsors/DanWilson00) | [Buy Me a Coffee](https://buymeacoffee.com/danwilson0x)
 
 ## License
 
