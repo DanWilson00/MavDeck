@@ -24,27 +24,13 @@ https://github.com/DanWilson00/MavDeck/raw/main/demo.mp4
 - Message monitor with real-time frequency tracking
 - Status text display
 - Dark and light mode
-- Auto-connect for previously granted serial devices, with optional auto-baud detection
-- Logs autosave to the browser (crash-resistant) and can be replayed later
-- In-browser log library for replaying previously saved sessions
-- Unit profiles — switch between raw, metric, imperial, and aviation units globally
-
-### Unit Profiles
-
-All telemetry values can be displayed in your preferred unit system. Choose a profile in Settings:
-
-| Profile | Altitude | Speed | Distance | Temperature |
-|---------|----------|-------|----------|-------------|
-| **Raw** | as received | as received | as received | as received |
-| **Metric** | meters | m/s | meters | °C |
-| **Imperial** | feet | ft/s | feet | °F |
-| **Aviation** | feet | knots | nautical miles | °C |
-
-Angles and coordinates are automatically converted to degrees in all profiles. Changing the profile instantly updates every plot axis, value display, and label across the app — no restart needed.
+- Auto-connect with optional auto-baud detection
+- Crash-resistant log autosave with in-browser replay
+- Unit profiles — raw, metric, imperial, and aviation
 
 ## Browser Support
 
-**Web Serial** (live telemetry from a serial device) requires a Chromium-based browser (Chrome, Edge) and previously granted serial access. Everything else — replaying logs already saved by MavDeck, plotting, map, offline mode — works in any modern browser including Firefox and Safari.
+Web Serial (live telemetry) requires Chrome or Edge. Everything else works in any modern browser including Firefox and Safari.
 
 ## Quick Start
 
@@ -63,9 +49,7 @@ Then open http://localhost:5173.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-GitHub issue and pull request templates are included to keep reports and reviews lightweight and consistent.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Support
 
