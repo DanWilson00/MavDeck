@@ -1,6 +1,6 @@
 import { createEffect } from 'solid-js';
 import { appState } from '../store';
-import { getWorkerBridge } from '../services';
+import { useWorkerBridge } from '../services';
 
 const MAP_REQUIRED_FIELDS = [
   'GLOBAL_POSITION_INT.lat',
@@ -10,6 +10,8 @@ const MAP_REQUIRED_FIELDS = [
 ];
 
 export function useInterestedFields(): void {
+  const workerBridge = useWorkerBridge();
+
   // Stream fields needed by ALL tabs (all charts stay alive for instant switching).
   createEffect(() => {
     if (!appState.isReady) return;
@@ -25,6 +27,6 @@ export function useInterestedFields(): void {
       }
     }
 
-    getWorkerBridge().setInterestedFields([...interested]);
+    workerBridge.setInterestedFields([...interested]);
   });
 }

@@ -3,7 +3,15 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { PlotSignalConfig, TimeWindow } from '../models';
 import { getThemeColor } from '../models';
-import { convertDisplayValues, formatDisplayValue, formatSignalLabel, getDisplayUnit, getRegistry, getWorkerBridge } from '../services';
+import {
+  convertDisplayValues,
+  formatDisplayValue,
+  formatSignalDisplayLabel,
+  getSignalDisplayUnit,
+  getSignalRawUnit,
+  useRegistry,
+  useWorkerBridge,
+} from '../services';
 import { appState } from '../store';
 import type { PlotInteractionController } from '../core';
 
@@ -62,6 +70,7 @@ function formatValue(v: number, displayUnit: string, fieldName?: string): string
 function cursorTooltipPlugin(
   isActive: () => boolean,
   getSignals: () => PlotSignalConfig[],
+  getSignalUnit: (signal: PlotSignalConfig) => string,
 ): uPlot.Plugin {
   let tooltip: HTMLDivElement;
 
@@ -89,8 +98,7 @@ function cursorTooltipPlugin(
       const val = u.data[i]?.[idx];
       const color = typeof s.stroke === 'function' ? s.stroke(u, i) : s.stroke;
       const sig = signals[i - 1];
-      const rawUnit = sig ? getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '' : '';
-      const displayUnit = getDisplayUnit(rawUnit, appState.unitProfile, { fieldName: sig?.fieldName });
+      const displayUnit = sig ? getSignalUnit(sig) : '';
       html += `<span style="color:${color as string}">\u25CF ${s.label}: ${val != null ? formatValue(val, displayUnit, sig?.fieldName) : '--'}</span><br>`;
     }
 
@@ -128,6 +136,8 @@ interface PlotChartProps {
 }
 
 export default function PlotChart(props: PlotChartProps) {
+  const registry = useRegistry();
+  const workerBridge = useWorkerBridge();
   let containerRef: HTMLDivElement | undefined;
   let chart: uPlot | undefined;
   let rafId: number | undefined;
@@ -186,12 +196,7 @@ export default function PlotChart(props: PlotChartProps) {
     const series: uPlot.Series[] = [
       { label: 'Time' },
       ...getVisibleSignals().map(sig => ({
-        label: formatSignalLabel(
-          sig.fieldKey,
-          getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
-          appState.unitProfile,
-          { messageType: sig.messageType, fieldName: sig.fieldName },
-        ),
+        label: formatSignalDisplayLabel(registry, sig, appState.unitProfile),
         stroke: getThemeColor(sig.color, appState.theme),
         width: 1.5,
         points: { show: false },
@@ -213,7 +218,11 @@ export default function PlotChart(props: PlotChartProps) {
           },
         },
       },
-      plugins: [cursorTooltipPlugin(() => interactionMode === 'zoomed' || props.isPaused, getVisibleSignals)],
+      plugins: [cursorTooltipPlugin(
+        () => interactionMode === 'zoomed' || props.isPaused,
+        getVisibleSignals,
+        signal => getSignalDisplayUnit(registry, signal, appState.unitProfile),
+      )],
       series,
       axes: [
         { stroke: colors.axis, grid: { stroke: colors.grid, width: 1 } },
@@ -268,7 +277,7 @@ export default function PlotChart(props: PlotChartProps) {
     if (!containerRef) return;
 
     if (appState.isReady) {
-      unsubUpdate = getWorkerBridge().onUpdate(buffers => {
+      unsubUpdate = workerBridge.onUpdate(buffers => {
         latestBuffers = buffers;
         hasNewBuffers = true;
       });
@@ -352,7 +361,7 @@ export default function PlotChart(props: PlotChartProps) {
         const rawValues = buf.timestamps === longestTimestamps
           ? buf.values
           : resampleSampleAndHold(buf.timestamps, buf.values, longestTimestamps);
-        const rawUnit = getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '';
+        const rawUnit = getSignalRawUnit(registry, sig);
         data.push(convertDisplayValues(
           rawValues,
           rawUnit,

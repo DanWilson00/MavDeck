@@ -1,19 +1,21 @@
 import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { getLogViewerService, getSerialSessionController, type ConnectionStatus, isWebSerialSupported } from '../services';
+import { useLogViewerService, useSerialSessionController, type ConnectionStatus, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
 export default function Toolbar() {
+  const serialSessionController = useSerialSessionController();
+  const logViewerService = useLogViewerService();
   const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
 
 
   // Subscribe to connection status once services are ready
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = getSerialSessionController().onStatusChange(s => {
+    const unsub = serialSessionController.onStatusChange(s => {
       batch(() => {
         setStatus(s);
         setAppState('connectionStatus', s);
@@ -30,11 +32,11 @@ export default function Toolbar() {
   async function handleConnectSerial() {
     if (!appState.isReady) return;
     if (status() === 'connected' || status() === 'connecting') {
-      getSerialSessionController().disconnect();
+      serialSessionController.disconnect();
       return;
     }
     setAppState('connectionSourceType', 'serial');
-    await getSerialSessionController().connectManual({
+    await serialSessionController.connectManual({
       baudRate: appState.baudRate,
       autoDetectBaud: appState.autoDetectBaud,
       lastBaudRate: appState.lastSuccessfulBaudRate,
@@ -44,12 +46,12 @@ export default function Toolbar() {
 
   function handleDisconnectSerial() {
     if (!appState.isReady) return;
-    getSerialSessionController().disconnect();
+    serialSessionController.disconnect();
   }
 
   async function handleGrantAccess() {
     if (!appState.isReady) return;
-    await getSerialSessionController().grantAccess();
+    await serialSessionController.grantAccess();
   }
 
   function handlePause() {
@@ -163,7 +165,7 @@ export default function Toolbar() {
           <button
             class="px-2 py-1 rounded text-xs interactive-hover"
             style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
-            onClick={() => getLogViewerService().unload()}
+            onClick={() => logViewerService.unload()}
           >
             Unload Log
           </button>

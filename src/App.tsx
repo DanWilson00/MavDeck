@@ -14,11 +14,17 @@ import {
   useLogSession,
   useKeyboardShortcuts,
 } from './hooks';
+import { RuntimeServicesProvider } from './services';
 
-export default function App() {
-  const { loading, settingsReady, loadedSettings, setLoadedSettings } = useBootstrap();
-  useSettingsSync(settingsReady, loadedSettings);
-  useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+interface AppContentProps {
+  settingsReady: () => boolean;
+  loadedSettings: ReturnType<typeof useBootstrap>['loadedSettings'];
+  setLoadedSettings: ReturnType<typeof useBootstrap>['setLoadedSettings'];
+}
+
+function AppContent(props: AppContentProps) {
+  useSettingsSync(props.settingsReady, props.loadedSettings);
+  useAutoConnect(props.settingsReady, props.loadedSettings, props.setLoadedSettings);
   useInterestedFields();
   useLogSession();
   useKeyboardShortcuts();
@@ -27,6 +33,26 @@ export default function App() {
   createEffect(() => {
     if (appState.activeTab === 'logs') setAppState('activeTab', 'telemetry');
   });
+
+  return (
+    <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
+      <Toolbar />
+      <main class="flex-1 overflow-hidden">
+        <Show when={appState.activeTab === 'telemetry'}>
+          <TelemetryView />
+        </Show>
+        <Show when={appState.activeTab === 'map'}>
+          <MapView />
+        </Show>
+      </main>
+      <StatusBar />
+      <HelpOverlay />
+    </div>
+  );
+}
+
+export default function App() {
+  const { loading, settingsReady, loadedSettings, setLoadedSettings, runtimeServices } = useBootstrap();
 
   return (
     <ThemeProvider>
@@ -38,19 +64,13 @@ export default function App() {
           </div>
         </div>
       }>
-        <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
-          <Toolbar />
-          <main class="flex-1 overflow-hidden">
-            <Show when={appState.activeTab === 'telemetry'}>
-              <TelemetryView />
-            </Show>
-            <Show when={appState.activeTab === 'map'}>
-              <MapView />
-            </Show>
-          </main>
-          <StatusBar />
-          <HelpOverlay />
-        </div>
+        <RuntimeServicesProvider services={runtimeServices()!}>
+          <AppContent
+            settingsReady={settingsReady}
+            loadedSettings={loadedSettings}
+            setLoadedSettings={setLoadedSettings}
+          />
+        </RuntimeServicesProvider>
       </Show>
     </ThemeProvider>
   );

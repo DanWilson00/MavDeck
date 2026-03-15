@@ -1,7 +1,7 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState } from '../store';
 import type { PlotConfig } from '../models';
-import { getWorkerBridge } from '../services';
+import { useWorkerBridge } from '../services';
 import { toggleSetItem } from './hooks';
 
 interface SignalSelectorProps {
@@ -11,13 +11,14 @@ interface SignalSelectorProps {
 }
 
 export default function SignalSelector(props: SignalSelectorProps) {
+  const workerBridge = useWorkerBridge();
   const [availableFields, setAvailableFields] = createSignal<string[]>([]);
   const [expandedGroups, setExpandedGroups] = createSignal<Set<string>>(new Set());
 
   // Get available fields from worker updates
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = getWorkerBridge().onAvailableFields(fields => {
+    const unsub = workerBridge.onAvailableFields(fields => {
       setAvailableFields(fields);
     });
     onCleanup(unsub);

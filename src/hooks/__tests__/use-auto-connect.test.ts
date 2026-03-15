@@ -13,7 +13,7 @@ vi.mock('../../services', async () => {
   const actual = await vi.importActual<typeof import('../../services')>('../../services');
   return {
     ...actual,
-    getSerialSessionController: () => serialController,
+    useSerialSessionController: () => serialController,
   };
 });
 

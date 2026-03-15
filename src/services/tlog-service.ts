@@ -113,8 +113,24 @@ export async function stageSessionChunk(chunk: LogSessionChunk): Promise<void> {
 
 export async function finalizeSession(end: LogSessionEnd): Promise<string | null> {
   const metaKey = stageMetaKey(end.sessionId);
-  const meta = await get<StageMeta>(metaKey);
+  let meta = await get<StageMeta>(metaKey);
   if (!meta) return null;
+
+  // If we expect data but chunks haven't landed yet, retry briefly
+  if (meta.maxSeq < 0 && end.packetCount > 0) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise(r => setTimeout(r, 100));
+      meta = await get<StageMeta>(metaKey);
+      if (!meta || meta.maxSeq >= 0) break;
+    }
+    if (!meta) return null;
+  }
+
+  // No chunks were staged — don't create a 0-byte file
+  if (meta.maxSeq < 0) {
+    await cleanupStagedSession(end.sessionId, meta.maxSeq);
+    return null;
+  }
 
   const firstUs = end.firstPacketUs ?? meta.firstPacketUs;
   const lastUs = end.lastPacketUs ?? meta.lastPacketUs;

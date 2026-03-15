@@ -1,7 +1,6 @@
-import { createSignal, onCleanup, onMount, batch, type Accessor, type Setter } from 'solid-js';
-import { appState, setAppState } from '../store';
+import { createSignal, onCleanup, onMount, type Accessor, type Setter } from 'solid-js';
+import { applySettingsToAppState, setAppState } from '../store';
 import {
-  clearRuntimeServices,
   MavlinkWorkerBridge,
   ConnectionManager,
   loadSettings,
@@ -12,7 +11,7 @@ import {
   LogViewerService,
   recoverStagedSessions,
   SerialSessionController,
-  setRuntimeServices,
+  type RuntimeServices,
   type MavDeckSettings,
 } from '../services';
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
@@ -22,12 +21,14 @@ interface BootstrapResult {
   settingsReady: Accessor<boolean>;
   loadedSettings: Accessor<MavDeckSettings>;
   setLoadedSettings: Setter<MavDeckSettings>;
+  runtimeServices: Accessor<RuntimeServices | null>;
 }
 
 export function useBootstrap(): BootstrapResult {
   const [loading, setLoading] = createSignal(true);
   const [settingsReady, setSettingsReady] = createSignal(false);
   const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({ ...DEFAULT_SETTINGS });
+  const [runtimeServices, setRuntimeServices] = createSignal<RuntimeServices | null>(null);
 
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
@@ -45,23 +46,7 @@ export function useBootstrap(): BootstrapResult {
       // Load persisted settings and apply to store
       const settings = await loadSettings();
       setLoadedSettings(settings);
-      batch(() => {
-        setAppState('theme', settings.theme);
-        setAppState('uiScale', settings.uiScale);
-        setAppState('unitProfile', settings.unitProfile);
-        setAppState('baudRate', settings.baudRate);
-        setAppState('bufferCapacity', settings.bufferCapacity);
-        setAppState('mapShowPath', settings.mapShowPath);
-        setAppState('mapTrailLength', settings.mapTrailLength);
-        setAppState('mapLayer', settings.mapLayer);
-        setAppState('mapZoom', settings.mapZoom);
-        setAppState('mapAutoCenter', settings.mapAutoCenter);
-        setAppState('sidebarCollapsed', settings.sidebarCollapsed);
-        setAppState('sidebarWidth', settings.sidebarWidth);
-        setAppState('autoConnect', settings.autoConnect);
-        setAppState('autoDetectBaud', settings.autoDetectBaud);
-        setAppState('lastSuccessfulBaudRate', settings.lastSuccessfulBaudRate);
-      });
+      applySettingsToAppState(settings);
       setSettingsReady(true);
 
       // Load dialect: custom from IndexedDB, or parse bundled XML (never cached)
@@ -129,8 +114,8 @@ export function useBootstrap(): BootstrapResult {
     connMgr?.disconnect();
     connMgr?.dispose();
     bridge?.dispose();
-    clearRuntimeServices();
+    setRuntimeServices(null);
   });
 
-  return { loading, settingsReady, loadedSettings, setLoadedSettings };
+  return { loading, settingsReady, loadedSettings, setLoadedSettings, runtimeServices };
 }

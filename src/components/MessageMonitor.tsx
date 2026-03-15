@@ -1,6 +1,14 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState } from '../store';
-import { convertDisplayArray, convertDisplayValue, formatDisplayValue, getDisplayUnit, getRegistry, getWorkerBridge, type MessageStats } from '../services';
+import {
+  convertDisplayArray,
+  convertDisplayValue,
+  formatDisplayValue,
+  getDisplayUnit,
+  useRegistry,
+  useWorkerBridge,
+  type MessageStats,
+} from '../services';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
 import StatusTextLog from './StatusTextLog';
 import { toggleSetItem } from './hooks';
@@ -11,6 +19,8 @@ interface MessageMonitorProps {
 }
 
 export default function MessageMonitor(props: MessageMonitorProps) {
+  const registry = useRegistry();
+  const workerBridge = useWorkerBridge();
   const [messageStats, setMessageStats] = createSignal<Map<string, MessageStats>>(new Map());
   const [expandedMessages, setExpandedMessages] = createSignal<Set<string>>(new Set());
   const [knownMessageNames, setKnownMessageNames] = createSignal<string[]>([]);
@@ -18,7 +28,6 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   // Subscribe to stats from worker bridge
   createEffect(() => {
     if (!appState.isReady) return;
-    const workerBridge = getWorkerBridge();
     const unsub = workerBridge.onStats(stats => {
       setMessageStats(stats);
       // Only update the name list when new message types appear
@@ -38,7 +47,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   function formatValue(value: number | string | number[], field: MavlinkFieldMetadata): string {
     // Enum resolution
     if (field.enumType && typeof value === 'number') {
-      const resolved = getRegistry().resolveEnumValue(field.enumType, value);
+      const resolved = registry.resolveEnumValue(field.enumType, value);
       if (resolved) return resolved;
     }
     // Float formatting
@@ -73,7 +82,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
         <For each={knownMessageNames()}>
           {(name) => {
             const stats = () => messageStats().get(name);
-            const meta = () => getRegistry().getMessageByName(name);
+            const meta = () => registry.getMessageByName(name);
             const isExpanded = () => expandedMessages().has(name);
 
             return (

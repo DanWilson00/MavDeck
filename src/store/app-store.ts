@@ -49,49 +49,101 @@ export interface AppState {
   throughputBytesPerSec: number;
 }
 
-export const [appState, setAppState] = createStore<AppState>({
-  connectionStatus: 'disconnected',
-  theme: 'dark',
-  uiScale: 1,
-  unitProfile: DEFAULT_SETTINGS.unitProfile,
-  activeTab: 'telemetry',
-  activeSubTab: 'default',
-  plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
-  isPaused: false,
-  isReady: false,
-  baudRate: DEFAULT_BAUD_RATE,
-  bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
-  isSettingsOpen: false,
-  isHelpOpen: false,
-  timeWindow: DEFAULT_TIME_WINDOW,
-  addPlotCounter: 0,
-  mapShowPath: DEFAULT_SETTINGS.mapShowPath,
-  mapTrailLength: DEFAULT_SETTINGS.mapTrailLength,
-  mapLayer: DEFAULT_SETTINGS.mapLayer,
-  mapZoom: DEFAULT_SETTINGS.mapZoom,
-  mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
-  sidebarCollapsed: false,
-  sidebarWidth: 350,
-  isLogPaneCollapsed: true,
-  offlineReady: false,
-  offlineStatus: 'checking',
-  offlineError: null,
-  logsVersion: 0,
-  logViewerState: {
-    isActive: false,
-    sourceName: '',
-    durationSec: 0,
-    recordCount: 0,
-  },
-  dialectName: '',
-  connectionSourceType: null,
-  autoConnect: false,
-  autoDetectBaud: false,
-  probeStatus: null,
-  lastSuccessfulBaudRate: null,
-  connectedBaudRate: null,
-  throughputBytesPerSec: 0,
-});
+export function createInitialAppState(): AppState {
+  return {
+    connectionStatus: 'disconnected',
+    theme: DEFAULT_SETTINGS.theme,
+    uiScale: DEFAULT_SETTINGS.uiScale,
+    unitProfile: DEFAULT_SETTINGS.unitProfile,
+    activeTab: 'telemetry',
+    activeSubTab: 'default',
+    plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
+    isPaused: false,
+    isReady: false,
+    baudRate: DEFAULT_BAUD_RATE,
+    bufferCapacity: DEFAULT_SETTINGS.bufferCapacity,
+    isSettingsOpen: false,
+    isHelpOpen: false,
+    timeWindow: DEFAULT_TIME_WINDOW,
+    addPlotCounter: 0,
+    mapShowPath: DEFAULT_SETTINGS.mapShowPath,
+    mapTrailLength: DEFAULT_SETTINGS.mapTrailLength,
+    mapLayer: DEFAULT_SETTINGS.mapLayer,
+    mapZoom: DEFAULT_SETTINGS.mapZoom,
+    mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
+    sidebarCollapsed: DEFAULT_SETTINGS.sidebarCollapsed,
+    sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
+    isLogPaneCollapsed: true,
+    offlineReady: false,
+    offlineStatus: 'checking',
+    offlineError: null,
+    logsVersion: 0,
+    logViewerState: {
+      isActive: false,
+      sourceName: '',
+      durationSec: 0,
+      recordCount: 0,
+    },
+    dialectName: '',
+    connectionSourceType: null,
+    autoConnect: DEFAULT_SETTINGS.autoConnect,
+    autoDetectBaud: DEFAULT_SETTINGS.autoDetectBaud,
+    probeStatus: null,
+    lastSuccessfulBaudRate: DEFAULT_SETTINGS.lastSuccessfulBaudRate,
+    connectedBaudRate: null,
+    throughputBytesPerSec: 0,
+  };
+}
+
+export const [appState, setAppState] = createStore<AppState>(createInitialAppState());
+
+type PersistedSettingsState = Pick<
+  AppState,
+  'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
+  'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapAutoCenter' | 'sidebarCollapsed' |
+  'sidebarWidth' | 'autoConnect' | 'autoDetectBaud' | 'lastSuccessfulBaudRate'
+>;
+
+export function applySettingsToAppState(settings: PersistedSettingsState): void {
+  batch(() => {
+    setAppState('theme', settings.theme);
+    setAppState('uiScale', settings.uiScale);
+    setAppState('unitProfile', settings.unitProfile);
+    setAppState('baudRate', settings.baudRate);
+    setAppState('bufferCapacity', settings.bufferCapacity);
+    setAppState('mapShowPath', settings.mapShowPath);
+    setAppState('mapTrailLength', settings.mapTrailLength);
+    setAppState('mapLayer', settings.mapLayer);
+    setAppState('mapZoom', settings.mapZoom);
+    setAppState('mapAutoCenter', settings.mapAutoCenter);
+    setAppState('sidebarCollapsed', settings.sidebarCollapsed);
+    setAppState('sidebarWidth', settings.sidebarWidth);
+    setAppState('autoConnect', settings.autoConnect);
+    setAppState('autoDetectBaud', settings.autoDetectBaud);
+    setAppState('lastSuccessfulBaudRate', settings.lastSuccessfulBaudRate);
+  });
+}
+
+export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): typeof DEFAULT_SETTINGS {
+  return {
+    ...settings,
+    theme: appState.theme,
+    uiScale: appState.uiScale,
+    unitProfile: appState.unitProfile,
+    baudRate: appState.baudRate,
+    bufferCapacity: appState.bufferCapacity,
+    mapShowPath: appState.mapShowPath,
+    mapTrailLength: appState.mapTrailLength,
+    mapLayer: appState.mapLayer,
+    mapZoom: appState.mapZoom,
+    mapAutoCenter: appState.mapAutoCenter,
+    sidebarCollapsed: appState.sidebarCollapsed,
+    sidebarWidth: appState.sidebarWidth,
+    autoConnect: appState.autoConnect,
+    autoDetectBaud: appState.autoDetectBaud,
+    lastSuccessfulBaudRate: appState.lastSuccessfulBaudRate,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Tab management actions

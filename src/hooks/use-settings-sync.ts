@@ -1,37 +1,24 @@
 import { createEffect, type Accessor } from 'solid-js';
-import { appState } from '../store';
-import { flushSettings, getConnectionManager, getWorkerBridge, saveSettingsDebounced, type MavDeckSettings } from '../services';
+import { appState, mergeAppStateIntoSettings } from '../store';
+import { flushSettings, saveSettingsDebounced, useConnectionManager, useWorkerBridge, type MavDeckSettings } from '../services';
 
 export function useSettingsSync(
   settingsReady: Accessor<boolean>,
   loadedSettings: Accessor<MavDeckSettings>,
 ): void {
+  const workerBridge = useWorkerBridge();
+  const connectionManager = useConnectionManager();
+
   // Persist settings reactively when display/connection preferences change.
   createEffect(() => {
     if (!settingsReady()) return;
-    saveSettingsDebounced({
-      ...loadedSettings(),
-      theme: appState.theme,
-      uiScale: appState.uiScale,
-      unitProfile: appState.unitProfile,
-      baudRate: appState.baudRate,
-      bufferCapacity: appState.bufferCapacity,
-      mapShowPath: appState.mapShowPath,
-      mapTrailLength: appState.mapTrailLength,
-      mapLayer: appState.mapLayer,
-      mapZoom: appState.mapZoom,
-      mapAutoCenter: appState.mapAutoCenter,
-      sidebarCollapsed: appState.sidebarCollapsed,
-      sidebarWidth: appState.sidebarWidth,
-      autoConnect: appState.autoConnect,
-      autoDetectBaud: appState.autoDetectBaud,
-    });
+    saveSettingsDebounced(mergeAppStateIntoSettings(loadedSettings()));
   });
 
   // Apply telemetry buffer-capacity changes immediately in worker.
   createEffect(() => {
     if (!appState.isReady) return;
-    getWorkerBridge().setBufferCapacity(appState.bufferCapacity);
+    workerBridge.setBufferCapacity(appState.bufferCapacity);
   });
 
   // Keep worker pause state in sync with UI/replay mode.
@@ -40,9 +27,9 @@ export function useSettingsSync(
     if (appState.connectionStatus !== 'connected') return;
     if (appState.logViewerState.isActive) return;
     if (appState.isPaused) {
-      getConnectionManager().pause();
+      connectionManager.pause();
     } else {
-      getConnectionManager().resume();
+      connectionManager.resume();
     }
   });
 

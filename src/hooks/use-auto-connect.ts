@@ -8,7 +8,7 @@
 
 import { createEffect, onCleanup } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { getSerialSessionController, type MavDeckSettings } from '../services';
+import { useSerialSessionController, type MavDeckSettings } from '../services';
 import type { Accessor, Setter } from 'solid-js';
 
 export function useAutoConnect(
@@ -16,6 +16,8 @@ export function useAutoConnect(
   loadedSettings: Accessor<MavDeckSettings>,
   setLoadedSettings: Setter<MavDeckSettings>,
 ): void {
+  const serialController = useSerialSessionController();
+
   createEffect(() => {
     if (!appState.isReady || !settingsReady()) return;
     const isLogActive = appState.logViewerState.isActive;
@@ -26,10 +28,10 @@ export function useAutoConnect(
       : null;
 
     if (isLogActive) {
-      getSerialSessionController().stopAutoConnect();
+      serialController.stopAutoConnect();
       setAppState('probeStatus', null);
     } else {
-      getSerialSessionController().syncAutoConnect({
+      serialController.syncAutoConnect({
         enabled: appState.autoConnect,
         autoBaud: appState.autoDetectBaud,
         manualBaudRate: appState.baudRate,
@@ -43,7 +45,7 @@ export function useAutoConnect(
     }
 
     onCleanup(() => {
-      getSerialSessionController().stopAutoConnect();
+      serialController.stopAutoConnect();
       setAppState('probeStatus', null);
     });
   });
@@ -51,8 +53,6 @@ export function useAutoConnect(
   // Subscribe to worker events for probe status and serial connected
   createEffect(() => {
     if (!appState.isReady) return;
-
-    const serialController = getSerialSessionController();
     const unsubProbe = serialController.onProbeStatus(status => {
       setAppState('probeStatus', status);
     });

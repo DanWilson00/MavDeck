@@ -1,60 +1,42 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
-import { appState, setAppState } from '../store';
-import {
-  clearAllLogs,
-  deleteLogFile,
-  exportLogFile,
-  getLogViewerService,
-  getLogMetadata,
-  listLogs,
-  readLogFile,
-  setLogMetadata,
-  parseTlogBytes,
-  type LogLibraryEntry,
-} from '../services';
-
-interface EditingState {
-  fileName: string;
-  displayName: string;
-  notes: string;
-}
-
-interface DeletingState {
-  fileName: string;
-  displayName: string;
-}
+import { For, Show, onCleanup, onMount } from 'solid-js';
+import { appState } from '../store';
+import { useLogLibrary } from '../hooks';
 
 export default function LogLibraryPane() {
-  const [entries, setEntries] = createSignal<LogLibraryEntry[]>([]);
-  const [loading, setLoading] = createSignal(true);
-  const [error, setError] = createSignal<string | null>(null);
-  const [editing, setEditing] = createSignal<EditingState | null>(null);
-  const [deleting, setDeleting] = createSignal<DeletingState | null>(null);
-  const [busyFile, setBusyFile] = createSignal<string | null>(null);
-  const [menuOpenFile, setMenuOpenFile] = createSignal<string | null>(null);
-  const [clearingAll, setClearingAll] = createSignal(false);
-  const [selectedFiles, setSelectedFiles] = createSignal<Set<string>>(new Set());
-  const [lastClickedFile, setLastClickedFile] = createSignal<string | null>(null);
-  const [deletingSelected, setDeletingSelected] = createSignal(false);
-
-  async function reload() {
-    setLoading(true);
-    setError(null);
-    try {
-      setEntries(await listLogs());
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to list logs:', err);
-      setError('Failed to load logs library.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  createEffect(() => {
-    appState.logsVersion;
-    reload();
-  });
-
+  const controller = useLogLibrary();
+  const {
+    entries,
+    loading,
+    error,
+    editing,
+    deleting,
+    busyFile,
+    menuOpenFile,
+    clearingAll,
+    selectedFiles,
+    lastClickedFile,
+    deletingSelected,
+    setEditing,
+    setDeleting,
+    setMenuOpenFile,
+    setClearingAll,
+    setSelectedFiles,
+    setLastClickedFile,
+    setDeletingSelected,
+    reload,
+    handleLoad,
+    handleUnload,
+    openEdit,
+    saveEdit,
+    handleExport,
+    openDelete,
+    confirmDelete,
+    confirmClearAll,
+    confirmDeleteSelected,
+    formatSize,
+    toggleCollapse,
+    isLoaded,
+  } = controller;
   // Close overflow menu on outside click
   function handleDocumentClick(e: MouseEvent) {
     if (menuOpenFile() === null) return;
@@ -70,136 +52,6 @@ export default function LogLibraryPane() {
   onCleanup(() => {
     document.removeEventListener('click', handleDocumentClick, true);
   });
-
-  async function handleLoad(fileName: string) {
-    setBusyFile(fileName);
-    try {
-      const bytes = await readLogFile(fileName);
-      const records = parseTlogBytes(bytes);
-      getLogViewerService().load(records, fileName);
-      setAppState('isPaused', true);
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to load log:', err);
-      setError(`Failed to load "${fileName}".`);
-    } finally {
-      setBusyFile(null);
-    }
-  }
-
-  function handleUnload() {
-    getLogViewerService().unload();
-  }
-
-  async function openEdit(fileName: string) {
-    setMenuOpenFile(null);
-    const meta = await getLogMetadata(fileName);
-    setEditing({
-      fileName,
-      displayName: meta.displayName,
-      notes: meta.notes,
-    });
-  }
-
-  async function saveEdit() {
-    const current = editing();
-    if (!current) return;
-    setBusyFile(current.fileName);
-    try {
-      await setLogMetadata(current.fileName, {
-        displayName: current.displayName,
-        notes: current.notes,
-      });
-      setEditing(null);
-      setAppState('logsVersion', v => v + 1);
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to save log metadata:', err);
-      setError('Failed to save log changes.');
-    } finally {
-      setBusyFile(null);
-    }
-  }
-
-  function handleExport(fileName: string) {
-    setMenuOpenFile(null);
-    exportLogFile(fileName);
-  }
-
-  function openDelete(fileName: string, displayName: string) {
-    setMenuOpenFile(null);
-    setDeleting({ fileName, displayName });
-  }
-
-  async function confirmDelete() {
-    const current = deleting();
-    if (!current) return;
-    setBusyFile(current.fileName);
-    try {
-      await deleteLogFile(current.fileName);
-      if (appState.logViewerState.isActive && appState.logViewerState.sourceName === current.fileName) {
-        getLogViewerService().unload();
-      }
-      setDeleting(null);
-      setAppState('logsVersion', v => v + 1);
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to delete log:', err);
-      setError('Failed to delete log.');
-    } finally {
-      setBusyFile(null);
-    }
-  }
-
-  async function confirmClearAll() {
-    try {
-      if (appState.logViewerState.isActive) {
-        getLogViewerService().unload();
-      }
-      await clearAllLogs();
-      setClearingAll(false);
-      setAppState('logsVersion', v => v + 1);
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to clear all logs:', err);
-      setError('Failed to clear all logs.');
-      setClearingAll(false);
-    }
-  }
-
-  async function confirmDeleteSelected() {
-    const files = [...selectedFiles()];
-    try {
-      for (const fileName of files) {
-        if (appState.logViewerState.isActive && appState.logViewerState.sourceName === fileName) {
-          getLogViewerService().unload();
-        }
-        await deleteLogFile(fileName);
-      }
-      setSelectedFiles(new Set<string>());
-      setDeletingSelected(false);
-      setAppState('logsVersion', v => v + 1);
-    } catch (err) {
-      console.error('[LogLibraryPane] Failed to delete selected logs:', err);
-      setError('Failed to delete some logs.');
-      setDeletingSelected(false);
-    }
-  }
-
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  function formatTime(ms: number): string {
-    const d = new Date(ms);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-
-  function toggleCollapse() {
-    setAppState('isLogPaneCollapsed', prev => !prev);
-  }
-
-  function isLoaded(fileName: string): boolean {
-    return appState.logViewerState.isActive && appState.logViewerState.sourceName === fileName;
-  }
 
   return (
     <div class="flex flex-col select-none" style={{ 'max-height': '40%' }}>

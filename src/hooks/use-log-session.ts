@@ -1,26 +1,30 @@
 import { createEffect, onCleanup } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { getWorkerBridge, stageSessionStart, stageSessionChunk, finalizeSession } from '../services';
+import { useWorkerBridge, stageSessionStart, stageSessionChunk, finalizeSession } from '../services';
 
 export function useLogSession(): void {
+  const workerBridge = useWorkerBridge();
+
   createEffect(() => {
     if (!appState.isReady) return;
-    const workerBridge = getWorkerBridge();
+
+    // Chain all chunk operations so finalization waits for them
+    let chunkChain = Promise.resolve();
 
     const unsubLogStart = workerBridge.onLogSessionStart(meta => {
-      stageSessionStart(meta).catch(err => {
+      chunkChain = stageSessionStart(meta).catch(err => {
         console.error('[Tlog] Failed to stage session start:', err);
       });
     });
 
     const unsubLogChunk = workerBridge.onLogChunk(chunk => {
-      stageSessionChunk(chunk).catch(err => {
+      chunkChain = chunkChain.then(() => stageSessionChunk(chunk)).catch(err => {
         console.error('[Tlog] Failed to stage log chunk:', err);
       });
     });
 
     const unsubLogEnd = workerBridge.onLogSessionEnd(meta => {
-      finalizeSession(meta).then((fileName) => {
+      chunkChain.then(() => finalizeSession(meta)).then((fileName) => {
         if (fileName) {
           setAppState('logsVersion', v => v + 1);
         }
