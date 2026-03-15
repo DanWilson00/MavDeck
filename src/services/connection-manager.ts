@@ -79,6 +79,9 @@ export class ConnectionManager {
 
   /** Start auto-connect probing (delegated to worker). */
   startAutoConnect(config: AutoConnectStartConfig): void {
+    if (this._status === 'probing' || this._status === 'connected' || this._status === 'connecting') {
+      return;
+    }
     this._autoConnectActive = true;
     this.bridge.startAutoConnect(config);
   }

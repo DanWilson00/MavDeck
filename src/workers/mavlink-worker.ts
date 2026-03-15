@@ -21,13 +21,13 @@ import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
+import { getSerialPortIdentity } from '../services/serial-port-identity';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
 import {
   INITIAL_LOG_STATE,
   appendPacketToLog,
   flushPendingLogChunk,
   resetLogState,
-  startLogSession,
   stopLogSession,
   type LogState,
 } from './mavlink-worker-log';
@@ -200,12 +200,13 @@ function findPortByIdentity(ports: SerialPort[], identity: SerialPortIdentity | 
 }
 
 /** Full serial cleanup — disconnect source, stop probe, clear reconnect timer, reset state. */
-async function cleanupSerial(): Promise<void> {
+async function cleanupSerial(options?: { preserveAutoConnect?: boolean }): Promise<void> {
   await serial.serialSource?.disconnect();
   serial.serialSource = null;
-  serial.probeService?.stopProbing();
-  serial.probeService = null;
-  serial.autoConnectConfig = null;
+  stopActiveProbe();
+  if (!options?.preserveAutoConnect) {
+    serial.autoConnectConfig = null;
+  }
   if (serial.reconnectTimer !== null) {
     clearTimeout(serial.reconnectTimer);
     serial.reconnectTimer = null;
@@ -214,6 +215,17 @@ async function cleanupSerial(): Promise<void> {
     clearTimeout(serial.logGraceTimer);
     serial.logGraceTimer = null;
   }
+}
+
+async function resetForSerialConnect(): Promise<void> {
+  cancelLogGraceTimer();
+  await cleanupService();
+  await cleanupSerial();
+}
+
+function stopActiveProbe(): void {
+  serial.probeService?.stopProbing();
+  serial.probeService = null;
 }
 
 /** Called when WorkerSerialByteSource detects an unexpected disconnect. */
@@ -258,9 +270,38 @@ async function handleSerialDisconnect(): Promise<void> {
   }
 }
 
+async function failSerialConnect(status: 'disconnected' | 'error', err?: unknown): Promise<void> {
+  cancelLogGraceTimer();
+  await cleanupService();
+  await cleanupSerial();
+  if (err) {
+    postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+  }
+  postEvent({ type: 'probeStatus', status: null });
+  postEvent({ type: 'statusChange', status });
+}
+
+async function completeSerialConnect(
+  port: SerialPort,
+  baudRate: BaudRate,
+  options?: { clearProbeStatus?: boolean },
+): Promise<void> {
+  stopActiveProbe();
+  serial.serialSource = new WorkerSerialByteSource(port, baudRate, handleSerialDisconnect);
+  setupService(serial.serialSource);
+  await pipeline.service!.connect();
+  startThroughputCounter(serial.serialSource);
+  postEvent({ type: 'statusChange', status: 'connected' });
+  postEvent({ type: 'serialConnected', baudRate, portIdentity: getSerialPortIdentity(port) });
+  if (options?.clearProbeStatus) {
+    postEvent({ type: 'probeStatus', status: null });
+  }
+}
+
 /** Start (or restart) auto-connect probing. */
 function doStartAutoConnect(): void {
   if (!registry) return;
+  if (serial.serialSource) return;
 
   if (serial.reconnectTimer !== null) {
     clearTimeout(serial.reconnectTimer);
@@ -268,7 +309,7 @@ function doStartAutoConnect(): void {
   }
 
   // Stop existing probe if any
-  serial.probeService?.stopProbing();
+  stopActiveProbe();
 
   serial.probeService = new SerialProbeService(registry);
 
@@ -283,28 +324,18 @@ function doStartAutoConnect(): void {
     lastPortIdentity: config.lastPortIdentity,
     lastBaudRate: config.lastBaudRate,
     onResult: (result) => {
-      serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
-      setupService(serial.serialSource);
-      pipeline.service!.connect().then(() => {
-        startThroughputCounter(serial.serialSource!);
-        if (serial.logGraceTimer !== null) {
-          clearTimeout(serial.logGraceTimer);
-          serial.logGraceTimer = null;
-          // Session continues — log.sessionId still set
-        } else {
-          startLogSession(log, postEvent);
-        }
-        postEvent({ type: 'probeStatus', status: null });
-        postEvent({ type: 'statusChange', status: 'connected' });
-        postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
-      }).catch((err: Error) => {
+      if (serial.logGraceTimer !== null) {
+        clearTimeout(serial.logGraceTimer);
+        serial.logGraceTimer = null;
+      }
+      void completeSerialConnect(result.port, result.baudRate, { clearProbeStatus: true }).catch(err => {
         void (async () => {
           cancelLogGraceTimer();
           await cleanupService();
-          await cleanupSerial();
+          await cleanupSerial({ preserveAutoConnect: true });
+          postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          postEvent({ type: 'statusChange', status: 'error' });
         })();
-        postEvent({ type: 'error', message: err.message });
-        postEvent({ type: 'statusChange', status: 'error' });
       });
     },
     onStatus: (status) => {
@@ -415,7 +446,6 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
       postEvent({ type: 'statusChange', status: 'connecting' });
       pipeline.service!.connect().then(() => {
         startThroughputCounter(source);
-        startLogSession(log, postEvent);
         postEvent({ type: 'statusChange', status: 'connected' });
       }).catch((err: Error) => {
         void cleanupService();
@@ -544,9 +574,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         return;
       }
 
-      cancelLogGraceTimer();
-      await cleanupService();
-      await cleanupSerial();
+      await resetForSerialConnect();
 
       const { baudRate: serialBaudRate, autoDetectBaud, portIdentity, lastBaudRate: serialLastBaud } = msg;
 
@@ -573,46 +601,19 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
             }, abortController.signal);
 
             if (result) {
-              serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
-              setupService(serial.serialSource);
-              await pipeline.service!.connect();
-              startThroughputCounter(serial.serialSource);
-              startLogSession(log, postEvent);
-              postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
-              postEvent({ type: 'statusChange', status: 'connected' });
-              postEvent({ type: 'probeStatus', status: null });
+              await completeSerialConnect(result.port, result.baudRate, { clearProbeStatus: true });
             } else {
               postEvent({ type: 'probeStatus', status: null });
               postEvent({ type: 'statusChange', status: 'disconnected' });
             }
           } catch (err) {
-            cancelLogGraceTimer();
-            await cleanupService();
-            await cleanupSerial();
-            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-            postEvent({ type: 'probeStatus', status: null });
-            postEvent({ type: 'statusChange', status: 'disconnected' });
+            await failSerialConnect('disconnected', err);
           }
         } else {
           try {
-            serial.serialSource = new WorkerSerialByteSource(port, serialBaudRate, handleSerialDisconnect);
-            setupService(serial.serialSource);
-            await pipeline.service!.connect();
-            startThroughputCounter(serial.serialSource);
-            startLogSession(log, postEvent);
-            const portInfo = port.getInfo();
-            const connectedIdentity: SerialPortIdentity | null =
-              portInfo.usbVendorId != null && portInfo.usbProductId != null
-                ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
-                : null;
-            postEvent({ type: 'serialConnected', baudRate: serialBaudRate, portIdentity: connectedIdentity });
-            postEvent({ type: 'statusChange', status: 'connected' });
+            await completeSerialConnect(port, serialBaudRate);
           } catch (err) {
-            cancelLogGraceTimer();
-            await cleanupService();
-            await cleanupSerial();
-            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-            postEvent({ type: 'statusChange', status: 'error' });
+            await failSerialConnect('error', err);
           }
         }
       }).catch((err) => {
@@ -640,8 +641,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         serial.reconnectTimer = null;
       }
       const wasProbing = serial.probeService?.isProbing ?? false;
-      serial.probeService?.stopProbing();
-      serial.probeService = null;
+      stopActiveProbe();
       serial.autoConnectConfig = null;
       if (wasProbing) {
         postEvent({ type: 'statusChange', status: 'disconnected' });
@@ -651,7 +651,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
     case 'portsChanged': {
       if (serial.autoConnectConfig && !serial.serialSource) {
-        serial.probeService?.stopProbing();
+        stopActiveProbe();
         doStartAutoConnect();
       }
       break;

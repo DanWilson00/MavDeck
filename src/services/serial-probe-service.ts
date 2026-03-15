@@ -8,6 +8,7 @@
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import type { BaudRate } from './baud-rates';
+import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 
 /** Identifies a USB serial port across sessions. */
 export interface SerialPortIdentity {
@@ -297,16 +298,11 @@ export class SerialProbeService {
   }
 
   private getPortIdentity(port: SerialPort): SerialPortIdentity | null {
-    const info = port.getInfo();
-    if (info.usbVendorId != null && info.usbProductId != null) {
-      return { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId };
-    }
-    return null;
+    return getSerialPortIdentity(port);
   }
 
   private matchesIdentity(port: SerialPort, identity: SerialPortIdentity): boolean {
-    const info = port.getInfo();
-    return info.usbVendorId === identity.usbVendorId && info.usbProductId === identity.usbProductId;
+    return matchesSerialPortIdentity(port, identity);
   }
 
   private delay(ms: number, signal: AbortSignal): Promise<void> {

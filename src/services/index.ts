@@ -7,6 +7,7 @@ export {
   type ProbeResult,
   type ProbeStatusCallback,
 } from './serial-probe-service';
+export { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 export { ExternalByteSource } from './external-byte-source';
 export { LogViewerService, type LogViewerState } from './log-viewer-service';
 export { MavlinkService } from './mavlink-service';

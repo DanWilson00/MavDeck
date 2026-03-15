@@ -3,8 +3,8 @@ import { appState, setAppState } from '../store';
 import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect, useConnectionManager,
-  useLogViewerService, useRegistry, useSerialSessionController, useWorkerBridge, isWebSerialSupported,
+  initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
+  useSerialSessionController, useWorkerBridge, isWebSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -32,8 +32,6 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal(props: SettingsModalProps) {
-  const connectionManager = useConnectionManager();
-  const logViewerService = useLogViewerService();
   const registry = useRegistry();
   const serialSessionController = useSerialSessionController();
   const workerBridge = useWorkerBridge();
@@ -73,7 +71,7 @@ export default function SettingsModal(props: SettingsModalProps) {
 
   function disconnectIfActive() {
     if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
-      connectionManager.disconnect();
+      serialSessionController.disconnectLiveSession();
     }
   }
 
@@ -444,11 +442,9 @@ export default function SettingsModal(props: SettingsModalProps) {
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                 onClick={() => {
                   if (appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof') {
-                    connectionManager.disconnect();
+                    serialSessionController.disconnectLiveSession();
                   } else {
-                    if (appState.logViewerState.isActive) logViewerService.unload();
-                    setAppState('connectionSourceType', 'spoof');
-                    connectionManager.connect({ type: 'spoof' });
+                    serialSessionController.connectSpoof({ unloadLog: appState.logViewerState.isActive });
                   }
                 }}
               >

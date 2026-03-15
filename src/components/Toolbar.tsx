@@ -1,6 +1,6 @@
-import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { Show, For } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { useLogViewerService, useSerialSessionController, type ConnectionStatus, isWebSerialSupported } from '../services';
+import { useLogViewerService, useSerialSessionController, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
 
@@ -13,33 +13,13 @@ interface ToolbarProps {
 export default function Toolbar(props: ToolbarProps) {
   const serialSessionController = useSerialSessionController();
   const logViewerService = useLogViewerService();
-  const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
-
-
-  // Subscribe to connection status once services are ready
-  createEffect(() => {
-    if (!appState.isReady) return;
-    const unsub = serialSessionController.onStatusChange(s => {
-      batch(() => {
-        setStatus(s);
-        setAppState('connectionStatus', s);
-        if (s === 'disconnected') {
-          setAppState('isPaused', false);
-          setAppState('connectionSourceType', null);
-          setAppState('connectedBaudRate', null);
-        }
-      });
-    });
-    onCleanup(unsub);
-  });
 
   async function handleConnectSerial() {
     if (!appState.isReady) return;
-    if (status() === 'connected' || status() === 'connecting') {
-      serialSessionController.disconnect();
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
+      serialSessionController.disconnectLiveSession();
       return;
     }
-    setAppState('connectionSourceType', 'serial');
     await serialSessionController.connectManual({
       baudRate: appState.baudRate,
       autoDetectBaud: appState.autoDetectBaud,
@@ -50,7 +30,7 @@ export default function Toolbar(props: ToolbarProps) {
 
   function handleDisconnectSerial() {
     if (!appState.isReady) return;
-    serialSessionController.disconnect();
+    serialSessionController.disconnectLiveSession();
   }
 
   async function handleGrantAccess() {
@@ -64,7 +44,7 @@ export default function Toolbar(props: ToolbarProps) {
     setAppState('isPaused', !appState.isPaused);
   }
 
-  const isConnected = () => status() === 'connected' || status() === 'connecting';
+  const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting';
 
   return (
     <header
@@ -147,12 +127,12 @@ export default function Toolbar(props: ToolbarProps) {
         {/* Status dot */}
         <div
           class="w-2.5 h-2.5 rounded-full transition-colors"
-          title={status()}
-          style={{ 'background-color': STATUS_COLORS[status()] }}
+          title={appState.connectionStatus}
+          style={{ 'background-color': STATUS_COLORS[appState.connectionStatus] }}
         />
 
         {/* Pause/Resume — only when connected */}
-        <Show when={status() === 'connected' && !appState.logViewerState.isActive}>
+        <Show when={appState.connectionStatus === 'connected' && !appState.logViewerState.isActive}>
           <button
             onClick={handlePause}
             class="p-1.5 rounded interactive-hover"

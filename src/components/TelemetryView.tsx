@@ -108,7 +108,7 @@ export default function TelemetryView() {
       .then(() => Promise.all([
         set(LAYOUT_KEY_V2, snapshot),
         set(ACTIVE_SUBTAB_KEY, appState.activeSubTab),
-      ]))
+      ]).then(() => {}))
       .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
   }
 

@@ -106,7 +106,9 @@ export function appendPacketToLog(
   flushIntervalMs: number,
   postEvent: PostEvent,
 ): void {
-  if (!log.sessionId) return;
+  if (!log.sessionId) {
+    startLogSession(log, postEvent);
+  }
   if (log.firstPacketUs == null) {
     log.firstPacketUs = timestampUs;
   }
@@ -128,7 +130,7 @@ export function appendPacketToLog(
   scheduleLogFlush(log, flushIntervalMs, postEvent);
 }
 
-export function startLogSession(log: LogState, postEvent: PostEvent): void {
+function startLogSession(log: LogState, postEvent: PostEvent): void {
   if (log.sessionId) stopLogSession(log, postEvent);
   if (log.flushTimer !== null) {
     clearTimeout(log.flushTimer);
@@ -136,6 +138,7 @@ export function startLogSession(log: LogState, postEvent: PostEvent): void {
   resetLogState(log);
   log.sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   log.startedAtMs = Date.now();
+  console.debug('[Tlog] Session started:', log.sessionId);
   postEvent({
     type: 'logSessionStarted',
     sessionId: log.sessionId,
@@ -145,6 +148,7 @@ export function startLogSession(log: LogState, postEvent: PostEvent): void {
 
 export function stopLogSession(log: LogState, postEvent: PostEvent): void {
   if (!log.sessionId) return;
+  console.debug('[Tlog] Session ended:', log.sessionId, log.packetCount, 'packets');
   if (log.flushTimer !== null) {
     clearTimeout(log.flushTimer);
     log.flushTimer = null;

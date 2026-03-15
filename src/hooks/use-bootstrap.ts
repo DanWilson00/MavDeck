@@ -15,6 +15,7 @@ import {
   type MavDeckSettings,
 } from '../services';
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { bindSessionState } from '../services/session-state-sync';
 
 interface BootstrapResult {
   loading: Accessor<boolean>;
@@ -37,6 +38,7 @@ export function useBootstrap(): BootstrapResult {
   let unsubLogViewer: (() => void) | undefined;
   let unsubLoadComplete: (() => void) | undefined;
   let unsubThroughput: (() => void) | undefined;
+  let unsubSessionState: (() => void) | undefined;
 
   onMount(async () => {
     try {
@@ -80,6 +82,7 @@ export function useBootstrap(): BootstrapResult {
       // Initialize log viewer service
       logViewerSvc = new LogViewerService(bridge, serialController);
       serialController.setLogViewerService(logViewerSvc);
+      unsubSessionState = bindSessionState(serialController, loadedSettings, setLoadedSettings);
       unsubLogViewer = logViewerSvc.subscribe(state => {
         setAppState('logViewerState', state);
       });
@@ -108,10 +111,12 @@ export function useBootstrap(): BootstrapResult {
 
   onCleanup(() => {
     unsubThroughput?.();
+    unsubSessionState?.();
     unsubLogViewer?.();
     unsubLoadComplete?.();
     logViewerSvc?.unload();
     connMgr?.disconnect();
+    serialController?.dispose();
     connMgr?.dispose();
     bridge?.dispose();
     setRuntimeServices(null);

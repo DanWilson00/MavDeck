@@ -33,6 +33,9 @@ describe('useAutoConnect', () => {
     setAppState('autoConnect', true);
     setAppState('autoDetectBaud', true);
     setAppState('baudRate', 115200);
+    setAppState('lastPortVendorId', 11);
+    setAppState('lastPortProductId', 22);
+    setAppState('lastSuccessfulBaudRate', 57600);
     setAppState('logViewerState', {
       isActive: false,
       sourceName: '',
@@ -65,6 +68,18 @@ describe('useAutoConnect', () => {
       });
 
       serialController.syncAutoConnect.mockClear();
+      setLoadedSettings({
+        ...loadedSettings(),
+        lastPortVendorId: 33,
+        lastPortProductId: 44,
+        lastSuccessfulBaudRate: 921600 as const,
+      });
+      await Promise.resolve();
+      expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
+
+      setAppState('lastPortVendorId', 11);
+      setAppState('lastPortProductId', 22);
+      setAppState('lastSuccessfulBaudRate', 57600);
 
       setAppState('logViewerState', {
         isActive: true,
