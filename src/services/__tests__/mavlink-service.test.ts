@@ -27,7 +27,7 @@ describe('MavlinkService', () => {
   });
 
   afterEach(() => {
-    service.disconnect();
+    void service.disconnect();
     tsManager.dispose();
     vi.useRealTimers();
   });
@@ -83,7 +83,7 @@ describe('MavlinkService', () => {
     vi.advanceTimersByTime(500);
     const countBeforeDisconnect = messages.length;
 
-    service.disconnect();
+    await service.disconnect();
     vi.advanceTimersByTime(500);
 
     expect(messages.length).toBe(countBeforeDisconnect);

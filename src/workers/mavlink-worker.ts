@@ -126,15 +126,17 @@ interface SerialState {
   probeService: SerialProbeService | null;
   autoConnectConfig: { autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null } | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  logGraceTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
-const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null };
+const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null, logGraceTimer: null };
 const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
+const LOG_GRACE_PERIOD_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -213,19 +215,20 @@ function stopThroughputCounter(): void {
   postEvent({ type: 'throughput', bytesPerSec: 0 });
 }
 
-function cleanupService(): void {
+async function cleanupService(): Promise<void> {
   stopThroughputCounter();
-  disconnectPipeline();
+  await disconnectPipeline();
   pipeline.statsUnsub?.();
   pipeline.updateUnsub?.();
   pipeline.statustextUnsub?.();
   pipeline.packetUnsub?.();
-  pipeline.timeseriesManager?.dispose();
   resetPipelineConnection();
 }
 
-function disconnectPipeline(): void {
-  pipeline.service?.disconnect();
+async function disconnectPipeline(): Promise<void> {
+  if (pipeline.service) {
+    await pipeline.service.disconnect();
+  }
   pipeline.tracker = null;
   pipeline.timeseriesManager?.dispose();
   pipeline.timeseriesManager = null;
@@ -249,8 +252,8 @@ function findPortByIdentity(ports: SerialPort[], identity: SerialPortIdentity | 
 }
 
 /** Full serial cleanup — disconnect source, stop probe, clear reconnect timer, reset state. */
-function cleanupSerial(): void {
-  serial.serialSource?.disconnect();
+async function cleanupSerial(): Promise<void> {
+  await serial.serialSource?.disconnect();
   serial.serialSource = null;
   serial.probeService?.stopProbing();
   serial.probeService = null;
@@ -259,15 +262,41 @@ function cleanupSerial(): void {
     clearTimeout(serial.reconnectTimer);
     serial.reconnectTimer = null;
   }
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
+  }
 }
 
 /** Called when WorkerSerialByteSource detects an unexpected disconnect. */
-function handleSerialDisconnect(): void {
-  // Clean up source only — don't call cleanupSerial which would also stop probing/auto-connect
+async function handleSerialDisconnect(): Promise<void> {
+  // Grab and null the source first to prevent double-disconnect
+  const source = serial.serialSource;
   serial.serialSource = null;
 
-  stopLogSession();
-  cleanupService();
+  // Await port close so it's fully released before reconnect probe
+  if (source) {
+    await source.disconnect();
+  }
+
+  // Clear any prior grace timer (defensive)
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
+  }
+
+  if (serial.autoConnectConfig && log.sessionId) {
+    // Flush buffered data (crash-safe), but don't finalize
+    flushLogChunk();
+    serial.logGraceTimer = setTimeout(() => {
+      serial.logGraceTimer = null;
+      stopLogSession();
+    }, LOG_GRACE_PERIOD_MS);
+  } else {
+    stopLogSession();
+  }
+
+  await cleanupService();
 
   postEvent({ type: 'statusChange', status: 'disconnected' });
   postEvent({ type: 'stats', stats: {} });
@@ -284,6 +313,11 @@ function handleSerialDisconnect(): void {
 /** Start (or restart) auto-connect probing. */
 function doStartAutoConnect(): void {
   if (!registry) return;
+
+  if (serial.reconnectTimer !== null) {
+    clearTimeout(serial.reconnectTimer);
+    serial.reconnectTimer = null;
+  }
 
   // Stop existing probe if any
   serial.probeService?.stopProbing();
@@ -303,11 +337,24 @@ function doStartAutoConnect(): void {
     onResult: (result) => {
       serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
       setupService(serial.serialSource);
-      startLogSession();
       pipeline.service!.connect().then(() => {
+        startThroughputCounter(serial.serialSource!);
+        if (serial.logGraceTimer !== null) {
+          clearTimeout(serial.logGraceTimer);
+          serial.logGraceTimer = null;
+          // Session continues — log.sessionId still set
+        } else {
+          startLogSession();
+        }
+        postEvent({ type: 'probeStatus', status: null });
         postEvent({ type: 'statusChange', status: 'connected' });
         postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
       }).catch((err: Error) => {
+        void (async () => {
+          cancelLogGraceTimer();
+          await cleanupService();
+          await cleanupSerial();
+        })();
         postEvent({ type: 'error', message: err.message });
         postEvent({ type: 'statusChange', status: 'error' });
       });
@@ -412,6 +459,15 @@ function stopLogSession(): void {
   log.sessionId = null;
 }
 
+/** Cancel any pending log grace timer and finalize the session. Safe to call at any time. */
+function cancelLogGraceTimer(): void {
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
+  }
+  stopLogSession();
+}
+
 // ---------------------------------------------------------------------------
 // Data transfer helpers
 // ---------------------------------------------------------------------------
@@ -513,8 +569,6 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
   pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
 
-  startThroughputCounter(source);
-
   pipeline.statsUnsub = pipeline.tracker.onStats(stats => {
     postEvent({
       type: 'stats',
@@ -535,12 +589,12 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 }
 
-function reconnectWithCurrentSource(): void {
+async function reconnectWithCurrentSource(): Promise<void> {
   if (!registry) return;
   const source = pipeline.spoofSource ?? pipeline.externalSource;
   if (!source || !pipeline.service) return;
 
-  disconnectPipeline();
+  await disconnectPipeline();
   pipeline.statsUnsub?.();
   pipeline.updateUnsub?.();
   pipeline.statustextUnsub?.();
@@ -553,17 +607,21 @@ function reconnectWithCurrentSource(): void {
 
   setupService(source);
 
-  pipeline.service?.connect().catch((err: Error) => {
-    postEvent({ type: 'error', message: err.message });
+  try {
+    await pipeline.service?.connect();
+    startThroughputCounter(source);
+  } catch (err) {
+    await cleanupService();
+    postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     postEvent({ type: 'statusChange', status: 'error' });
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
 
-self.onmessage = (e: MessageEvent<WorkerCommand>) => {
+self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
   const msg = e.data;
 
   switch (msg.type) {
@@ -581,8 +639,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       }
 
       // Clean up any existing connection
-      stopLogSession();
-      cleanupService();
+      cancelLogGraceTimer();
+      await cleanupService();
 
       const { config } = msg;
 
@@ -591,12 +649,14 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         : (pipeline.externalSource = new ExternalByteSource());
 
       setupService(source);
-      startLogSession();
 
       postEvent({ type: 'statusChange', status: 'connecting' });
       pipeline.service!.connect().then(() => {
+        startThroughputCounter(source);
+        startLogSession();
         postEvent({ type: 'statusChange', status: 'connected' });
       }).catch((err: Error) => {
+        void cleanupService();
         postEvent({ type: 'error', message: err.message });
         postEvent({ type: 'statusChange', status: 'error' });
       });
@@ -604,17 +664,17 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'disconnect': {
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
+      cancelLogGraceTimer();
+      await cleanupService();
+      await cleanupSerial();
       clearMainThreadTelemetryState();
       postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
     }
 
     case 'unloadLog': {
-      stopLogSession();
-      cleanupService();
+      cancelLogGraceTimer();
+      await cleanupService();
       clearMainThreadTelemetryState();
       postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
@@ -626,7 +686,6 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       break;
 
     case 'bytes': {
-      console.log('[Worker] Received', msg.data.byteLength, 'bytes');
       pipeline.externalSource?.emitBytes(msg.data);
       break;
     }
@@ -643,7 +702,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         : DEFAULT_BUFFER_CAPACITY;
       if (normalizedCapacity === pipeline.bufferCapacity) break;
       pipeline.bufferCapacity = normalizedCapacity;
-      reconnectWithCurrentSource();
+      void reconnectWithCurrentSource();
       break;
     }
 
@@ -656,9 +715,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       const { packets, timestamps, bufferCapacity: logCapacity } = msg;
 
       // Stop any active log session and clean up existing service
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
+      cancelLogGraceTimer();
+      await cleanupService();
+      await cleanupSerial();
       clearMainThreadTelemetryState();
       postEvent({ type: 'statusChange', status: 'disconnected' });
 
@@ -723,9 +782,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         return;
       }
 
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
+      cancelLogGraceTimer();
+      await cleanupService();
+      await cleanupSerial();
 
       const { baudRate: serialBaudRate, autoDetectBaud, portIdentity, lastBaudRate: serialLastBaud } = msg;
 
@@ -754,8 +813,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
             if (result) {
               serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
               setupService(serial.serialSource);
-              startLogSession();
               await pipeline.service!.connect();
+              startThroughputCounter(serial.serialSource);
+              startLogSession();
               postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
               postEvent({ type: 'statusChange', status: 'connected' });
               postEvent({ type: 'probeStatus', status: null });
@@ -764,6 +824,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
               postEvent({ type: 'statusChange', status: 'disconnected' });
             }
           } catch (err) {
+            cancelLogGraceTimer();
+            await cleanupService();
+            await cleanupSerial();
             postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
             postEvent({ type: 'probeStatus', status: null });
             postEvent({ type: 'statusChange', status: 'disconnected' });
@@ -772,8 +835,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
           try {
             serial.serialSource = new WorkerSerialByteSource(port, serialBaudRate, handleSerialDisconnect);
             setupService(serial.serialSource);
-            startLogSession();
             await pipeline.service!.connect();
+            startThroughputCounter(serial.serialSource);
+            startLogSession();
             const portInfo = port.getInfo();
             const connectedIdentity: SerialPortIdentity | null =
               portInfo.usbVendorId != null && portInfo.usbProductId != null
@@ -782,6 +846,9 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
             postEvent({ type: 'serialConnected', baudRate: serialBaudRate, portIdentity: connectedIdentity });
             postEvent({ type: 'statusChange', status: 'connected' });
           } catch (err) {
+            cancelLogGraceTimer();
+            await cleanupService();
+            await cleanupSerial();
             postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
             postEvent({ type: 'statusChange', status: 'error' });
           }
@@ -805,6 +872,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'stopAutoConnect': {
+      cancelLogGraceTimer();
       if (serial.reconnectTimer !== null) {
         clearTimeout(serial.reconnectTimer);
         serial.reconnectTimer = null;
@@ -820,8 +888,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'portsChanged': {
-      if (serial.probeService?.isProbing) {
-        serial.probeService.stopProbing();
+      if (serial.autoConnectConfig && !serial.serialSource) {
+        serial.probeService?.stopProbing();
         doStartAutoConnect();
       }
       break;

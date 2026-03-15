@@ -67,13 +67,18 @@ export class MavlinkService {
   }
 
   /** Disconnect and stop all processing. */
-  disconnect(): void {
+  async disconnect(): Promise<void> {
+    this.detach();
+    await this.byteSource.disconnect();
+  }
+
+  /** Stop all processing without touching the underlying byte source. */
+  detach(): void {
     this.unsubBytes?.();
     this.unsubFrames?.();
     this.unsubBytes = null;
     this.unsubFrames = null;
     this.tracker.stopTracking();
-    this.byteSource.disconnect();
   }
 
   /** Subscribe to decoded messages. Returns unsubscribe function. */

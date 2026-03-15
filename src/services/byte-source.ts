@@ -9,6 +9,6 @@ export type ByteCallback = (data: Uint8Array) => void;
 export interface IByteSource {
   onData(callback: ByteCallback): () => void;  // returns unsubscribe function
   connect(): Promise<void>;
-  disconnect(): void;
+  disconnect(): Promise<void>;
   readonly isConnected: boolean;
 }

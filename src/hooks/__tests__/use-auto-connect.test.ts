@@ -1,5 +1,5 @@
 import { createRoot, createSignal } from 'solid-js';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const serialController = {
   syncAutoConnect: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock('../../services', async () => {
   };
 });
 
-import { appState, setAppState } from '../../store';
+import { setAppState } from '../../store';
 import { DEFAULT_SETTINGS, type MavDeckSettings } from '../../services';
 import { useAutoConnect } from '../use-auto-connect';
 
@@ -33,18 +33,6 @@ describe('useAutoConnect', () => {
     setAppState('autoConnect', true);
     setAppState('autoDetectBaud', true);
     setAppState('baudRate', 115200);
-    setAppState('logViewerState', {
-      isActive: false,
-      sourceName: '',
-      durationSec: 0,
-      recordCount: 0,
-    });
-  });
-
-  afterEach(() => {
-    setAppState('isReady', false);
-    setAppState('autoConnect', false);
-    setAppState('probeStatus', null);
     setAppState('logViewerState', {
       isActive: false,
       sourceName: '',

@@ -104,7 +104,6 @@ export function useBootstrap(): BootstrapResult {
       unsubThroughput = bridge.onThroughput(bps => {
         setAppState('throughputBytesPerSec', bps);
       });
-
       setRuntimeServices({
         workerBridge: bridge,
         connectionManager: connMgr,
