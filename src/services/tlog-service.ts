@@ -95,7 +95,10 @@ export async function stageSessionStart(start: LogSessionStart): Promise<void> {
 export async function stageSessionChunk(chunk: LogSessionChunk): Promise<void> {
   const key = stageMetaKey(chunk.sessionId);
   const existing = await get<StageMeta>(key);
-  if (!existing) return;
+  if (!existing) {
+    console.warn('[Tlog] stageSessionChunk: no staged meta for session', chunk.sessionId);
+    return;
+  }
 
   const meta: StageMeta = {
     ...existing,
@@ -112,9 +115,31 @@ export async function stageSessionChunk(chunk: LogSessionChunk): Promise<void> {
 }
 
 export async function finalizeSession(end: LogSessionEnd): Promise<string | null> {
+  console.debug('[Tlog] Finalizing session:', end.sessionId, 'packetCount:', end.packetCount);
   const metaKey = stageMetaKey(end.sessionId);
-  const meta = await get<StageMeta>(metaKey);
-  if (!meta) return null;
+  let meta = await get<StageMeta>(metaKey);
+  if (!meta) {
+    console.warn('[Tlog] finalizeSession: no staged meta for session', end.sessionId);
+    return null;
+  }
+
+  // If we expect data but chunks haven't landed yet, retry briefly
+  if (meta.maxSeq < 0 && end.packetCount > 0) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise(r => setTimeout(r, 100));
+      meta = await get<StageMeta>(metaKey);
+      if (!meta || meta.maxSeq >= 0) break;
+    }
+    if (!meta) return null;
+  }
+
+  // No chunks were staged — don't create a 0-byte file
+  if (meta.maxSeq < 0) {
+    console.warn('[Tlog] finalizeSession: no chunks staged for session', end.sessionId, '— skipping file creation');
+    await cleanupStagedSession(end.sessionId, meta.maxSeq);
+    return null;
+  }
+  console.debug('[Tlog] finalizeSession: maxSeq:', meta.maxSeq, 'packetCount:', meta.packetCount);
 
   const firstUs = end.firstPacketUs ?? meta.firstPacketUs;
   const lastUs = end.lastPacketUs ?? meta.lastPacketUs;

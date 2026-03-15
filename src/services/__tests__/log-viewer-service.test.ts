@@ -10,7 +10,8 @@ describe('log-viewer-service', () => {
       unloadLog: vi.fn(),
     } as unknown as MavlinkWorkerBridge;
     const serialSessionController = {
-      enterLogMode: vi.fn(),
+      suspendForLogPlayback: vi.fn(() => true),
+      resumeAfterLogPlayback: vi.fn(),
     } as unknown as SerialSessionController;
 
     const service = new LogViewerService(bridge, serialSessionController);
@@ -22,7 +23,7 @@ describe('log-viewer-service', () => {
       { timestampUs: 2_000_000, packet: Uint8Array.from([4, 5]) },
     ], 'flight.tlog');
 
-    expect(serialSessionController.enterLogMode).toHaveBeenCalledOnce();
+    expect(serialSessionController.suspendForLogPlayback).toHaveBeenCalledOnce();
     expect(bridge.loadLog).toHaveBeenCalledWith(
       [Uint8Array.from([1, 2, 3]), Uint8Array.from([4, 5])],
       [1000, 2000],
@@ -42,7 +43,8 @@ describe('log-viewer-service', () => {
       unloadLog: vi.fn(),
     } as unknown as MavlinkWorkerBridge;
     const serialSessionController = {
-      enterLogMode: vi.fn(),
+      suspendForLogPlayback: vi.fn(() => true),
+      resumeAfterLogPlayback: vi.fn(),
     } as unknown as SerialSessionController;
 
     const service = new LogViewerService(bridge, serialSessionController);
@@ -53,6 +55,7 @@ describe('log-viewer-service', () => {
     service.unload();
 
     expect(bridge.unloadLog).toHaveBeenCalledOnce();
+    expect(serialSessionController.resumeAfterLogPlayback).toHaveBeenCalledOnce();
     expect(callback).toHaveBeenLastCalledWith({
       isActive: false,
       sourceName: '',

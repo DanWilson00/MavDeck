@@ -3,8 +3,8 @@ import { appState, setAppState } from '../store';
 import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect, getConnectionManager,
-  getLogViewerService, getRegistry, getSerialSessionController, getWorkerBridge, isWebSerialSupported,
+  initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
+  useSerialSessionController, useWorkerBridge, isWebSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -32,6 +32,9 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal(props: SettingsModalProps) {
+  const registry = useRegistry();
+  const serialSessionController = useSerialSessionController();
+  const workerBridge = useWorkerBridge();
   const [activeTab, setActiveTab] = createSignal<SettingsTab>('general');
   const [importError, setImportError] = createSignal<string | null>(null);
   const [refreshing, setRefreshing] = createSignal(false);
@@ -67,8 +70,8 @@ export default function SettingsModal(props: SettingsModalProps) {
   }
 
   function disconnectIfActive() {
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting') {
-      getConnectionManager().disconnect();
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
+      serialSessionController.disconnectLiveSession();
     }
   }
 
@@ -107,7 +110,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       const mainFile = detectMainDialect(fileMap);
 
       const jsonString = parseFromFileMap(fileMap, mainFile);
-      await initDialect(getWorkerBridge(), getRegistry(), jsonString);
+      await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
       await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
@@ -127,7 +130,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await clearDialect();
 
       const jsonString = await loadBundledDialect();
-      await initDialect(getWorkerBridge(), getRegistry(), jsonString);
+      await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
       console.error('[SettingsModal] Dialect refresh failed:', err);
@@ -358,7 +361,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                   class="px-3 py-1.5 text-sm rounded border interactive-hover"
                   style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                   onClick={async () => {
-                    await getSerialSessionController().forgetAllPorts();
+                    await serialSessionController.forgetAllPorts();
                   }}
                 >
                   Forget All Ports
@@ -438,16 +441,14 @@ export default function SettingsModal(props: SettingsModalProps) {
                 class="px-3 py-1.5 text-sm rounded border interactive-hover"
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
                 onClick={() => {
-                  if (appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof') {
-                    getConnectionManager().disconnect();
+                  if ((appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof') {
+                    serialSessionController.disconnectLiveSession();
                   } else {
-                    if (appState.logViewerState.isActive) getLogViewerService().unload();
-                    setAppState('connectionSourceType', 'spoof');
-                    getConnectionManager().connect({ type: 'spoof' });
+                    serialSessionController.connectSpoof({ unloadLog: appState.logViewerState.isActive });
                   }
                 }}
               >
-                {appState.connectionStatus === 'connected' && appState.connectionSourceType === 'spoof'
+                {(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof'
                   ? 'Disconnect Simulator'
                   : 'Connect Simulator'}
               </button>

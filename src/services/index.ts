@@ -7,6 +7,7 @@ export {
   type ProbeResult,
   type ProbeStatusCallback,
 } from './serial-probe-service';
+export { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 export { ExternalByteSource } from './external-byte-source';
 export { LogViewerService, type LogViewerState } from './log-viewer-service';
 export { MavlinkService } from './mavlink-service';
@@ -23,6 +24,11 @@ export {
   type UnitFamily,
   type DisplaySurface,
 } from './unit-display';
+export {
+  getSignalRawUnit,
+  getSignalDisplayUnit,
+  formatSignalDisplayLabel,
+} from './signal-metadata';
 export {
   loadSettings,
   saveSettings,
@@ -65,7 +71,16 @@ export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported, type BaudRate } fr
 export { WebSerialByteSource, type SerialBytesCallback } from './webserial-byte-source';
 export { WorkerSerialByteSource } from './worker-serial-byte-source';
 export { SerialSessionController, type AutoConnectOptions, type ManualConnectOptions } from './serial-session-controller';
-export { setRuntimeServices, clearRuntimeServices, getWorkerBridge, getConnectionManager, getRegistry, getLogViewerService, getSerialSessionController } from './runtime-services';
+export {
+  RuntimeServicesProvider,
+  useRuntimeServices,
+  useWorkerBridge,
+  useConnectionManager,
+  useRegistry,
+  useLogViewerService,
+  useSerialSessionController,
+  type RuntimeServices,
+} from './runtime-services';
 export { serializePlotTabs, deserializePlotTabs, type PersistedPlotTabV1, type PersistedPlotV1, type PersistedPlotSignalV1 } from './layout-persistence';
 export {
   MavlinkWorkerBridge,

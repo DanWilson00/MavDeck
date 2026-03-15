@@ -3,6 +3,7 @@ import { SerialSessionController } from '../serial-session-controller';
 import type { ConnectionManager } from '../connection-manager';
 import type { LogViewerService } from '../log-viewer-service';
 import type { MavlinkWorkerBridge } from '../worker-bridge';
+import type { ConnectionStatus } from '../worker-bridge';
 
 describe('serial-session-controller', () => {
   const port = {
@@ -10,17 +11,26 @@ describe('serial-session-controller', () => {
     forget: vi.fn(async () => {}),
   } as unknown as SerialPort;
 
+  let statusListener: ((status: ConnectionStatus) => void) | null;
+  let serialConnectedListener: ((info: { baudRate: number; portIdentity: { usbVendorId: number; usbProductId: number } | null }) => void) | null;
   let connectionManager: Pick<ConnectionManager, 'connect' | 'disconnect' | 'startAutoConnect' | 'stopAutoConnect' | 'onStatusChange' | 'status' | 'pause' | 'resume'>;
-  let workerBridge: Pick<MavlinkWorkerBridge, 'notifyPortsChanged' | 'onProbeStatus' | 'onSerialConnected'>;
+  let workerBridge: Pick<MavlinkWorkerBridge, 'notifyPortsChanged' | 'onProbeStatus' | 'onSerialConnected' | 'suspendLiveForLog' | 'resumeSuspendedLive'>;
   let logViewerService: Pick<LogViewerService, 'unload'>;
 
   beforeEach(() => {
+    statusListener = null;
+    serialConnectedListener = null;
     connectionManager = {
       connect: vi.fn(),
       disconnect: vi.fn(),
       startAutoConnect: vi.fn(),
       stopAutoConnect: vi.fn(),
-      onStatusChange: vi.fn(() => () => {}),
+      onStatusChange: vi.fn((callback) => {
+        statusListener = callback;
+        return () => {
+          statusListener = null;
+        };
+      }),
       status: 'disconnected',
       pause: vi.fn(),
       resume: vi.fn(),
@@ -28,7 +38,14 @@ describe('serial-session-controller', () => {
     workerBridge = {
       notifyPortsChanged: vi.fn(),
       onProbeStatus: vi.fn(() => () => {}),
-      onSerialConnected: vi.fn(() => () => {}),
+      onSerialConnected: vi.fn((callback) => {
+        serialConnectedListener = callback;
+        return () => {
+          serialConnectedListener = null;
+        };
+      }),
+      suspendLiveForLog: vi.fn(),
+      resumeSuspendedLive: vi.fn(),
     };
     logViewerService = {
       unload: vi.fn(),
@@ -80,6 +97,14 @@ describe('serial-session-controller', () => {
       lastPortIdentity: null,
       lastBaudRate: 57600,
     });
+    statusListener?.('probing');
+    controller.syncAutoConnect({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: null,
+      lastBaudRate: 57600,
+    });
     controller.syncAutoConnect({
       enabled: false,
       autoBaud: true,
@@ -90,6 +115,7 @@ describe('serial-session-controller', () => {
 
     expect(connectionManager.startAutoConnect).toHaveBeenCalledOnce();
     expect(connectionManager.stopAutoConnect).toHaveBeenCalledOnce();
+    expect(controller.currentPhase).toBe('idle');
   });
 
   it('enterLogMode disconnects live transport and stops probing', () => {
@@ -103,5 +129,140 @@ describe('serial-session-controller', () => {
 
     expect(connectionManager.disconnect).toHaveBeenCalledOnce();
     expect(connectionManager.stopAutoConnect).toHaveBeenCalledOnce();
+  });
+
+  it('suspendForLogPlayback preserves live serial and skips disconnect', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+
+    expect(controller.suspendForLogPlayback()).toBe(true);
+    expect(workerBridge.suspendLiveForLog).toHaveBeenCalledOnce();
+    expect(connectionManager.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('keeps the suspended live snapshot until serial status is restored after log playback', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    expect(controller.suspendForLogPlayback()).toBe(true);
+
+    controller.resumeAfterLogPlayback();
+
+    expect(controller.hasSuspendedLiveSession).toBe(true);
+    expect(workerBridge.resumeSuspendedLive).toHaveBeenCalledOnce();
+
+    statusListener?.('connected');
+
+    expect(controller.hasSuspendedLiveSession).toBe(false);
+    expect(controller.currentPhase).toBe('connected_serial');
+    expect(controller.currentSessionState).toEqual({
+      sourceType: 'serial',
+      connectedBaudRate: 57600,
+    });
+  });
+
+  it('connectSpoof unloads logs and starts spoof through the connection manager', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    controller.connectSpoof({ unloadLog: true });
+
+    expect(logViewerService.unload).toHaveBeenCalledOnce();
+    expect(connectionManager.stopAutoConnect).toHaveBeenCalledOnce();
+    expect(connectionManager.connect).toHaveBeenCalledWith({ type: 'spoof' });
+  });
+
+  it('tracks session state from spoof and serial connection events', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: Array<{ sourceType: 'serial' | 'spoof' | null; connectedBaudRate: number | null }> = [];
+    controller.onSessionStateChange(state => {
+      states.push(state);
+    });
+
+    controller.connectSpoof();
+    statusListener?.('connected');
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    statusListener?.('disconnected');
+
+    expect(states).toEqual([
+      { sourceType: null, connectedBaudRate: null },
+      { sourceType: 'spoof', connectedBaudRate: null },
+      { sourceType: 'serial', connectedBaudRate: 57600 },
+      { sourceType: null, connectedBaudRate: null },
+    ]);
+  });
+
+  it('keeps serial phase stable when connected arrives before serialConnected', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    controller.syncAutoConnect({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: null,
+      lastBaudRate: 57600,
+    });
+    statusListener?.('connected');
+    expect(controller.currentPhase).toBe('probing');
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    expect(controller.currentPhase).toBe('connected_serial');
+  });
+
+  it('treats no_data as an idle live serial phase without clearing session state', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    statusListener?.('no_data');
+
+    expect(controller.currentPhase).toBe('connected_serial_idle');
+    expect(controller.currentSessionState).toEqual({
+      sourceType: 'serial',
+      connectedBaudRate: 57600,
+    });
+  });
+
+  it('clears a suspended live snapshot on a real disconnect', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
+    expect(controller.suspendForLogPlayback()).toBe(true);
+
+    statusListener?.('disconnected');
+
+    expect(controller.hasSuspendedLiveSession).toBe(false);
+    expect(controller.currentPhase).toBe('idle');
+    expect(controller.currentSessionState).toEqual({
+      sourceType: null,
+      connectedBaudRate: null,
+    });
   });
 });

@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-j
 import PlotChart from './PlotChart';
 import type { PlotConfig } from '../models';
 import { getThemeColor } from '../models';
-import { formatSignalLabel, getDisplayUnit, getRegistry } from '../services';
+import { formatSignalDisplayLabel, getSignalDisplayUnit, useRegistry } from '../services';
 import { appState } from '../store';
 import type { PlotInteractionController } from '../core';
 
@@ -18,6 +18,7 @@ interface PlotPanelProps {
 }
 
 export default function PlotPanel(props: PlotPanelProps) {
+  const registry = useRegistry();
   const visibleSignals = createMemo(() => props.config.signals.filter(s => s.visible));
   const [signalStripWidth, setSignalStripWidth] = createSignal(0);
   const [measurementVersion, setMeasurementVersion] = createSignal(0);
@@ -70,14 +71,7 @@ export default function PlotPanel(props: PlotPanelProps) {
   const hiddenSignals = createMemo(() => visibleSignals().slice(fittedSignalCount()));
   const hiddenSignalsTitle = createMemo(() =>
     hiddenSignals()
-      .map(sig =>
-        formatSignalLabel(
-          sig.fieldKey,
-          getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
-          appState.unitProfile,
-          { messageType: sig.messageType, fieldName: sig.fieldName },
-        ),
-      )
+      .map(sig => formatSignalDisplayLabel(registry, sig, appState.unitProfile))
       .join('\n'),
   );
 
@@ -143,12 +137,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                   color: getThemeColor(sig.color, appState.theme),
                   'background-color': 'var(--bg-hover)',
                 }}
-                title={formatSignalLabel(
-                  sig.fieldKey,
-                  getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
-                  appState.unitProfile,
-                  { messageType: sig.messageType, fieldName: sig.fieldName },
-                )}
+                title={formatSignalDisplayLabel(registry, sig, appState.unitProfile)}
               >
                 <span
                   class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
@@ -158,11 +147,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {compactNames().get(sig.id) ?? sig.fieldName}
                   {' '}
                   <span style={{ color: 'var(--text-secondary)' }}>
-                    {getDisplayUnit(
-                      getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
-                      appState.unitProfile,
-                      { fieldName: sig.fieldName },
-                    )}
+                    {getSignalDisplayUnit(registry, sig, appState.unitProfile)}
                   </span>
                 </span>
               </span>
@@ -205,11 +190,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                   {compactNames().get(sig.id) ?? sig.fieldName}
                   {' '}
                   <span>
-                    {getDisplayUnit(
-                      getRegistry().getMessageByName(sig.messageType)?.fields.find(f => f.name === sig.fieldName)?.units ?? '',
-                      appState.unitProfile,
-                      { fieldName: sig.fieldName },
-                    )}
+                    {getSignalDisplayUnit(registry, sig, appState.unitProfile)}
                   </span>
                 </span>
               </span>

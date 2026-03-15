@@ -1,40 +1,26 @@
-import { Show, For, createSignal, createEffect, onCleanup, batch } from 'solid-js';
+import { Show, For } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { getLogViewerService, getSerialSessionController, type ConnectionStatus, isWebSerialSupported } from '../services';
+import { useLogViewerService, useSerialSessionController, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
-export default function Toolbar() {
-  const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
+interface ToolbarProps {
+  onSelectTab: (tabId: 'telemetry' | 'map') => void;
+}
 
-
-  // Subscribe to connection status once services are ready
-  createEffect(() => {
-    if (!appState.isReady) return;
-    const unsub = getSerialSessionController().onStatusChange(s => {
-      batch(() => {
-        setStatus(s);
-        setAppState('connectionStatus', s);
-        if (s === 'disconnected') {
-          setAppState('isPaused', false);
-          setAppState('connectionSourceType', null);
-          setAppState('connectedBaudRate', null);
-        }
-      });
-    });
-    onCleanup(unsub);
-  });
+export default function Toolbar(props: ToolbarProps) {
+  const serialSessionController = useSerialSessionController();
+  const logViewerService = useLogViewerService();
 
   async function handleConnectSerial() {
     if (!appState.isReady) return;
-    if (status() === 'connected' || status() === 'connecting') {
-      getSerialSessionController().disconnect();
+    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
+      serialSessionController.disconnectLiveSession();
       return;
     }
-    setAppState('connectionSourceType', 'serial');
-    await getSerialSessionController().connectManual({
+    await serialSessionController.connectManual({
       baudRate: appState.baudRate,
       autoDetectBaud: appState.autoDetectBaud,
       lastBaudRate: appState.lastSuccessfulBaudRate,
@@ -44,12 +30,12 @@ export default function Toolbar() {
 
   function handleDisconnectSerial() {
     if (!appState.isReady) return;
-    getSerialSessionController().disconnect();
+    serialSessionController.disconnectLiveSession();
   }
 
   async function handleGrantAccess() {
     if (!appState.isReady) return;
-    await getSerialSessionController().grantAccess();
+    await serialSessionController.grantAccess();
   }
 
   function handlePause() {
@@ -58,7 +44,7 @@ export default function Toolbar() {
     setAppState('isPaused', !appState.isPaused);
   }
 
-  const isConnected = () => status() === 'connected' || status() === 'connecting';
+  const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data';
 
   return (
     <header
@@ -74,8 +60,8 @@ export default function Toolbar() {
           class="flex rounded-md overflow-hidden"
           style={{ border: '1px solid var(--border)', 'background-color': 'var(--bg-hover)' }}
         >
-          <SegmentButton id="telemetry" label="Telemetry" />
-          <SegmentButton id="map" label="Map" isLast={true} />
+          <SegmentButton id="telemetry" label="Telemetry" onSelect={props.onSelectTab} />
+          <SegmentButton id="map" label="Map" isLast={true} onSelect={props.onSelectTab} />
         </div>
         <ModeToggle />
       </div>
@@ -141,12 +127,12 @@ export default function Toolbar() {
         {/* Status dot */}
         <div
           class="w-2.5 h-2.5 rounded-full transition-colors"
-          title={status()}
-          style={{ 'background-color': STATUS_COLORS[status()] }}
+          title={appState.connectionStatus}
+          style={{ 'background-color': STATUS_COLORS[appState.connectionStatus] }}
         />
 
         {/* Pause/Resume — only when connected */}
-        <Show when={status() === 'connected' && !appState.logViewerState.isActive}>
+        <Show when={(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && !appState.logViewerState.isActive}>
           <button
             onClick={handlePause}
             class="p-1.5 rounded interactive-hover"
@@ -163,7 +149,7 @@ export default function Toolbar() {
           <button
             class="px-2 py-1 rounded text-xs interactive-hover"
             style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
-            onClick={() => getLogViewerService().unload()}
+            onClick={() => logViewerService.unload()}
           >
             Unload Log
           </button>
@@ -226,11 +212,11 @@ export default function Toolbar() {
   );
 }
 
-function SegmentButton(props: { id: string; label: string; isLast?: boolean }) {
+function SegmentButton(props: { id: 'telemetry' | 'map'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map') => void }) {
   const isActive = () => appState.activeTab === props.id;
   return (
     <button
-      onClick={() => setAppState('activeTab', props.id)}
+      onClick={() => props.onSelect(props.id)}
       class="px-3 py-1 text-sm font-medium transition-colors"
       style={{
         'background-color': isActive() ? 'var(--bg-panel)' : 'transparent',

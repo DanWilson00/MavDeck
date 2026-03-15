@@ -24,7 +24,7 @@ export class ExternalByteSource implements IByteSource {
     this._isConnected = true;
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     this._isConnected = false;
     this.callbacks.clear();
   }

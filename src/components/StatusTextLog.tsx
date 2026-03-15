@@ -1,6 +1,6 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
 import { appState } from '../store';
-import { getWorkerBridge } from '../services';
+import { useWorkerBridge } from '../services';
 
 const MAX_ENTRIES = 100;
 
@@ -36,6 +36,7 @@ interface LogEntry {
 let nextId = 0;
 
 export default function StatusTextLog() {
+  const workerBridge = useWorkerBridge();
   const [entries, setEntries] = createSignal<LogEntry[]>([]);
   const [isExpanded, setIsExpanded] = createSignal(false);
   const [logHeight, setLogHeight] = createSignal(180);
@@ -52,7 +53,7 @@ export default function StatusTextLog() {
   // Subscribe to STATUSTEXT messages from worker
   createEffect(() => {
     if (!appState.isReady) return;
-    const unsub = getWorkerBridge().onStatusText(entry => {
+    const unsub = workerBridge.onStatusText(entry => {
       setEntries(prev => {
         const next = [...prev, { ...entry, id: nextId++ }];
         if (next.length > MAX_ENTRIES) {

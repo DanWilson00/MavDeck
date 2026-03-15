@@ -1,7 +1,7 @@
 import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { convertDisplayValue, formatDisplayValue, getDisplayUnit, getWorkerBridge } from '../services';
+import { convertDisplayValue, formatDisplayValue, getDisplayUnit, useWorkerBridge } from '../services';
 import { appState, setAppState } from '../store';
 
 const INITIAL_LAT = 34.0522;
@@ -43,6 +43,7 @@ function trailColor(): string {
 }
 
 export default function MapView() {
+  const workerBridge = useWorkerBridge();
   let containerRef: HTMLDivElement | undefined;
   let map: L.Map | undefined;
   let marker: L.Marker | undefined;
@@ -76,7 +77,7 @@ export default function MapView() {
   let hasNewData = false;
 
   function subscribeToUpdates() {
-    unsubUpdate = getWorkerBridge().onUpdate(buffers => {
+    unsubUpdate = workerBridge.onUpdate(buffers => {
       latestBuffers = buffers;
 
       const latBuf = buffers.get('GLOBAL_POSITION_INT.lat');

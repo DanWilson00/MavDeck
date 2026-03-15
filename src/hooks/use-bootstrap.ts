@@ -1,7 +1,6 @@
-import { createSignal, onCleanup, onMount, batch, type Accessor, type Setter } from 'solid-js';
-import { appState, setAppState } from '../store';
+import { createSignal, onCleanup, onMount, type Accessor, type Setter } from 'solid-js';
+import { applySettingsToAppState, setAppState } from '../store';
 import {
-  clearRuntimeServices,
   MavlinkWorkerBridge,
   ConnectionManager,
   loadSettings,
@@ -12,22 +11,25 @@ import {
   LogViewerService,
   recoverStagedSessions,
   SerialSessionController,
-  setRuntimeServices,
+  type RuntimeServices,
   type MavDeckSettings,
 } from '../services';
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { bindSessionState } from '../services/session-state-sync';
 
 interface BootstrapResult {
   loading: Accessor<boolean>;
   settingsReady: Accessor<boolean>;
   loadedSettings: Accessor<MavDeckSettings>;
   setLoadedSettings: Setter<MavDeckSettings>;
+  runtimeServices: Accessor<RuntimeServices | null>;
 }
 
 export function useBootstrap(): BootstrapResult {
   const [loading, setLoading] = createSignal(true);
   const [settingsReady, setSettingsReady] = createSignal(false);
   const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({ ...DEFAULT_SETTINGS });
+  const [runtimeServices, setRuntimeServices] = createSignal<RuntimeServices | null>(null);
 
   let bridge: MavlinkWorkerBridge | undefined;
   let connMgr: ConnectionManager | undefined;
@@ -35,6 +37,8 @@ export function useBootstrap(): BootstrapResult {
   let logViewerSvc: LogViewerService | undefined;
   let unsubLogViewer: (() => void) | undefined;
   let unsubLoadComplete: (() => void) | undefined;
+  let unsubThroughput: (() => void) | undefined;
+  let unsubSessionState: (() => void) | undefined;
 
   onMount(async () => {
     try {
@@ -44,23 +48,7 @@ export function useBootstrap(): BootstrapResult {
       // Load persisted settings and apply to store
       const settings = await loadSettings();
       setLoadedSettings(settings);
-      batch(() => {
-        setAppState('theme', settings.theme);
-        setAppState('uiScale', settings.uiScale);
-        setAppState('unitProfile', settings.unitProfile);
-        setAppState('baudRate', settings.baudRate);
-        setAppState('bufferCapacity', settings.bufferCapacity);
-        setAppState('mapShowPath', settings.mapShowPath);
-        setAppState('mapTrailLength', settings.mapTrailLength);
-        setAppState('mapLayer', settings.mapLayer);
-        setAppState('mapZoom', settings.mapZoom);
-        setAppState('mapAutoCenter', settings.mapAutoCenter);
-        setAppState('sidebarCollapsed', settings.sidebarCollapsed);
-        setAppState('sidebarWidth', settings.sidebarWidth);
-        setAppState('autoConnect', settings.autoConnect);
-        setAppState('autoDetectBaud', settings.autoDetectBaud);
-        setAppState('lastSuccessfulBaudRate', settings.lastSuccessfulBaudRate);
-      });
+      applySettingsToAppState(settings);
       setSettingsReady(true);
 
       // Load dialect: custom from IndexedDB, or parse bundled XML (never cached)
@@ -94,13 +82,16 @@ export function useBootstrap(): BootstrapResult {
       // Initialize log viewer service
       logViewerSvc = new LogViewerService(bridge, serialController);
       serialController.setLogViewerService(logViewerSvc);
+      unsubSessionState = bindSessionState(serialController, loadedSettings, setLoadedSettings);
       unsubLogViewer = logViewerSvc.subscribe(state => {
         setAppState('logViewerState', state);
       });
       unsubLoadComplete = bridge.onLoadComplete(({ durationSec }) => {
         setAppState('logViewerState', 'durationSec', durationSec);
       });
-
+      unsubThroughput = bridge.onThroughput(bps => {
+        setAppState('throughputBytesPerSec', bps);
+      });
       setRuntimeServices({
         workerBridge: bridge,
         connectionManager: connMgr,
@@ -119,14 +110,17 @@ export function useBootstrap(): BootstrapResult {
   });
 
   onCleanup(() => {
+    unsubThroughput?.();
+    unsubSessionState?.();
     unsubLogViewer?.();
     unsubLoadComplete?.();
     logViewerSvc?.unload();
     connMgr?.disconnect();
+    serialController?.dispose();
     connMgr?.dispose();
     bridge?.dispose();
-    clearRuntimeServices();
+    setRuntimeServices(null);
   });
 
-  return { loading, settingsReady, loadedSettings, setLoadedSettings };
+  return { loading, settingsReady, loadedSettings, setLoadedSettings, runtimeServices };
 }

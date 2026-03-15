@@ -1,5 +1,5 @@
 import { createRoot, createSignal } from 'solid-js';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const serialController = {
   syncAutoConnect: vi.fn(),
@@ -7,17 +7,18 @@ const serialController = {
   onProbeStatus: vi.fn(() => () => {}),
   onSerialConnected: vi.fn(() => () => {}),
   persistSerialSettings: vi.fn(),
+  hasSuspendedLiveSession: false,
 };
 
 vi.mock('../../services', async () => {
   const actual = await vi.importActual<typeof import('../../services')>('../../services');
   return {
     ...actual,
-    getSerialSessionController: () => serialController,
+    useSerialSessionController: () => serialController,
   };
 });
 
-import { appState, setAppState } from '../../store';
+import { setAppState } from '../../store';
 import { DEFAULT_SETTINGS, type MavDeckSettings } from '../../services';
 import { useAutoConnect } from '../use-auto-connect';
 
@@ -28,23 +29,15 @@ describe('useAutoConnect', () => {
     serialController.onProbeStatus.mockClear();
     serialController.onSerialConnected.mockClear();
     serialController.persistSerialSettings.mockClear();
+    serialController.hasSuspendedLiveSession = false;
 
     setAppState('isReady', true);
     setAppState('autoConnect', true);
     setAppState('autoDetectBaud', true);
     setAppState('baudRate', 115200);
-    setAppState('logViewerState', {
-      isActive: false,
-      sourceName: '',
-      durationSec: 0,
-      recordCount: 0,
-    });
-  });
-
-  afterEach(() => {
-    setAppState('isReady', false);
-    setAppState('autoConnect', false);
-    setAppState('probeStatus', null);
+    setAppState('lastPortVendorId', 11);
+    setAppState('lastPortProductId', 22);
+    setAppState('lastSuccessfulBaudRate', 57600);
     setAppState('logViewerState', {
       isActive: false,
       sourceName: '',
@@ -77,6 +70,18 @@ describe('useAutoConnect', () => {
       });
 
       serialController.syncAutoConnect.mockClear();
+      setLoadedSettings({
+        ...loadedSettings(),
+        lastPortVendorId: 33,
+        lastPortProductId: 44,
+        lastSuccessfulBaudRate: 921600 as const,
+      });
+      await Promise.resolve();
+      expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
+
+      setAppState('lastPortVendorId', 11);
+      setAppState('lastPortProductId', 22);
+      setAppState('lastSuccessfulBaudRate', 57600);
 
       setAppState('logViewerState', {
         isActive: true,
@@ -103,6 +108,38 @@ describe('useAutoConnect', () => {
         lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
         lastBaudRate: 57600,
       });
+
+      dispose();
+    });
+  });
+
+  it('does not restart probing while a suspended live session is being restored after log unload', async () => {
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+        autoConnect: true,
+        autoDetectBaud: true,
+        lastPortVendorId: 11,
+        lastPortProductId: 22,
+        lastSuccessfulBaudRate: 57600 as const,
+      });
+
+      useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      serialController.syncAutoConnect.mockClear();
+      serialController.hasSuspendedLiveSession = true;
+
+      setAppState('logViewerState', {
+        isActive: false,
+        sourceName: '',
+        durationSec: 0,
+        recordCount: 0,
+      });
+      await Promise.resolve();
+
+      expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
 
       dispose();
     });

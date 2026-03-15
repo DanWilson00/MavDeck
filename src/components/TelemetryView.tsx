@@ -23,6 +23,7 @@ function pickNextColor(existingSignals: PlotSignalConfig[]): string {
 
 const LAYOUT_KEY_V2 = 'mavdeck-layout-v2';
 const LAYOUT_KEY_V1 = 'mavdeck-layout-v1';
+const ACTIVE_SUBTAB_KEY = 'mavdeck-active-subtab';
 
 let plotIdCounter = 0;
 function nextPlotId(): string {
@@ -36,6 +37,7 @@ function nextSignalId(): string {
 export default function TelemetryView() {
   const [selectorPlotId, setSelectorPlotId] = createSignal<string | null>(null);
   const [selectedPlotId, setSelectedPlotId] = createSignal<string | null>(null);
+  const [layoutRestored, setLayoutRestored] = createSignal(false);
 
   const interactionController = createPlotInteractionController();
   const interactionGroupId = 'telemetry-linked';
@@ -72,6 +74,13 @@ export default function TelemetryView() {
     if (count > 0) handleAddPlot();
   }));
 
+  // Persist activeSubTab when user switches tabs (only after layout restore completes).
+  createEffect(on(() => appState.activeSubTab, () => {
+    if (!layoutRestored()) return;
+    set(ACTIVE_SUBTAB_KEY, appState.activeSubTab).catch(err =>
+      console.error('[TelemetryView] Failed to save active subtab:', err));
+  }));
+
   // Toolbar window selector writes appState.timeWindow -> update all plots.
   createEffect(on(() => appState.timeWindow, (tw) => {
     updatePlots(plots => plots.map(p => ({ ...p, timeWindow: tw })));
@@ -96,7 +105,10 @@ export default function TelemetryView() {
   function persistLayout(): void {
     const snapshot = serializePlotTabs(appState.plotTabs);
     saveQueue = saveQueue
-      .then(() => set(LAYOUT_KEY_V2, snapshot))
+      .then(() => Promise.all([
+        set(LAYOUT_KEY_V2, snapshot),
+        set(ACTIVE_SUBTAB_KEY, appState.activeSubTab),
+      ]).then(() => {}))
       .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
   }
 
@@ -133,7 +145,7 @@ export default function TelemetryView() {
       }
     }
 
-    if (!savedTabs || savedTabs.length === 0) return;
+    if (!savedTabs || savedTabs.length === 0) { setLayoutRestored(true); return; }
     const restoredTabs = deserializePlotTabs(savedTabs);
 
     // Restore plotIdCounter from ALL tabs' plots
@@ -146,10 +158,16 @@ export default function TelemetryView() {
       }
     }
 
+    const savedSubTab = await get<string>(ACTIVE_SUBTAB_KEY);
+    const restoredSubTab = savedSubTab && restoredTabs.some(t => t.id === savedSubTab)
+      ? savedSubTab
+      : restoredTabs[0].id;
+
     batch(() => {
       setAppState('plotTabs', restoredTabs);
-      setAppState('activeSubTab', restoredTabs[0].id);
+      setAppState('activeSubTab', restoredSubTab);
     });
+    setLayoutRestored(true);
   });
 
   onCleanup(() => {

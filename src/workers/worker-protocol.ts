@@ -19,7 +19,7 @@ export type ConnectionConfig =
   | { type: 'spoof' }
   | { type: 'webserial'; baudRate: number };
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'probing';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'no_data' | 'error' | 'probing';
 
 // ---------------------------------------------------------------------------
 // Main thread → Worker commands
@@ -30,6 +30,8 @@ export type WorkerCommand =
   | { type: 'connect'; config: ConnectionConfig }
   | { type: 'disconnect' }
   | { type: 'unloadLog' }
+  | { type: 'suspendLiveForLog' }
+  | { type: 'resumeSuspendedLive' }
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'bytes'; data: Uint8Array }
@@ -59,4 +61,5 @@ export type WorkerEvent =
   | { type: 'error'; message: string }
   | { type: 'probeStatus'; status: string | null }
   | { type: 'serialConnected'; baudRate: BaudRate; portIdentity: SerialPortIdentity | null }
-  | { type: 'needPermission' };
+  | { type: 'needPermission' }
+  | { type: 'throughput'; bytesPerSec: number };

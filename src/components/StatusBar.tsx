@@ -7,9 +7,16 @@ const STATUS_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
   connecting: 'Connecting',
   connected: 'Connected',
+  no_data: 'No Data',
   error: 'Error',
   probing: 'Probing',
 };
+
+function formatThroughput(bps: number): string {
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} MB/s`;
+  if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} KB/s`;
+  return `${bps} B/s`;
+}
 
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -77,7 +84,7 @@ export default function StatusBar() {
       </Show>
 
       {/* Baud rate — only when connected via serial */}
-      <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'serial' && appState.connectionStatus === 'connected'}>
+      <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'serial' && (appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data')}>
         <Divider />
         <span>{appState.connectedBaudRate ?? appState.baudRate} baud</span>
       </Show>
@@ -86,6 +93,12 @@ export default function StatusBar() {
       <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'spoof' && appState.connectionStatus === 'connected'}>
         <Divider />
         <span>Spoof</span>
+      </Show>
+
+      {/* Data throughput — only when connected and data is flowing */}
+      <Show when={!appState.logViewerState.isActive && appState.connectionStatus === 'connected' && appState.throughputBytesPerSec > 0}>
+        <Divider />
+        <span>{formatThroughput(appState.throughputBytesPerSec)}</span>
       </Show>
 
       {/* Dialect name — always shown */}

@@ -20,7 +20,7 @@ export function useKeyboardShortcuts(): void {
       switch (e.key) {
         case ' ': {
           e.preventDefault();
-          if (appState.connectionStatus !== 'connected') return;
+          if (appState.connectionStatus !== 'connected' && appState.connectionStatus !== 'no_data') return;
           if (appState.logViewerState.isActive) return;
           setAppState('isPaused', !appState.isPaused);
           break;

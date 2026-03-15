@@ -1,6 +1,9 @@
 export {
   appState,
   setAppState,
+  createInitialAppState,
+  applySettingsToAppState,
+  mergeAppStateIntoSettings,
   addPlotTab,
   deletePlotTab,
   renamePlotTab,

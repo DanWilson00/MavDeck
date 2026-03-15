@@ -21,6 +21,7 @@ export class LogViewerService {
     durationSec: 0,
     recordCount: 0,
   };
+  private suspendedLiveSession = false;
 
   constructor(bridge: MavlinkWorkerBridge, serialSessionController: SerialSessionController) {
     this.bridge = bridge;
@@ -42,7 +43,7 @@ export class LogViewerService {
     const packets = records.map(r => r.packet);
     const timestamps = records.map(r => r.timestampUs / 1000); // microseconds → milliseconds
 
-    this.serialSessionController.enterLogMode();
+    this.suspendedLiveSession = this.serialSessionController.suspendForLogPlayback();
 
     this.state = {
       isActive: true,
@@ -56,6 +57,14 @@ export class LogViewerService {
   }
 
   unload(): void {
+    if (this.suspendedLiveSession) {
+      this.bridge.unloadLog();
+      this.serialSessionController.resumeAfterLogPlayback();
+      this.suspendedLiveSession = false;
+    } else {
+      this.bridge.unloadLog();
+    }
+
     this.state = {
       isActive: false,
       sourceName: '',
@@ -63,6 +72,5 @@ export class LogViewerService {
       recordCount: 0,
     };
     this.emitState();
-    this.bridge.unloadLog();
   }
 }

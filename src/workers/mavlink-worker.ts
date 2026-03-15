@@ -16,16 +16,28 @@ import {
   GenericMessageTracker,
   TimeSeriesDataManager,
   MavlinkService,
-  encodeTlogRecord,
-  type MessageStats,
 } from '../services';
 import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
-import { MavlinkFrameParser } from '../mavlink/frame-parser';
-import { MavlinkMessageDecoder, type MavlinkMessage } from '../mavlink/decoder';
+import { getSerialPortIdentity } from '../services/serial-port-identity';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
+import {
+  INITIAL_LOG_STATE,
+  appendPacketToLog,
+  flushPendingLogChunk,
+  resetLogState,
+  stopLogSession,
+  type LogState,
+} from './mavlink-worker-log';
+import {
+  batchProcessPackets,
+  clearMainThreadTelemetryState,
+  forwardStatusText,
+  postUpdateFromManager,
+  serializeStats,
+} from './mavlink-worker-pipeline-helpers';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -42,6 +54,17 @@ function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
 // State interfaces
 // ---------------------------------------------------------------------------
 
+interface ThroughputState {
+  bytes: number;
+  timer: ReturnType<typeof setInterval> | null;
+  unsub: (() => void) | null;
+}
+
+interface DataActivityState {
+  noDataTimer: ReturnType<typeof setTimeout> | null;
+  noDataActive: boolean;
+}
+
 interface PipelineState {
   service: MavlinkService | null;
   spoofSource: SpoofByteSource | null;
@@ -55,21 +78,6 @@ interface PipelineState {
   updateUnsub: (() => void) | null;
   statustextUnsub: (() => void) | null;
   packetUnsub: (() => void) | null;
-}
-
-interface LogState {
-  sessionId: string | null;
-  startedAtMs: number;
-  firstPacketUs: number | undefined;
-  lastPacketUs: number | undefined;
-  packetCount: number;
-  chunkStartUs: number | undefined;
-  chunkEndUs: number | undefined;
-  seq: number;
-  chunkParts: Uint8Array[];
-  chunkBytes: number;
-  chunkPacketCount: number;
-  flushTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,21 +101,6 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   packetUnsub: null,
 };
 
-const INITIAL_LOG_STATE: LogState = {
-  sessionId: null,
-  startedAtMs: 0,
-  firstPacketUs: undefined,
-  lastPacketUs: undefined,
-  packetCount: 0,
-  chunkStartUs: undefined,
-  chunkEndUs: undefined,
-  seq: 0,
-  chunkParts: [],
-  chunkBytes: 0,
-  chunkPacketCount: 0,
-  flushTimer: null,
-};
-
 // ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
@@ -120,14 +113,29 @@ interface SerialState {
   probeService: SerialProbeService | null;
   autoConnectConfig: { autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null } | null;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  logGraceTimer: ReturnType<typeof setTimeout> | null;
+  suspendedForLog: boolean;
+  suspendedStatus: 'connected' | 'no_data' | null;
 }
 
 const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
-const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null };
+const serial: SerialState = {
+  serialSource: null,
+  probeService: null,
+  autoConnectConfig: null,
+  reconnectTimer: null,
+  logGraceTimer: null,
+  suspendedForLog: false,
+  suspendedStatus: null,
+};
+const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
+const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
+const LOG_GRACE_PERIOD_MS = 30_000;
+const NO_DATA_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -147,59 +155,95 @@ function resetPipelineConnection(): void {
   pipeline.packetUnsub = null;
 }
 
-/** Reset all log state. Caller is responsible for clearing flushTimer first. */
-function resetLogState(): void {
-  log.sessionId = null;
-  log.startedAtMs = 0;
-  log.firstPacketUs = undefined;
-  log.lastPacketUs = undefined;
-  log.packetCount = 0;
-  log.chunkStartUs = undefined;
-  log.chunkEndUs = undefined;
-  log.seq = 0;
-  log.chunkParts = [];
-  log.chunkBytes = 0;
-  log.chunkPacketCount = 0;
-  log.flushTimer = null;
-}
-
-/** Reset only the chunk-level accumulation within a log session. */
-function resetLogChunk(): void {
-  log.chunkParts = [];
-  log.chunkBytes = 0;
-  log.chunkPacketCount = 0;
-  log.chunkStartUs = undefined;
-  log.chunkEndUs = undefined;
-}
-
-/** Serialize MessageStats map for transfer (Map can't be cloned). */
-function serializeStats(stats: Map<string, MessageStats>): Record<string, MessageStats> {
-  const result: Record<string, MessageStats> = {};
-  for (const [key, value] of stats) {
-    result[key] = value;
-  }
-  return result;
-}
-
 // ---------------------------------------------------------------------------
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
-function cleanupService(): void {
-  disconnectPipeline();
+function startThroughputCounter(source: SpoofByteSource | ExternalByteSource | WorkerSerialByteSource): void {
+  stopThroughputCounter();
+  throughput.bytes = 0;
+  throughput.unsub = source.onData(data => { throughput.bytes += data.byteLength; });
+  throughput.timer = setInterval(() => {
+    postEvent({ type: 'throughput', bytesPerSec: throughput.bytes });
+    throughput.bytes = 0;
+  }, 1000);
+}
+
+function stopThroughputCounter(): void {
+  throughput.unsub?.();
+  throughput.unsub = null;
+  if (throughput.timer !== null) {
+    clearInterval(throughput.timer);
+    throughput.timer = null;
+  }
+  throughput.bytes = 0;
+  postEvent({ type: 'throughput', bytesPerSec: 0 });
+}
+
+function clearNoDataTimer(): void {
+  if (dataActivity.noDataTimer !== null) {
+    clearTimeout(dataActivity.noDataTimer);
+    dataActivity.noDataTimer = null;
+  }
+}
+
+function handleNoDataTimeout(): void {
+  dataActivity.noDataTimer = null;
+  if (!serial.serialSource?.isConnected) {
+    dataActivity.noDataActive = false;
+    return;
+  }
+
+  dataActivity.noDataActive = true;
+  stopThroughputCounter();
+  stopLogSession(log, postEvent);
+  postEvent({ type: 'statusChange', status: 'no_data' });
+}
+
+function resetNoDataTimer(): void {
+  if (!serial.serialSource?.isConnected) return;
+  clearNoDataTimer();
+  dataActivity.noDataTimer = setTimeout(() => {
+    handleNoDataTimeout();
+  }, NO_DATA_TIMEOUT_MS);
+}
+
+function recordPacketActivity(): void {
+  if (!serial.serialSource) return;
+  resetNoDataTimer();
+  if (dataActivity.noDataActive) {
+    dataActivity.noDataActive = false;
+    postEvent({ type: 'statusChange', status: 'connected' });
+  }
+}
+
+async function cleanupService(): Promise<void> {
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
+  stopThroughputCounter();
+  await disconnectPipeline();
+  releasePipelineSubscriptions();
+  resetPipelineConnection();
+}
+
+async function disconnectPipeline(): Promise<void> {
+  if (pipeline.service) {
+    await pipeline.service.disconnect();
+  }
+  pipeline.tracker = null;
+  pipeline.timeseriesManager?.dispose();
+  pipeline.timeseriesManager = null;
+}
+
+function releasePipelineSubscriptions(): void {
   pipeline.statsUnsub?.();
   pipeline.updateUnsub?.();
   pipeline.statustextUnsub?.();
   pipeline.packetUnsub?.();
-  pipeline.timeseriesManager?.dispose();
-  resetPipelineConnection();
-}
-
-function disconnectPipeline(): void {
-  pipeline.service?.disconnect();
-  pipeline.tracker = null;
-  pipeline.timeseriesManager?.dispose();
-  pipeline.timeseriesManager = null;
+  pipeline.statsUnsub = null;
+  pipeline.updateUnsub = null;
+  pipeline.statustextUnsub = null;
+  pipeline.packetUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,25 +264,111 @@ function findPortByIdentity(ports: SerialPort[], identity: SerialPortIdentity | 
 }
 
 /** Full serial cleanup — disconnect source, stop probe, clear reconnect timer, reset state. */
-function cleanupSerial(): void {
-  serial.serialSource?.disconnect();
+async function cleanupSerial(options?: { preserveAutoConnect?: boolean }): Promise<void> {
+  await serial.serialSource?.disconnect();
   serial.serialSource = null;
-  serial.probeService?.stopProbing();
-  serial.probeService = null;
-  serial.autoConnectConfig = null;
+  stopActiveProbe();
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
+  serial.suspendedForLog = false;
+  serial.suspendedStatus = null;
+  if (!options?.preserveAutoConnect) {
+    serial.autoConnectConfig = null;
+  }
   if (serial.reconnectTimer !== null) {
     clearTimeout(serial.reconnectTimer);
     serial.reconnectTimer = null;
   }
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
+  }
+}
+
+async function resetForSerialConnect(): Promise<void> {
+  cancelLogGraceTimer();
+  await cleanupService();
+  await cleanupSerial();
+}
+
+function stopActiveProbe(): void {
+  serial.probeService?.stopProbing();
+  serial.probeService = null;
+}
+
+async function suspendLiveSerialForLog(): Promise<void> {
+  if (!serial.serialSource || !pipeline.service) {
+    return;
+  }
+
+  serial.suspendedForLog = true;
+  serial.suspendedStatus = dataActivity.noDataActive ? 'no_data' : 'connected';
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
+  stopThroughputCounter();
+  pipeline.service.detach();
+  await serial.serialSource.suspend();
+  releasePipelineSubscriptions();
+  resetPipelineConnection();
+  clearMainThreadTelemetryState(pipeline, postEvent);
+}
+
+async function resumeSuspendedLiveSerial(): Promise<void> {
+  if (!registry || !serial.serialSource || !serial.suspendedForLog) {
+    return;
+  }
+
+  await cleanupService();
+  clearMainThreadTelemetryState(pipeline, postEvent);
+
+  serial.suspendedForLog = false;
+  dataActivity.noDataActive = serial.suspendedStatus === 'no_data';
+  const resumeStatus = serial.suspendedStatus ?? 'connected';
+  serial.suspendedStatus = null;
+
+  setupService(serial.serialSource);
+  serial.serialSource.resumeAttached();
+  pipeline.service!.attach();
+  startThroughputCounter(serial.serialSource);
+
+  if (resumeStatus === 'connected') {
+    resetNoDataTimer();
+  } else {
+    clearNoDataTimer();
+  }
+
+  postEvent({ type: 'statusChange', status: resumeStatus });
 }
 
 /** Called when WorkerSerialByteSource detects an unexpected disconnect. */
-function handleSerialDisconnect(): void {
-  // Clean up source only — don't call cleanupSerial which would also stop probing/auto-connect
+async function handleSerialDisconnect(): Promise<void> {
+  // Grab and null the source first to prevent double-disconnect
+  const source = serial.serialSource;
   serial.serialSource = null;
 
-  stopLogSession();
-  cleanupService();
+  // Await port close so it's fully released before reconnect probe
+  if (source) {
+    await source.disconnect();
+  }
+
+  // Clear any prior grace timer (defensive)
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
+  }
+
+  if (serial.autoConnectConfig && log.sessionId) {
+    // Flush buffered data (crash-safe), but don't finalize
+    flushPendingLogChunk(log, postEvent);
+    serial.logGraceTimer = setTimeout(() => {
+      serial.logGraceTimer = null;
+      stopLogSession(log, postEvent);
+    }, LOG_GRACE_PERIOD_MS);
+  } else {
+    stopLogSession(log, postEvent);
+  }
+
+  await cleanupService();
 
   postEvent({ type: 'statusChange', status: 'disconnected' });
   postEvent({ type: 'stats', stats: {} });
@@ -252,12 +382,49 @@ function handleSerialDisconnect(): void {
   }
 }
 
+async function failSerialConnect(status: 'disconnected' | 'error', err?: unknown): Promise<void> {
+  cancelLogGraceTimer();
+  await cleanupService();
+  await cleanupSerial();
+  if (err) {
+    postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+  }
+  postEvent({ type: 'probeStatus', status: null });
+  postEvent({ type: 'statusChange', status });
+}
+
+async function completeSerialConnect(
+  port: SerialPort,
+  baudRate: BaudRate,
+  options?: { clearProbeStatus?: boolean },
+): Promise<void> {
+  stopActiveProbe();
+  clearNoDataTimer();
+  dataActivity.noDataActive = false;
+  serial.serialSource = new WorkerSerialByteSource(port, baudRate, handleSerialDisconnect);
+  setupService(serial.serialSource);
+  await pipeline.service!.connect();
+  startThroughputCounter(serial.serialSource);
+  resetNoDataTimer();
+  postEvent({ type: 'statusChange', status: 'connected' });
+  postEvent({ type: 'serialConnected', baudRate, portIdentity: getSerialPortIdentity(port) });
+  if (options?.clearProbeStatus) {
+    postEvent({ type: 'probeStatus', status: null });
+  }
+}
+
 /** Start (or restart) auto-connect probing. */
 function doStartAutoConnect(): void {
   if (!registry) return;
+  if (serial.serialSource) return;
+
+  if (serial.reconnectTimer !== null) {
+    clearTimeout(serial.reconnectTimer);
+    serial.reconnectTimer = null;
+  }
 
   // Stop existing probe if any
-  serial.probeService?.stopProbing();
+  stopActiveProbe();
 
   serial.probeService = new SerialProbeService(registry);
 
@@ -272,15 +439,18 @@ function doStartAutoConnect(): void {
     lastPortIdentity: config.lastPortIdentity,
     lastBaudRate: config.lastBaudRate,
     onResult: (result) => {
-      serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
-      setupService(serial.serialSource);
-      startLogSession();
-      pipeline.service!.connect().then(() => {
-        postEvent({ type: 'statusChange', status: 'connected' });
-        postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
-      }).catch((err: Error) => {
-        postEvent({ type: 'error', message: err.message });
-        postEvent({ type: 'statusChange', status: 'error' });
+      if (serial.logGraceTimer !== null) {
+        clearTimeout(serial.logGraceTimer);
+        serial.logGraceTimer = null;
+      }
+      void completeSerialConnect(result.port, result.baudRate, { clearProbeStatus: true }).catch(err => {
+        void (async () => {
+          cancelLogGraceTimer();
+          await cleanupService();
+          await cleanupSerial({ preserveAutoConnect: true });
+          postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+          postEvent({ type: 'statusChange', status: 'error' });
+        })();
       });
     },
     onStatus: (status) => {
@@ -289,190 +459,13 @@ function doStartAutoConnect(): void {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Log session management
-// ---------------------------------------------------------------------------
-
-function scheduleLogFlush(): void {
-  if (log.flushTimer !== null) return;
-  log.flushTimer = setTimeout(() => {
-    log.flushTimer = null;
-    flushLogChunk();
-  }, LOG_FLUSH_INTERVAL_MS);
-}
-
-function appendPacketToLog(packet: Uint8Array, timestampUs: number): void {
-  if (!log.sessionId) return;
-  if (log.firstPacketUs == null) {
-    log.firstPacketUs = timestampUs;
+/** Cancel any pending log grace timer and finalize the session. Safe to call at any time. */
+function cancelLogGraceTimer(): void {
+  if (serial.logGraceTimer !== null) {
+    clearTimeout(serial.logGraceTimer);
+    serial.logGraceTimer = null;
   }
-  log.lastPacketUs = timestampUs;
-  if (log.chunkStartUs == null) {
-    log.chunkStartUs = timestampUs;
-  }
-  log.chunkEndUs = timestampUs;
-  log.packetCount++;
-
-  const record = encodeTlogRecord(timestampUs, packet);
-  log.chunkParts.push(record);
-  log.chunkBytes += record.byteLength;
-  log.chunkPacketCount++;
-  if (log.chunkBytes >= LOG_FLUSH_BYTES) {
-    flushLogChunk();
-    return;
-  }
-  scheduleLogFlush();
-}
-
-function flushLogChunk(): void {
-  if (!log.sessionId || log.chunkBytes === 0 || log.chunkParts.length === 0) return;
-
-  const out = new Uint8Array(log.chunkBytes);
-  let offset = 0;
-  for (const part of log.chunkParts) {
-    out.set(part, offset);
-    offset += part.byteLength;
-  }
-
-  const chunkStartUs = log.chunkStartUs ?? 0;
-  const chunkEndUs = log.chunkEndUs ?? chunkStartUs;
-  postEvent({
-    type: 'logChunk',
-    sessionId: log.sessionId,
-    seq: log.seq++,
-    startUs: chunkStartUs,
-    endUs: chunkEndUs,
-    packetCount: log.chunkPacketCount,
-    sessionPacketCount: log.packetCount,
-    bytes: out.buffer,
-  }, [out.buffer]);
-
-  resetLogChunk();
-}
-
-function startLogSession(): void {
-  if (log.sessionId) stopLogSession();
-  if (log.flushTimer !== null) {
-    clearTimeout(log.flushTimer);
-  }
-  resetLogState();
-  log.sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  log.startedAtMs = Date.now();
-  postEvent({
-    type: 'logSessionStarted',
-    sessionId: log.sessionId,
-    startedAtMs: log.startedAtMs,
-  });
-}
-
-function stopLogSession(): void {
-  if (!log.sessionId) return;
-  if (log.flushTimer !== null) {
-    clearTimeout(log.flushTimer);
-    log.flushTimer = null;
-  }
-  flushLogChunk();
-  postEvent({
-    type: 'logSessionEnded',
-    sessionId: log.sessionId,
-    endedAtMs: Date.now(),
-    firstPacketUs: log.firstPacketUs,
-    lastPacketUs: log.lastPacketUs,
-    packetCount: log.packetCount,
-  });
-  log.sessionId = null;
-}
-
-// ---------------------------------------------------------------------------
-// Data transfer helpers
-// ---------------------------------------------------------------------------
-
-function buildBuffersRecord(
-  manager: TimeSeriesDataManager,
-  fieldKeys: string[],
-): Record<string, { timestamps: Float64Array; values: Float64Array }> {
-  const buffers: Record<string, { timestamps: Float64Array; values: Float64Array }> = {};
-
-  for (const key of fieldKeys) {
-    const buffer = manager.getBuffer(key);
-    if (!buffer || buffer.length === 0) continue;
-
-    const [timestamps, values] = buffer.toUplotData();
-    const tsBuf = new Float64Array(timestamps.length);
-    tsBuf.set(timestamps);
-    const valBuf = new Float64Array(values.length);
-    valBuf.set(values);
-    buffers[key] = { timestamps: tsBuf, values: valBuf };
-  }
-
-  return buffers;
-}
-
-function postUpdateFromManager(manager: TimeSeriesDataManager): void {
-  const availableFields = manager.getAvailableFields();
-  const signature = availableFields.join('|');
-
-  if (signature !== pipeline.lastAvailableFieldsSignature) {
-    pipeline.lastAvailableFieldsSignature = signature;
-    postEvent({ type: 'availableFields', fields: availableFields });
-  }
-
-  const streamedFields = pipeline.interestedFields.size > 0
-    ? availableFields.filter(f => pipeline.interestedFields.has(f))
-    : [];
-  const buffers = buildBuffersRecord(manager, streamedFields);
-
-  const transferables: ArrayBuffer[] = [];
-  for (const buf of Object.values(buffers)) {
-    transferables.push(buf.timestamps.buffer as ArrayBuffer);
-    transferables.push(buf.values.buffer as ArrayBuffer);
-  }
-
-  postEvent({ type: 'update', buffers }, transferables);
-}
-
-function clearMainThreadTelemetryState(): void {
-  pipeline.lastAvailableFieldsSignature = '';
-  postEvent({ type: 'availableFields', fields: [] });
-  postEvent({ type: 'update', buffers: {} });
-  postEvent({ type: 'stats', stats: {} });
-}
-
-/** Forward STATUSTEXT messages to the main thread. */
-function forwardStatusText(msg: MavlinkMessage, timestampMs: number): void {
-  if (msg.name !== 'STATUSTEXT') return;
-  postEvent({
-    type: 'statustext',
-    severity: msg.values['severity'] as number,
-    text: msg.values['text'] as string,
-    timestamp: timestampMs,
-  });
-}
-
-/** Run a batch of raw packets through parse→decode→track→timeseries→STATUSTEXT. */
-function batchProcessPackets(
-  reg: MavlinkMetadataRegistry,
-  tracker: GenericMessageTracker,
-  tsManager: TimeSeriesDataManager,
-  packets: Uint8Array[],
-  timestamps: number[],
-): void {
-  const parser = new MavlinkFrameParser(reg);
-  const decoder = new MavlinkMessageDecoder(reg);
-  let currentTimestampMs = 0;
-
-  parser.onFrame(frame => {
-    const decoded = decoder.decode(frame);
-    if (!decoded) return;
-    tracker.trackMessage(decoded);
-    tsManager.processMessageWithTimestamp(decoded, currentTimestampMs);
-    forwardStatusText(decoded, currentTimestampMs);
-  });
-
-  for (let i = 0; i < packets.length; i++) {
-    currentTimestampMs = timestamps[i];
-    parser.parse(packets[i]);
-  }
+  stopLogSession(log, postEvent);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,47 +485,55 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 
   pipeline.updateUnsub = pipeline.timeseriesManager.onUpdate(() => {
-    postUpdateFromManager(pipeline.timeseriesManager!);
+    postUpdateFromManager(pipeline, pipeline.timeseriesManager!, postEvent);
   });
 
   pipeline.statustextUnsub = pipeline.service.onMessage(msg => {
-    forwardStatusText(msg, Date.now());
+    forwardStatusText(msg, Date.now(), postEvent);
   });
 
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
-    appendPacketToLog(packet, timestampUs);
+    recordPacketActivity();
+    appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
   });
 }
 
-function reconnectWithCurrentSource(): void {
+async function reconnectWithCurrentSource(): Promise<void> {
   if (!registry) return;
-  const source = pipeline.spoofSource ?? pipeline.externalSource;
+  const source = pipeline.spoofSource ?? pipeline.externalSource ?? serial.serialSource;
   if (!source || !pipeline.service) return;
 
-  disconnectPipeline();
-  pipeline.statsUnsub?.();
-  pipeline.updateUnsub?.();
-  pipeline.statustextUnsub?.();
-  pipeline.packetUnsub?.();
-  pipeline.statsUnsub = null;
-  pipeline.updateUnsub = null;
-  pipeline.statustextUnsub = null;
-  pipeline.packetUnsub = null;
+  await disconnectPipeline();
+  releasePipelineSubscriptions();
   pipeline.lastAvailableFieldsSignature = '';
 
   setupService(source);
 
-  pipeline.service?.connect().catch((err: Error) => {
-    postEvent({ type: 'error', message: err.message });
+  try {
+    if (source === serial.serialSource) {
+      serial.serialSource.resumeAttached();
+      pipeline.service?.attach();
+      startThroughputCounter(source);
+      if (!dataActivity.noDataActive) {
+        resetNoDataTimer();
+      }
+      postEvent({ type: 'statusChange', status: dataActivity.noDataActive ? 'no_data' : 'connected' });
+    } else {
+      await pipeline.service?.connect();
+      startThroughputCounter(source);
+    }
+  } catch (err) {
+    await cleanupService();
+    postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
     postEvent({ type: 'statusChange', status: 'error' });
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
 
-self.onmessage = (e: MessageEvent<WorkerCommand>) => {
+self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
   const msg = e.data;
 
   switch (msg.type) {
@@ -550,8 +551,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       }
 
       // Clean up any existing connection
-      stopLogSession();
-      cleanupService();
+      cancelLogGraceTimer();
+      await cleanupService();
 
       const { config } = msg;
 
@@ -560,12 +561,13 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         : (pipeline.externalSource = new ExternalByteSource());
 
       setupService(source);
-      startLogSession();
 
       postEvent({ type: 'statusChange', status: 'connecting' });
       pipeline.service!.connect().then(() => {
+        startThroughputCounter(source);
         postEvent({ type: 'statusChange', status: 'connected' });
       }).catch((err: Error) => {
+        void cleanupService();
         postEvent({ type: 'error', message: err.message });
         postEvent({ type: 'statusChange', status: 'error' });
       });
@@ -573,19 +575,33 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'disconnect': {
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
-      clearMainThreadTelemetryState();
+      cancelLogGraceTimer();
+      await cleanupService();
+      await cleanupSerial();
+      clearMainThreadTelemetryState(pipeline, postEvent);
       postEvent({ type: 'statusChange', status: 'disconnected' });
       break;
     }
 
+    case 'suspendLiveForLog': {
+      cancelLogGraceTimer();
+      await suspendLiveSerialForLog();
+      break;
+    }
+
+    case 'resumeSuspendedLive': {
+      cancelLogGraceTimer();
+      await resumeSuspendedLiveSerial();
+      break;
+    }
+
     case 'unloadLog': {
-      stopLogSession();
-      cleanupService();
-      clearMainThreadTelemetryState();
-      postEvent({ type: 'statusChange', status: 'disconnected' });
+      cancelLogGraceTimer();
+      await cleanupService();
+      clearMainThreadTelemetryState(pipeline, postEvent);
+      if (!serial.suspendedForLog) {
+        postEvent({ type: 'statusChange', status: 'disconnected' });
+      }
       break;
     }
 
@@ -595,7 +611,6 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       break;
 
     case 'bytes': {
-      console.log('[Worker] Received', msg.data.byteLength, 'bytes');
       pipeline.externalSource?.emitBytes(msg.data);
       break;
     }
@@ -612,7 +627,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         : DEFAULT_BUFFER_CAPACITY;
       if (normalizedCapacity === pipeline.bufferCapacity) break;
       pipeline.bufferCapacity = normalizedCapacity;
-      reconnectWithCurrentSource();
+      void reconnectWithCurrentSource();
       break;
     }
 
@@ -625,11 +640,15 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       const { packets, timestamps, bufferCapacity: logCapacity } = msg;
 
       // Stop any active log session and clean up existing service
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
-      clearMainThreadTelemetryState();
-      postEvent({ type: 'statusChange', status: 'disconnected' });
+      cancelLogGraceTimer();
+      await cleanupService();
+      if (!serial.suspendedForLog) {
+        await cleanupSerial();
+      }
+      clearMainThreadTelemetryState(pipeline, postEvent);
+      if (!serial.suspendedForLog) {
+        postEvent({ type: 'statusChange', status: 'disconnected' });
+      }
 
       // Set buffer capacity for this log
       pipeline.bufferCapacity = logCapacity;
@@ -637,7 +656,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
       // Create pipeline components and process all packets
       pipeline.tracker = new GenericMessageTracker();
       pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
-      batchProcessPackets(registry, pipeline.tracker, pipeline.timeseriesManager, packets, timestamps);
+      batchProcessPackets(registry, pipeline.tracker, pipeline.timeseriesManager, packets, timestamps, postEvent);
 
       // Do NOT start tracker timer -- stats are static for loaded logs
       // (stopTracking is a no-op since we never called startTracking)
@@ -662,7 +681,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
 
       // Send all fields so the full dataset is available
       pipeline.interestedFields = new Set(allFields);
-      postUpdateFromManager(pipeline.timeseriesManager);
+      postUpdateFromManager(pipeline, pipeline.timeseriesManager, postEvent);
 
       // Override real-time frequency with log-based frequency
       // Important: call getStats() once and mutate+serialize the same map
@@ -692,9 +711,7 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
         return;
       }
 
-      stopLogSession();
-      cleanupService();
-      cleanupSerial();
+      await resetForSerialConnect();
 
       const { baudRate: serialBaudRate, autoDetectBaud, portIdentity, lastBaudRate: serialLastBaud } = msg;
 
@@ -721,38 +738,19 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
             }, abortController.signal);
 
             if (result) {
-              serial.serialSource = new WorkerSerialByteSource(result.port, result.baudRate, handleSerialDisconnect);
-              setupService(serial.serialSource);
-              startLogSession();
-              await pipeline.service!.connect();
-              postEvent({ type: 'serialConnected', baudRate: result.baudRate, portIdentity: result.portIdentity });
-              postEvent({ type: 'statusChange', status: 'connected' });
-              postEvent({ type: 'probeStatus', status: null });
+              await completeSerialConnect(result.port, result.baudRate, { clearProbeStatus: true });
             } else {
               postEvent({ type: 'probeStatus', status: null });
               postEvent({ type: 'statusChange', status: 'disconnected' });
             }
           } catch (err) {
-            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-            postEvent({ type: 'probeStatus', status: null });
-            postEvent({ type: 'statusChange', status: 'disconnected' });
+            await failSerialConnect('disconnected', err);
           }
         } else {
           try {
-            serial.serialSource = new WorkerSerialByteSource(port, serialBaudRate, handleSerialDisconnect);
-            setupService(serial.serialSource);
-            startLogSession();
-            await pipeline.service!.connect();
-            const portInfo = port.getInfo();
-            const connectedIdentity: SerialPortIdentity | null =
-              portInfo.usbVendorId != null && portInfo.usbProductId != null
-                ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
-                : null;
-            postEvent({ type: 'serialConnected', baudRate: serialBaudRate, portIdentity: connectedIdentity });
-            postEvent({ type: 'statusChange', status: 'connected' });
+            await completeSerialConnect(port, serialBaudRate);
           } catch (err) {
-            postEvent({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-            postEvent({ type: 'statusChange', status: 'error' });
+            await failSerialConnect('error', err);
           }
         }
       }).catch((err) => {
@@ -774,13 +772,13 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'stopAutoConnect': {
+      cancelLogGraceTimer();
       if (serial.reconnectTimer !== null) {
         clearTimeout(serial.reconnectTimer);
         serial.reconnectTimer = null;
       }
       const wasProbing = serial.probeService?.isProbing ?? false;
-      serial.probeService?.stopProbing();
-      serial.probeService = null;
+      stopActiveProbe();
       serial.autoConnectConfig = null;
       if (wasProbing) {
         postEvent({ type: 'statusChange', status: 'disconnected' });
@@ -789,8 +787,8 @@ self.onmessage = (e: MessageEvent<WorkerCommand>) => {
     }
 
     case 'portsChanged': {
-      if (serial.probeService?.isProbing) {
-        serial.probeService.stopProbing();
+      if (serial.autoConnectConfig && !serial.serialSource) {
+        stopActiveProbe();
         doStartAutoConnect();
       }
       break;

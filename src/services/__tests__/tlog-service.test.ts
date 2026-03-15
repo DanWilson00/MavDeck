@@ -13,7 +13,7 @@ vi.mock('idb-keyval', () => ({
   keys: vi.fn(async () => [...kvStore.keys()]),
 }));
 
-import { getLogMetadata, readLogFile, recoverStagedSessions, stageSessionChunk, stageSessionStart } from '../tlog-service';
+import { deleteLogFile, finalizeSession, getLogMetadata, readLogFile, recoverStagedSessions, stageSessionChunk, stageSessionStart } from '../tlog-service';
 
 class MemoryFile {
   constructor(
@@ -154,5 +154,79 @@ describe('tlog-service', () => {
 
     const bytes = await readLogFile(meta.fileName);
     expect(Array.from(bytes)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('finalizeSession returns null and creates no file when no chunks were staged', async () => {
+    const sessionId = 'empty-session';
+    await stageSessionStart({ sessionId, startedAtMs: Date.now() });
+
+    const fileName = await finalizeSession({
+      sessionId,
+      endedAtMs: Date.now(),
+      packetCount: 0,
+    });
+
+    expect(fileName).toBeNull();
+    // Staged data should be cleaned up
+    expect(kvStore.size).toBe(0);
+  });
+
+  it('finalizeSession retries when packetCount > 0 but chunks arrive late', async () => {
+    const sessionId = 'late-chunk-session';
+    await stageSessionStart({ sessionId, startedAtMs: Date.now() });
+
+    // Simulate chunk arriving after a delay
+    setTimeout(async () => {
+      await stageSessionChunk({
+        sessionId,
+        seq: 0,
+        startUs: 1_000_000,
+        endUs: 2_000_000,
+        packetCount: 5,
+        bytes: Uint8Array.from([1, 2, 3]).buffer,
+      });
+    }, 200);
+
+    const fileName = await finalizeSession({
+      sessionId,
+      endedAtMs: Date.now(),
+      packetCount: 5,
+    });
+
+    expect(fileName).not.toBeNull();
+    const bytes = await readLogFile(fileName!);
+    expect(bytes.byteLength).toBe(3);
+  });
+
+  it('staged chunks produce a non-empty finalized file', async () => {
+    const sessionId = 'test-session-finalize';
+
+    await stageSessionStart({ sessionId, startedAtMs: Date.now() });
+
+    const testData = new Uint8Array([1, 2, 3, 4, 5]);
+    await stageSessionChunk({
+      sessionId,
+      seq: 0,
+      startUs: 1000,
+      endUs: 2000,
+      packetCount: 1,
+      bytes: testData.buffer,
+    });
+
+    const fileName = await finalizeSession({
+      sessionId,
+      endedAtMs: Date.now(),
+      firstPacketUs: 1000,
+      lastPacketUs: 2000,
+      packetCount: 1,
+    });
+
+    expect(fileName).not.toBeNull();
+
+    const data = await readLogFile(fileName!);
+    expect(data.byteLength).toBe(5);
+    expect(new Uint8Array(data)).toEqual(testData);
+
+    await deleteLogFile(fileName!);
   });
 });

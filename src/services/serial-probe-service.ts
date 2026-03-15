@@ -8,6 +8,7 @@
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import type { BaudRate } from './baud-rates';
+import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 
 /** Identifies a USB serial port across sessions. */
 export interface SerialPortIdentity {
@@ -23,6 +24,8 @@ export interface ProbeResult {
 }
 
 export type ProbeStatusCallback = (status: string | null) => void;
+
+export const WAITING_FOR_SERIAL_ACCESS_STATUS = 'Waiting for serial port access...';
 
 /** Timeout per port/baud combination (ms). HEARTBEAT is 1Hz, so 5s gives ~4-5 chances. */
 const PROBE_TIMEOUT_MS = 5000;
@@ -135,7 +138,7 @@ export class SerialProbeService {
     config.onStatus(`Scanning... (${ports.length} port${ports.length !== 1 ? 's' : ''})`);
 
     if (ports.length === 0) {
-      config.onStatus('Waiting for serial port access...');
+      config.onStatus(WAITING_FOR_SERIAL_ACCESS_STATUS);
       return null;
     }
 
@@ -199,6 +202,9 @@ export class SerialProbeService {
     statusLabel: string,
     signal: AbortSignal,
   ): Promise<ProbeResult | null> {
+    // Defensive close in case port is still open from a prior connection
+    await this.closePort(port);
+
     try {
       await port.open({ baudRate });
     } catch (e) {
@@ -292,16 +298,11 @@ export class SerialProbeService {
   }
 
   private getPortIdentity(port: SerialPort): SerialPortIdentity | null {
-    const info = port.getInfo();
-    if (info.usbVendorId != null && info.usbProductId != null) {
-      return { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId };
-    }
-    return null;
+    return getSerialPortIdentity(port);
   }
 
   private matchesIdentity(port: SerialPort, identity: SerialPortIdentity): boolean {
-    const info = port.getInfo();
-    return info.usbVendorId === identity.usbVendorId && info.usbProductId === identity.usbProductId;
+    return matchesSerialPortIdentity(port, identity);
   }
 
   private delay(ms: number, signal: AbortSignal): Promise<void> {

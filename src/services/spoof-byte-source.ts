@@ -91,7 +91,7 @@ export class SpoofByteSource implements IByteSource {
 
   async connect(): Promise<void> {
     if (this._isConnected) {
-      this.disconnect();
+      await this.disconnect();
     }
 
     this._isConnected = true;
@@ -118,7 +118,7 @@ export class SpoofByteSource implements IByteSource {
     this.scheduleNextStatusText();
   }
 
-  disconnect(): void {
+  async disconnect(): Promise<void> {
     if (this.fastTelemetryTimer !== null) {
       clearInterval(this.fastTelemetryTimer);
       this.fastTelemetryTimer = null;

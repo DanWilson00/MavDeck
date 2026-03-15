@@ -27,7 +27,7 @@ describe('MavlinkService', () => {
   });
 
   afterEach(() => {
-    service.disconnect();
+    void service.disconnect();
     tsManager.dispose();
     vi.useRealTimers();
   });
@@ -83,7 +83,7 @@ describe('MavlinkService', () => {
     vi.advanceTimersByTime(500);
     const countBeforeDisconnect = messages.length;
 
-    service.disconnect();
+    await service.disconnect();
     vi.advanceTimersByTime(500);
 
     expect(messages.length).toBe(countBeforeDisconnect);
@@ -97,6 +97,23 @@ describe('MavlinkService', () => {
     expect(fields.length).toBeGreaterThan(0);
     // ATTITUDE fields should be present
     expect(fields.some(f => f.startsWith('ATTITUDE.'))).toBe(true);
+  });
+
+  it('onPacket emits raw packets for every CRC-valid frame', async () => {
+    const packets: { packet: Uint8Array; timestampUs: number }[] = [];
+    service.onPacket((packet, timestampUs) => {
+      packets.push({ packet: new Uint8Array(packet), timestampUs });
+    });
+
+    await service.connect();
+    vi.advanceTimersByTime(500);
+
+    expect(packets.length).toBeGreaterThan(0);
+    // Each packet should be a valid MAVLink frame (starts with 0xFD for v2)
+    for (const { packet } of packets) {
+      expect(packet[0]).toBe(0xFD);
+      expect(packet.byteLength).toBeGreaterThan(12); // minimum v2 frame size
+    }
   });
 
   it('unsubscribe stops individual callback', async () => {
