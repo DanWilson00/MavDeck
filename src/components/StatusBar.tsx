@@ -11,6 +11,12 @@ const STATUS_LABELS: Record<string, string> = {
   probing: 'Probing',
 };
 
+function formatThroughput(bps: number): string {
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} MB/s`;
+  if (bps >= 1_000) return `${(bps / 1_000).toFixed(1)} KB/s`;
+  return `${bps} B/s`;
+}
+
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -86,6 +92,12 @@ export default function StatusBar() {
       <Show when={!appState.logViewerState.isActive && appState.connectionSourceType === 'spoof' && appState.connectionStatus === 'connected'}>
         <Divider />
         <span>Spoof</span>
+      </Show>
+
+      {/* Data throughput — only when connected and data is flowing */}
+      <Show when={!appState.logViewerState.isActive && appState.connectionStatus === 'connected' && appState.throughputBytesPerSec > 0}>
+        <Divider />
+        <span>{formatThroughput(appState.throughputBytesPerSec)}</span>
       </Show>
 
       {/* Dialect name — always shown */}

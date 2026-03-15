@@ -42,6 +42,12 @@ function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
 // State interfaces
 // ---------------------------------------------------------------------------
 
+interface ThroughputState {
+  bytes: number;
+  timer: ReturnType<typeof setInterval> | null;
+  unsub: (() => void) | null;
+}
+
 interface PipelineState {
   service: MavlinkService | null;
   spoofSource: SpoofByteSource | null;
@@ -125,6 +131,7 @@ interface SerialState {
 const pipeline: PipelineState = { ...INITIAL_PIPELINE_STATE, interestedFields: new Set() };
 const log: LogState = { ...INITIAL_LOG_STATE, chunkParts: [] };
 const serial: SerialState = { serialSource: null, probeService: null, autoConnectConfig: null, reconnectTimer: null };
+const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
 
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
@@ -185,7 +192,29 @@ function serializeStats(stats: Map<string, MessageStats>): Record<string, Messag
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
+function startThroughputCounter(source: SpoofByteSource | ExternalByteSource | WorkerSerialByteSource): void {
+  stopThroughputCounter();
+  throughput.bytes = 0;
+  throughput.unsub = source.onData(data => { throughput.bytes += data.byteLength; });
+  throughput.timer = setInterval(() => {
+    postEvent({ type: 'throughput', bytesPerSec: throughput.bytes });
+    throughput.bytes = 0;
+  }, 1000);
+}
+
+function stopThroughputCounter(): void {
+  throughput.unsub?.();
+  throughput.unsub = null;
+  if (throughput.timer !== null) {
+    clearInterval(throughput.timer);
+    throughput.timer = null;
+  }
+  throughput.bytes = 0;
+  postEvent({ type: 'throughput', bytesPerSec: 0 });
+}
+
 function cleanupService(): void {
+  stopThroughputCounter();
   disconnectPipeline();
   pipeline.statsUnsub?.();
   pipeline.updateUnsub?.();
@@ -483,6 +512,8 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   pipeline.tracker = new GenericMessageTracker();
   pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
   pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
+
+  startThroughputCounter(source);
 
   pipeline.statsUnsub = pipeline.tracker.onStats(stats => {
     postEvent({

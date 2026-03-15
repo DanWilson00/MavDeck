@@ -46,6 +46,7 @@ export interface AppState {
   probeStatus: string | null;
   lastSuccessfulBaudRate: BaudRate | null;
   connectedBaudRate: BaudRate | null;
+  throughputBytesPerSec: number;
 }
 
 export const [appState, setAppState] = createStore<AppState>({
@@ -89,6 +90,7 @@ export const [appState, setAppState] = createStore<AppState>({
   probeStatus: null,
   lastSuccessfulBaudRate: null,
   connectedBaudRate: null,
+  throughputBytesPerSec: 0,
 });
 
 // ---------------------------------------------------------------------------

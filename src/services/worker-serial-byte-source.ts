@@ -16,7 +16,7 @@ export class WorkerSerialByteSource implements IByteSource {
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private _isConnected = false;
   private _isReading = false;
-  private dataCallback: ByteCallback | null = null;
+  private readonly dataCallbacks = new Set<ByteCallback>();
 
   constructor(port: SerialPort, baudRate: number, onDisconnect?: () => void) {
     this.port = port;
@@ -33,11 +33,9 @@ export class WorkerSerialByteSource implements IByteSource {
    * Returns an unsubscribe function.
    */
   onData(callback: ByteCallback): () => void {
-    this.dataCallback = callback;
+    this.dataCallbacks.add(callback);
     return () => {
-      if (this.dataCallback === callback) {
-        this.dataCallback = null;
-      }
+      this.dataCallbacks.delete(callback);
     };
   }
 
@@ -86,7 +84,7 @@ export class WorkerSerialByteSource implements IByteSource {
             const { value, done } = await this.reader.read();
             if (done) break;
             if (value) {
-              this.dataCallback?.(value);
+              for (const cb of this.dataCallbacks) cb(value);
             }
           }
         } finally {

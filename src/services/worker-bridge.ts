@@ -45,6 +45,7 @@ export class MavlinkWorkerBridge {
   private readonly probeStatusEmitter = new EventEmitter<(status: string | null) => void>();
   private readonly serialConnectedEmitter = new EventEmitter<(info: { baudRate: BaudRate; portIdentity: SerialPortIdentity | null }) => void>();
   private readonly needPermissionEmitter = new EventEmitter<() => void>();
+  private readonly throughputEmitter = new EventEmitter<(bytesPerSec: number) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -190,6 +191,11 @@ export class MavlinkWorkerBridge {
     return this.needPermissionEmitter.on(callback);
   }
 
+  /** Subscribe to throughput updates (bytes per second). */
+  onThroughput(callback: (bytesPerSec: number) => void): () => void {
+    return this.throughputEmitter.on(callback);
+  }
+
   /** Subscribe to log load completion events. */
   onLoadComplete(callback: LoadCompleteCallback): () => void {
     return this.loadCompleteEmitter.on(callback);
@@ -295,6 +301,11 @@ export class MavlinkWorkerBridge {
 
       case 'needPermission': {
         this.needPermissionEmitter.emit();
+        break;
+      }
+
+      case 'throughput': {
+        this.throughputEmitter.emit(msg.bytesPerSec);
         break;
       }
 

@@ -35,6 +35,7 @@ export function useBootstrap(): BootstrapResult {
   let logViewerSvc: LogViewerService | undefined;
   let unsubLogViewer: (() => void) | undefined;
   let unsubLoadComplete: (() => void) | undefined;
+  let unsubThroughput: (() => void) | undefined;
 
   onMount(async () => {
     try {
@@ -100,6 +101,9 @@ export function useBootstrap(): BootstrapResult {
       unsubLoadComplete = bridge.onLoadComplete(({ durationSec }) => {
         setAppState('logViewerState', 'durationSec', durationSec);
       });
+      unsubThroughput = bridge.onThroughput(bps => {
+        setAppState('throughputBytesPerSec', bps);
+      });
 
       setRuntimeServices({
         workerBridge: bridge,
@@ -119,6 +123,7 @@ export function useBootstrap(): BootstrapResult {
   });
 
   onCleanup(() => {
+    unsubThroughput?.();
     unsubLogViewer?.();
     unsubLoadComplete?.();
     logViewerSvc?.unload();
