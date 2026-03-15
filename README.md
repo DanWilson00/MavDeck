@@ -9,7 +9,7 @@ A fast, web-based MAVLink telemetry viewer. No install, no MAVLink dependencies 
 
 ## Demo
 
-<video src="https://github.com/DanWilson00/MavDeck/raw/main/demo.mp4" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/d18b595b-0683-49ec-aad5-5e44d210452e" controls width="100%"></video>  
 
 ## Why MavDeck?
 
@@ -39,8 +39,6 @@ Visit **[mavdeck.netlify.app](https://mavdeck.netlify.app)** — no setup requir
 To run locally:
 
 ```bash
-git clone https://github.com/DanWilson00/MavDeck.git
-cd MavDeck
 npm install
 npm run dev
 ```
