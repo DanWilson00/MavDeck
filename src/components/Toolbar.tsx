@@ -6,7 +6,11 @@ import SettingsModal from './SettingsModal';
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
-export default function Toolbar() {
+interface ToolbarProps {
+  onSelectTab: (tabId: 'telemetry' | 'map') => void;
+}
+
+export default function Toolbar(props: ToolbarProps) {
   const serialSessionController = useSerialSessionController();
   const logViewerService = useLogViewerService();
   const [status, setStatus] = createSignal<ConnectionStatus>('disconnected');
@@ -76,8 +80,8 @@ export default function Toolbar() {
           class="flex rounded-md overflow-hidden"
           style={{ border: '1px solid var(--border)', 'background-color': 'var(--bg-hover)' }}
         >
-          <SegmentButton id="telemetry" label="Telemetry" />
-          <SegmentButton id="map" label="Map" isLast={true} />
+          <SegmentButton id="telemetry" label="Telemetry" onSelect={props.onSelectTab} />
+          <SegmentButton id="map" label="Map" isLast={true} onSelect={props.onSelectTab} />
         </div>
         <ModeToggle />
       </div>
@@ -228,11 +232,11 @@ export default function Toolbar() {
   );
 }
 
-function SegmentButton(props: { id: string; label: string; isLast?: boolean }) {
+function SegmentButton(props: { id: 'telemetry' | 'map'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map') => void }) {
   const isActive = () => appState.activeTab === props.id;
   return (
     <button
-      onClick={() => setAppState('activeTab', props.id)}
+      onClick={() => props.onSelect(props.id)}
       class="px-3 py-1 text-sm font-medium transition-colors"
       style={{
         'background-color': isActive() ? 'var(--bg-panel)' : 'transparent',

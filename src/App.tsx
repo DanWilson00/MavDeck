@@ -14,7 +14,8 @@ import {
   useLogSession,
   useKeyboardShortcuts,
 } from './hooks';
-import { RuntimeServicesProvider } from './services';
+import { RuntimeServicesProvider, saveSettings } from './services';
+import type { MavDeckSettings } from './services';
 
 interface AppContentProps {
   settingsReady: () => boolean;
@@ -23,11 +24,22 @@ interface AppContentProps {
 }
 
 function AppContent(props: AppContentProps) {
-  useSettingsSync(props.settingsReady, props.loadedSettings);
+  useSettingsSync(props.settingsReady, props.loadedSettings, props.setLoadedSettings);
   useAutoConnect(props.settingsReady, props.loadedSettings, props.setLoadedSettings);
   useInterestedFields();
   useLogSession();
   useKeyboardShortcuts();
+
+  function handleSelectTab(tabId: 'telemetry' | 'map') {
+    if (appState.activeTab === tabId) return;
+    setAppState('activeTab', tabId);
+    const nextSettings: MavDeckSettings = {
+      ...props.loadedSettings(),
+      activeTab: tabId,
+    };
+    props.setLoadedSettings(nextSettings);
+    void saveSettings(nextSettings);
+  }
 
   // Migrate away from removed "logs" tab
   createEffect(() => {
@@ -36,7 +48,7 @@ function AppContent(props: AppContentProps) {
 
   return (
     <div class="flex flex-col h-screen" style={{ 'background-color': 'var(--bg-primary)' }}>
-      <Toolbar />
+      <Toolbar onSelectTab={handleSelectTab} />
       <main class="flex-1 overflow-hidden">
         <Show when={appState.activeTab === 'telemetry'}>
           <TelemetryView />

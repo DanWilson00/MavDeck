@@ -13,6 +13,7 @@ import type { UnitProfile } from './unit-display';
 const SETTINGS_KEY = 'mavdeck-settings-v1';
 
 export interface MavDeckSettings {
+  activeTab: string;
   theme: 'dark' | 'light';
   uiScale: number;
   unitProfile: UnitProfile;
@@ -35,6 +36,7 @@ export interface MavDeckSettings {
 }
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
+  activeTab: 'telemetry',
   theme: 'dark',
   uiScale: 1,
   unitProfile: 'raw',
@@ -68,6 +70,11 @@ export async function loadSettings(): Promise<MavDeckSettings> {
 
 /** Save settings to IndexedDB. */
 export async function saveSettings(settings: MavDeckSettings): Promise<void> {
+  pendingSettings = null;
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
   await set(SETTINGS_KEY, settings);
 }
 

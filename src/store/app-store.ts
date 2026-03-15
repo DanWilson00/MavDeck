@@ -52,10 +52,10 @@ export interface AppState {
 export function createInitialAppState(): AppState {
   return {
     connectionStatus: 'disconnected',
+    activeTab: DEFAULT_SETTINGS.activeTab,
     theme: DEFAULT_SETTINGS.theme,
     uiScale: DEFAULT_SETTINGS.uiScale,
     unitProfile: DEFAULT_SETTINGS.unitProfile,
-    activeTab: 'telemetry',
     activeSubTab: 'default',
     plotTabs: [{ id: 'default', name: 'Tab 1', plots: [] }],
     isPaused: false,
@@ -99,13 +99,14 @@ export const [appState, setAppState] = createStore<AppState>(createInitialAppSta
 
 type PersistedSettingsState = Pick<
   AppState,
-  'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
+  'activeTab' | 'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
   'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapAutoCenter' | 'sidebarCollapsed' |
   'sidebarWidth' | 'autoConnect' | 'autoDetectBaud' | 'lastSuccessfulBaudRate'
 >;
 
 export function applySettingsToAppState(settings: PersistedSettingsState): void {
   batch(() => {
+    setAppState('activeTab', settings.activeTab);
     setAppState('theme', settings.theme);
     setAppState('uiScale', settings.uiScale);
     setAppState('unitProfile', settings.unitProfile);
@@ -127,6 +128,7 @@ export function applySettingsToAppState(settings: PersistedSettingsState): void 
 export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): typeof DEFAULT_SETTINGS {
   return {
     ...settings,
+    activeTab: appState.activeTab,
     theme: appState.theme,
     uiScale: appState.uiScale,
     unitProfile: appState.unitProfile,

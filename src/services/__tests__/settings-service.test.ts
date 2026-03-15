@@ -38,6 +38,7 @@ describe('settings-service', () => {
 
   it('returns saved settings when they exist', async () => {
     const saved: MavDeckSettings = {
+      activeTab: 'map',
       theme: 'light',
       uiScale: 1.1,
       unitProfile: 'raw',
@@ -75,6 +76,7 @@ describe('settings-service', () => {
     const settings = await loadSettings();
 
     // Saved values are preserved
+    expect(settings.activeTab).toBe(DEFAULT_SETTINGS.activeTab);
     expect(settings.theme).toBe('light');
     expect(settings.baudRate).toBe(57600);
     expect(settings.uiScale).toBe(DEFAULT_SETTINGS.uiScale);
@@ -87,6 +89,7 @@ describe('settings-service', () => {
 
   it('saveSettings persists to IndexedDB', async () => {
     const settings: MavDeckSettings = {
+      activeTab: 'map',
       theme: 'light',
       uiScale: 0.95,
       unitProfile: 'metric',
@@ -116,6 +119,7 @@ describe('settings-service', () => {
 
   it('saveSettings round-trips through loadSettings', async () => {
     const settings: MavDeckSettings = {
+      activeTab: 'map',
       theme: 'light',
       uiScale: 1.2,
       unitProfile: 'aviation',
@@ -190,7 +194,19 @@ describe('settings-service', () => {
     expect(mockStore.get('mavdeck-settings-v1')).toEqual(settings);
   });
 
+  it('immediate save cancels stale debounced settings', async () => {
+    const staleSettings: MavDeckSettings = { ...DEFAULT_SETTINGS, activeTab: 'telemetry' };
+    const latestSettings: MavDeckSettings = { ...DEFAULT_SETTINGS, activeTab: 'map' };
+
+    saveSettingsDebounced(staleSettings);
+    await saveSettings(latestSettings);
+    await flushSettings();
+
+    expect(mockStore.get('mavdeck-settings-v1')).toEqual(latestSettings);
+  });
+
   it('DEFAULT_SETTINGS has expected default values', () => {
+    expect(DEFAULT_SETTINGS.activeTab).toBe('telemetry');
     expect(DEFAULT_SETTINGS.theme).toBe('dark');
     expect(DEFAULT_SETTINGS.uiScale).toBe(1);
     expect(DEFAULT_SETTINGS.unitProfile).toBe('raw');
