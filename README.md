@@ -9,7 +9,7 @@ A fast, web-based MAVLink telemetry viewer. No install, no MAVLink dependencies 
 
 ## Demo
 
-https://github.com/DanWilson00/MavDeck/raw/main/demo.mp4
+<video src="https://github.com/DanWilson00/MavDeck/raw/main/demo.mp4" controls width="100%"></video>
 
 ## Why MavDeck?
 
