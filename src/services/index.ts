@@ -49,6 +49,7 @@ export type {
 } from './parameter-types';
 export { ParameterManager } from './parameter-manager';
 export { SpoofByteSource } from './spoof-byte-source';
+export { SpoofParamResponder } from './spoof-param-responder';
 export { TimeSeriesDataManager, type TimeSeriesManagerOptions } from './timeseries-manager';
 export {
   encodeTlogRecord,
