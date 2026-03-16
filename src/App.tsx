@@ -3,6 +3,7 @@ import ThemeProvider from './components/ThemeProvider';
 import Toolbar from './components/Toolbar';
 import TelemetryView from './components/TelemetryView';
 import MapView from './components/MapView';
+import ParametersView from './components/ParametersView';
 import StatusBar from './components/StatusBar';
 import HelpOverlay from './components/HelpOverlay';
 import { appState, setAppState } from './store';
@@ -30,7 +31,7 @@ function AppContent(props: AppContentProps) {
   useLogSession();
   useKeyboardShortcuts();
 
-  function handleSelectTab(tabId: 'telemetry' | 'map') {
+  function handleSelectTab(tabId: 'telemetry' | 'map' | 'parameters') {
     if (appState.activeTab === tabId) return;
     setAppState('activeTab', tabId);
     const nextSettings: MavDeckSettings = {
@@ -55,6 +56,9 @@ function AppContent(props: AppContentProps) {
         </Show>
         <Show when={appState.activeTab === 'map'}>
           <MapView />
+        </Show>
+        <Show when={appState.activeTab === 'parameters'}>
+          <ParametersView />
         </Show>
       </main>
       <StatusBar />

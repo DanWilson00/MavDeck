@@ -7,7 +7,7 @@ import SettingsModal from './SettingsModal';
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
 interface ToolbarProps {
-  onSelectTab: (tabId: 'telemetry' | 'map') => void;
+  onSelectTab: (tabId: 'telemetry' | 'map' | 'parameters') => void;
 }
 
 export default function Toolbar(props: ToolbarProps) {
@@ -61,7 +61,8 @@ export default function Toolbar(props: ToolbarProps) {
           style={{ border: '1px solid var(--border)', 'background-color': 'var(--bg-hover)' }}
         >
           <SegmentButton id="telemetry" label="Telemetry" onSelect={props.onSelectTab} />
-          <SegmentButton id="map" label="Map" isLast={true} onSelect={props.onSelectTab} />
+          <SegmentButton id="map" label="Map" onSelect={props.onSelectTab} />
+          <SegmentButton id="parameters" label="Parameters" isLast={true} onSelect={props.onSelectTab} />
         </div>
         <ModeToggle />
       </div>
@@ -212,7 +213,7 @@ export default function Toolbar(props: ToolbarProps) {
   );
 }
 
-function SegmentButton(props: { id: 'telemetry' | 'map'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map') => void }) {
+function SegmentButton(props: { id: 'telemetry' | 'map' | 'parameters'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map' | 'parameters') => void }) {
   const isActive = () => appState.activeTab === props.id;
   return (
     <button
