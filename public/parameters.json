@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "includes": [
+    "WingMapping.h", "Joystick.h", "Scaler.h", "Ultramotion.h"
+  ],
+  "externs": {
+    "wing_mapping": "WingMapping",
+    "joystick": "Joystick",
+    "scaler": "Scaler",
+    "ultramotion_max_torque": "float",
+    "port_actuator": "Ultramotion",
+    "sb_actuator": "Ultramotion",
+    "rear_actuator": "Ultramotion"
+  },
+  "groups": [
+    {
+      "name": "Control",
+      "parameters": [
+        {
+          "mavlink_id": "WM_MAX_ROLL",
+          "config_key": "wing_mapping.max_roll_cmd",
+          "type": "Float",
+          "default": 0.7, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 2,
+          "description": "Max roll command",
+          "long_description": "Maximum fraction of roll stick input applied to wing commands"
+        },
+        {
+          "mavlink_id": "WM_MAX_DIVE",
+          "config_key": "wing_mapping.max_dive_cmd",
+          "type": "Float",
+          "default": 0.9, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 2,
+          "description": "Max dive command",
+          "long_description": "Maximum fraction of dive stick input applied to wing commands"
+        },
+        {
+          "mavlink_id": "SCL_RFADE_EN",
+          "config_key": "scaler.roll_cmd_fade_enabled",
+          "type": "Boolean",
+          "default": 0, "min": 0.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Roll cmd velocity fade enable",
+          "long_description": "Enable velocity-based roll command scaling (0=disabled, 1=enabled)"
+        },
+        {
+          "mavlink_id": "SCL_RFADE_VEL",
+          "config_key": "scaler.roll_cmd_fade_start_vel_mps",
+          "type": "Float",
+          "default": 7.5, "min": 0.0, "max": 100.0,
+          "unit": "m/s", "decimal": 1,
+          "description": "Roll fade start velocity",
+          "long_description": "Velocity above which roll command begins to fade"
+        },
+        {
+          "mavlink_id": "SCL_TFADE_EN",
+          "config_key": "scaler.roll_torque_fade_enabled",
+          "type": "Boolean",
+          "default": 0, "min": 0.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Roll torque velocity fade enable",
+          "long_description": "Enable velocity-based roll torque fading (0=disabled, 1=enabled)"
+        },
+        {
+          "mavlink_id": "SCL_TFADE_STA",
+          "config_key": "scaler.roll_torque_fade_start_vel_mps",
+          "type": "Float",
+          "default": 11.0, "min": 0.0, "max": 100.0,
+          "unit": "m/s", "decimal": 1,
+          "description": "Torque fade start velocity",
+          "long_description": "Velocity above which roll torque begins to fade"
+        },
+        {
+          "mavlink_id": "SCL_TFADE_END",
+          "config_key": "scaler.roll_torque_fade_end_vel_mps",
+          "type": "Float",
+          "default": 15.0, "min": 0.0, "max": 100.0,
+          "unit": "m/s", "decimal": 1,
+          "description": "Torque fade end velocity",
+          "long_description": "Velocity above which roll torque is fully faded to zero"
+        },
+        {
+          "mavlink_id": "SCL_DIVEROLL",
+          "config_key": "scaler.max_dive_roll_scale",
+          "type": "Float",
+          "default": 0.5, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 2,
+          "description": "Roll scale at full dive",
+          "long_description": "Roll command scale factor when dive input is at maximum"
+        }
+      ]
+    },
+    {
+      "name": "Input",
+      "parameters": [
+        {
+          "mavlink_id": "JS_RATE_LIM",
+          "config_key": "joystick.thumb_limiter.rate_limit_per_sec",
+          "type": "Float",
+          "default": 1.0, "min": 0.1, "max": 10.0,
+          "unit": "1/s", "decimal": 1,
+          "description": "Thumb rate limit",
+          "long_description": "Rate limit for thumb wheel input in units per second"
+        },
+        {
+          "mavlink_id": "JS_TRIM_INC",
+          "config_key": "joystick.roll_trim_inc_frac",
+          "type": "Float",
+          "default": 0.02, "min": 0.001, "max": 0.1,
+          "unit": "norm", "decimal": 3,
+          "description": "Roll trim increment",
+          "long_description": "Amount of roll trim change per button press"
+        },
+        {
+          "mavlink_id": "JS_TRIM_FRAC",
+          "config_key": "joystick.roll_trim_frac",
+          "type": "Float",
+          "default": 0.0, "min": -1.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Roll trim offset",
+          "long_description": "Current roll trim offset applied to joystick input",
+          "volatile": true
+        },
+        {
+          "mavlink_id": "JS_DEADBAND",
+          "config_key": "joystick.deadband_frac",
+          "type": "Float",
+          "default": 0.05, "min": 0.0, "max": 0.2,
+          "unit": "norm", "decimal": 3,
+          "description": "Joystick deadband",
+          "long_description": "Deadband fraction of full joystick range around center"
+        },
+        {
+          "mavlink_id": "JS_THUMB_DIR",
+          "config_key": "joystick.thumb_direction",
+          "type": "Discrete",
+          "default": 1, "min": -1.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Thumb direction",
+          "long_description": "Thumb wheel direction multiplier (1=normal, -1=reverse)",
+          "values": {"-1": "Reverse", "1": "Normal"}
+        }
+      ]
+    },
+    {
+      "name": "Hardware",
+      "parameters": [
+        {
+          "mavlink_id": "UM_MAX_TORQUE",
+          "config_key": "ultramotion_max_torque",
+          "type": "Float",
+          "default": 0.8, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 2,
+          "description": "Max torque fraction",
+          "long_description": "Maximum torque command sent to all actuators as fraction of hardware limit"
+        },
+        {
+          "mavlink_id": "PA_MIN",
+          "config_key": "port_actuator.min",
+          "type": "Float",
+          "default": 0.2, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Port actuator min pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "PA_NEUTRAL",
+          "config_key": "port_actuator.neutral",
+          "type": "Float",
+          "default": 0.4, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Port actuator neutral pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "PA_MAX",
+          "config_key": "port_actuator.max",
+          "type": "Float",
+          "default": 0.6, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Port actuator max pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "PA_DIR",
+          "config_key": "port_actuator.direction",
+          "type": "Discrete",
+          "default": -1, "min": -1.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Port actuator direction",
+          "long_description": "Port actuator direction multiplier (1=normal, -1=reverse)",
+          "reboot_required": true,
+          "values": {"-1": "Reverse", "1": "Normal"}
+        },
+        {
+          "mavlink_id": "SA_MIN",
+          "config_key": "sb_actuator.min",
+          "type": "Float",
+          "default": 0.2, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Starboard actuator min pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "SA_NEUTRAL",
+          "config_key": "sb_actuator.neutral",
+          "type": "Float",
+          "default": 0.4, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Starboard actuator neutral pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "SA_MAX",
+          "config_key": "sb_actuator.max",
+          "type": "Float",
+          "default": 0.6, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Starboard actuator max pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "SA_DIR",
+          "config_key": "sb_actuator.direction",
+          "type": "Discrete",
+          "default": -1, "min": -1.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Starboard actuator direction",
+          "long_description": "Starboard actuator direction multiplier (1=normal, -1=reverse)",
+          "reboot_required": true,
+          "values": {"-1": "Reverse", "1": "Normal"}
+        },
+        {
+          "mavlink_id": "RA_MIN",
+          "config_key": "rear_actuator.min",
+          "type": "Float",
+          "default": 0.2, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Rear actuator min pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "RA_NEUTRAL",
+          "config_key": "rear_actuator.neutral",
+          "type": "Float",
+          "default": 0.5, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Rear actuator neutral pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "RA_MAX",
+          "config_key": "rear_actuator.max",
+          "type": "Float",
+          "default": 0.8, "min": 0.0, "max": 1.0,
+          "unit": "norm", "decimal": 3,
+          "description": "Rear actuator max pos",
+          "reboot_required": true
+        },
+        {
+          "mavlink_id": "RA_DIR",
+          "config_key": "rear_actuator.direction",
+          "type": "Discrete",
+          "default": -1, "min": -1.0, "max": 1.0,
+          "decimal": 0,
+          "description": "Rear actuator direction",
+          "long_description": "Rear actuator direction multiplier (1=normal, -1=reverse)",
+          "reboot_required": true,
+          "values": {"-1": "Reverse", "1": "Normal"}
+        }
+      ]
+    }
+  ],
+  "array_parameters": [
+    {
+      "mavlink_prefix": "SCL_PFF_V",
+      "config_key": "scaler.pitch_ff_vel_mps",
+      "group": "Control",
+      "type": "Float", "count": 5,
+      "default": [0.0, 5.0, 10.0, 15.0, 20.0],
+      "min": 0.0, "max": 100.0,
+      "unit": "m/s", "decimal": 1,
+      "description": "Pitch FF velocity breakpoint"
+    },
+    {
+      "mavlink_prefix": "SCL_PFF_C",
+      "config_key": "scaler.pitch_ff_cmd",
+      "group": "Control",
+      "type": "Float", "count": 5,
+      "default": [0.0, 0.0, 0.0, 0.0, 0.0],
+      "min": -1.0, "max": 1.0,
+      "unit": "norm", "decimal": 3,
+      "description": "Pitch FF command"
+    }
+  ]
+}

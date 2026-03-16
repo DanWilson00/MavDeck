@@ -19,3 +19,10 @@ export {
   type PlotConfig,
   type PlotTab,
 } from './plot-config';
+
+export type {
+  ParamMetadataFile,
+  ParamGroupDef,
+  ParamDef,
+  ArrayParamDef,
+} from './parameter-metadata';
