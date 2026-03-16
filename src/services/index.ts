@@ -41,6 +41,13 @@ export {
   clearDialect,
   type PersistedDialect,
 } from './settings-service';
+export type {
+  ParameterValue,
+  ParamFetchStatus,
+  ParameterStateSnapshot,
+  ParamSetResult,
+} from './parameter-types';
+export { ParameterManager } from './parameter-manager';
 export { SpoofByteSource } from './spoof-byte-source';
 export { TimeSeriesDataManager, type TimeSeriesManagerOptions } from './timeseries-manager';
 export {

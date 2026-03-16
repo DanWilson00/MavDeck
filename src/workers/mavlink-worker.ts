@@ -18,6 +18,7 @@ import {
   TimeSeriesDataManager,
   MavlinkService,
 } from '../services';
+import { ParameterManager } from '../services/parameter-manager';
 import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
@@ -80,6 +81,7 @@ interface PipelineState {
   statustextUnsub: (() => void) | null;
   packetUnsub: (() => void) | null;
   vehicleTrackUnsub: (() => void) | null;
+  paramMessageUnsub: (() => void) | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,7 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   statustextUnsub: null,
   packetUnsub: null,
   vehicleTrackUnsub: null,
+  paramMessageUnsub: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,9 @@ let registry: MavlinkMetadataRegistry | null = null;
 
 /** Frame builder for outbound messages, initialized alongside registry. */
 let frameBuilder: MavlinkFrameBuilder | null = null;
+
+/** Parameter manager for the MAVLink parameter protocol. */
+let paramManager: ParameterManager | null = null;
 
 /** Sequence number for outbound GCS messages. */
 let sendSequence = 0;
@@ -207,6 +213,9 @@ function resetPipelineConnection(): void {
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
   pipeline.vehicleTrackUnsub = null;
+  pipeline.paramMessageUnsub = null;
+  paramManager?.dispose();
+  paramManager = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,11 +304,13 @@ function releasePipelineSubscriptions(): void {
   pipeline.statustextUnsub?.();
   pipeline.packetUnsub?.();
   pipeline.vehicleTrackUnsub?.();
+  pipeline.paramMessageUnsub?.();
   pipeline.statsUnsub = null;
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
   pipeline.vehicleTrackUnsub = null;
+  pipeline.paramMessageUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +572,17 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
     recordPacketActivity();
     appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
+  });
+
+  paramManager = new ParameterManager(sendMavlinkMessage, getVehicleTarget);
+  pipeline.paramMessageUnsub = pipeline.service.onMessage(msg => {
+    paramManager?.handleMessage(msg);
+  });
+  paramManager.onStateChange(state => {
+    postEvent({ type: 'paramState', state });
+  });
+  paramManager.onSetResult(result => {
+    postEvent({ type: 'paramSetResult', result });
   });
 }
 
@@ -859,6 +881,16 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         stopActiveProbe();
         doStartAutoConnect();
       }
+      break;
+    }
+
+    case 'paramRequestAll': {
+      paramManager?.requestAll();
+      break;
+    }
+
+    case 'paramSet': {
+      paramManager?.setValue(msg.paramId, msg.value);
       break;
     }
   }

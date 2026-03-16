@@ -9,6 +9,7 @@
 import type { MessageStats } from '../services';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
+import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
 
 // ---------------------------------------------------------------------------
 // Shared types used by both directions
@@ -41,7 +42,9 @@ export type WorkerCommand =
   | { type: 'connectSerial'; baudRate: BaudRate; autoDetectBaud: boolean; portIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
   | { type: 'startAutoConnect'; autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
   | { type: 'stopAutoConnect' }
-  | { type: 'portsChanged' };
+  | { type: 'portsChanged' }
+  | { type: 'paramRequestAll' }
+  | { type: 'paramSet'; paramId: string; value: number };
 
 // ---------------------------------------------------------------------------
 // Worker → Main thread events
@@ -62,4 +65,6 @@ export type WorkerEvent =
   | { type: 'probeStatus'; status: string | null }
   | { type: 'serialConnected'; baudRate: BaudRate; portIdentity: SerialPortIdentity | null }
   | { type: 'needPermission' }
-  | { type: 'throughput'; bytesPerSec: number };
+  | { type: 'throughput'; bytesPerSec: number }
+  | { type: 'paramState'; state: ParameterStateSnapshot }
+  | { type: 'paramSetResult'; result: ParamSetResult };

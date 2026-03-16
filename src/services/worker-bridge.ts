@@ -11,6 +11,7 @@ import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-ser
 import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
 import type { SerialPortIdentity } from './serial-probe-service';
 import type { BaudRate } from './baud-rates';
+import type { ParameterStateSnapshot, ParamSetResult } from './parameter-types';
 
 // Re-export protocol types so existing consumers don't need to change imports.
 export type { ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
@@ -46,6 +47,8 @@ export class MavlinkWorkerBridge {
   private readonly serialConnectedEmitter = new EventEmitter<(info: { baudRate: BaudRate; portIdentity: SerialPortIdentity | null }) => void>();
   private readonly needPermissionEmitter = new EventEmitter<() => void>();
   private readonly throughputEmitter = new EventEmitter<(bytesPerSec: number) => void>();
+  private readonly paramStateEmitter = new EventEmitter<(state: ParameterStateSnapshot) => void>();
+  private readonly paramSetResultEmitter = new EventEmitter<(result: ParamSetResult) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -209,6 +212,26 @@ export class MavlinkWorkerBridge {
     return this.loadCompleteEmitter.on(callback);
   }
 
+  /** Request all parameters from the vehicle. */
+  requestAllParams(): void {
+    this.postCommand({ type: 'paramRequestAll' });
+  }
+
+  /** Set a parameter value on the vehicle. */
+  setParam(paramId: string, value: number): void {
+    this.postCommand({ type: 'paramSet', paramId, value });
+  }
+
+  /** Subscribe to parameter state updates. */
+  onParamState(callback: (state: ParameterStateSnapshot) => void): () => void {
+    return this.paramStateEmitter.on(callback);
+  }
+
+  /** Subscribe to parameter set result events. */
+  onParamSetResult(callback: (result: ParamSetResult) => void): () => void {
+    return this.paramSetResultEmitter.on(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -314,6 +337,16 @@ export class MavlinkWorkerBridge {
 
       case 'throughput': {
         this.throughputEmitter.emit(msg.bytesPerSec);
+        break;
+      }
+
+      case 'paramState': {
+        this.paramStateEmitter.emit(msg.state);
+        break;
+      }
+
+      case 'paramSetResult': {
+        this.paramSetResultEmitter.emit(msg.result);
         break;
       }
 
