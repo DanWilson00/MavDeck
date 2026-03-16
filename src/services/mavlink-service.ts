@@ -17,6 +17,20 @@ import type { TimeSeriesDataManager } from './timeseries-manager';
 type MessageCallback = (msg: MavlinkMessage) => void;
 type PacketCallback = (packet: Uint8Array, timestampUs: number) => void;
 
+/** Messages that are part of control-plane protocols (parameters, FTP, commands).
+ *  These skip tracker and timeseries to avoid polluting telemetry data,
+ *  but still emit via messageEmitter for protocol handlers. */
+const CONTROL_PLANE_MESSAGES = new Set([
+  'PARAM_VALUE',
+  'PARAM_SET',
+  'PARAM_REQUEST_LIST',
+  'PARAM_REQUEST_READ',
+  'FILE_TRANSFER_PROTOCOL',
+  'COMMAND_ACK',
+  'COMMAND_LONG',
+  'COMPONENT_METADATA',
+]);
+
 export class MavlinkService {
   private readonly parser: MavlinkFrameParser;
   private readonly decoder: MavlinkMessageDecoder;
@@ -63,8 +77,10 @@ export class MavlinkService {
       const msg = this.decoder.decode(frame);
       if (!msg) return;
 
-      this.tracker.trackMessage(msg);
-      this.timeseriesManager.processMessage(msg);
+      if (!CONTROL_PLANE_MESSAGES.has(msg.name)) {
+        this.tracker.trackMessage(msg);
+        this.timeseriesManager.processMessage(msg);
+      }
       this.messageEmitter.emit(msg);
     });
 
