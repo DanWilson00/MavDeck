@@ -79,6 +79,7 @@ interface PipelineState {
   updateUnsub: (() => void) | null;
   statustextUnsub: (() => void) | null;
   packetUnsub: (() => void) | null;
+  vehicleTrackUnsub: (() => void) | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,7 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   updateUnsub: null,
   statustextUnsub: null,
   packetUnsub: null,
+  vehicleTrackUnsub: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -165,6 +167,24 @@ const serial: SerialState = {
 const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
 const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
 
+interface VehicleIdentity {
+  systemId: number;
+  componentId: number;
+  lastHeartbeatMs: number;
+}
+
+let activeVehicle: VehicleIdentity | null = null;
+
+const DEFAULT_VEHICLE_SYSTEM_ID = 1;
+const DEFAULT_VEHICLE_COMPONENT_ID = 1;
+
+function getVehicleTarget(): { systemId: number; componentId: number } {
+  if (activeVehicle) {
+    return { systemId: activeVehicle.systemId, componentId: activeVehicle.componentId };
+  }
+  return { systemId: DEFAULT_VEHICLE_SYSTEM_ID, componentId: DEFAULT_VEHICLE_COMPONENT_ID };
+}
+
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
 const LOG_GRACE_PERIOD_MS = 30_000;
@@ -186,6 +206,7 @@ function resetPipelineConnection(): void {
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
+  pipeline.vehicleTrackUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,10 +294,12 @@ function releasePipelineSubscriptions(): void {
   pipeline.updateUnsub?.();
   pipeline.statustextUnsub?.();
   pipeline.packetUnsub?.();
+  pipeline.vehicleTrackUnsub?.();
   pipeline.statsUnsub = null;
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
+  pipeline.vehicleTrackUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +548,16 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
     forwardStatusText(msg, Date.now(), postEvent);
   });
 
+  pipeline.vehicleTrackUnsub = pipeline.service.onMessage(msg => {
+    if (msg.name === 'HEARTBEAT') {
+      activeVehicle = {
+        systemId: msg.systemId,
+        componentId: msg.componentId,
+        lastHeartbeatMs: Date.now(),
+      };
+    }
+  });
+
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
     recordPacketActivity();
     appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
@@ -610,6 +643,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
     case 'disconnect': {
       cancelLogGraceTimer();
+      activeVehicle = null;
       await cleanupService();
       await cleanupSerial();
       clearMainThreadTelemetryState(pipeline, postEvent);
