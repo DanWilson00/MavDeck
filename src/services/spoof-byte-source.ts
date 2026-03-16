@@ -118,6 +118,10 @@ export class SpoofByteSource implements IByteSource {
     this.scheduleNextStatusText();
   }
 
+  async write(_data: Uint8Array): Promise<void> {
+    // No-op stub — Phase 2 will implement loopback
+  }
+
   async disconnect(): Promise<void> {
     if (this.fastTelemetryTimer !== null) {
       clearInterval(this.fastTelemetryTimer);

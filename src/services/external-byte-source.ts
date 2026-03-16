@@ -29,6 +29,10 @@ export class ExternalByteSource implements IByteSource {
     this.callbacks.clear();
   }
 
+  async write(): Promise<void> {
+    throw new Error('ExternalByteSource does not support write');
+  }
+
   /** Feed bytes from outside (called by worker message handler). */
   emitBytes(data: Uint8Array): void {
     if (!this._isConnected) return;

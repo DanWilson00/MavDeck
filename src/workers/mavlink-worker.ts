@@ -10,6 +10,7 @@
 /// <reference lib="webworker" />
 
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { MavlinkFrameBuilder } from '../mavlink/frame-builder';
 import {
   SpoofByteSource,
   ExternalByteSource,
@@ -107,6 +108,38 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
 
 /** Registry is initialized once via 'init' and persists across connections. */
 let registry: MavlinkMetadataRegistry | null = null;
+
+/** Frame builder for outbound messages, initialized alongside registry. */
+let frameBuilder: MavlinkFrameBuilder | null = null;
+
+/** Sequence number for outbound GCS messages. */
+let sendSequence = 0;
+
+/** GCS system ID per MAVLink convention. */
+const GCS_SYSTEM_ID = 255;
+
+/** GCS component ID (MAV_COMP_ID_MISSIONPLANNER). */
+const GCS_COMPONENT_ID = 190;
+
+/**
+ * Build and send a MAVLink message through the active byte source.
+ * Silently returns if no source or frame builder is available.
+ */
+function sendMavlinkMessage(
+  messageName: string,
+  values: Record<string, number | string | number[]>,
+): void {
+  const source = serial.serialSource ?? pipeline.spoofSource;
+  if (!source || !frameBuilder) return;
+  const frame = frameBuilder.buildFrame({
+    messageName,
+    values,
+    systemId: GCS_SYSTEM_ID,
+    componentId: GCS_COMPONENT_ID,
+    sequence: sendSequence++ & 0xFF,
+  });
+  void source.write(frame);
+}
 
 interface SerialState {
   serialSource: WorkerSerialByteSource | null;
@@ -540,6 +573,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
     case 'init': {
       registry = new MavlinkMetadataRegistry();
       registry.loadFromJsonString(msg.dialectJson);
+      frameBuilder = new MavlinkFrameBuilder(registry);
       postEvent({ type: 'initComplete' });
       break;
     }

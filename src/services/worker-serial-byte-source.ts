@@ -14,6 +14,7 @@ export class WorkerSerialByteSource implements IByteSource {
   private readonly baudRate: number;
   private readonly onDisconnectCb?: () => void;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private _isConnected = false;
   private _isReading = false;
   private isDetached = false;
@@ -45,6 +46,9 @@ export class WorkerSerialByteSource implements IByteSource {
     await this.port.open({ baudRate: this.baudRate });
     this.isDetached = false;
     this._isConnected = true;
+    if (this.port.writable) {
+      this.writer = this.port.writable.getWriter();
+    }
     this.readLoop();
   }
 
@@ -57,6 +61,7 @@ export class WorkerSerialByteSource implements IByteSource {
     this._isConnected = false;
     this._isReading = false;
     this.dataCallbacks.clear();
+    this.releaseWriter();
   }
 
   /** Pause reading and release the reader lock without closing the port. */
@@ -64,6 +69,7 @@ export class WorkerSerialByteSource implements IByteSource {
     this.isDetached = true;
     this._isReading = false;
     this.dataCallbacks.clear();
+    this.releaseWriter();
 
     try {
       if (this.reader) {
@@ -78,6 +84,9 @@ export class WorkerSerialByteSource implements IByteSource {
   resumeAttached(): void {
     this.isDetached = false;
     this._isConnected = true;
+    if (this.port.writable && !this.writer) {
+      this.writer = this.port.writable.getWriter();
+    }
     void this.readLoop();
   }
 
@@ -97,6 +106,25 @@ export class WorkerSerialByteSource implements IByteSource {
       await this.port.close();
     } catch {
       // Port may already be closed
+    }
+  }
+
+  /** Write data to the serial port. Throws if no writer is available. */
+  async write(data: Uint8Array): Promise<void> {
+    if (!this.writer) {
+      throw new Error('Serial port writer not available');
+    }
+    await this.writer.write(data);
+  }
+
+  private releaseWriter(): void {
+    if (this.writer) {
+      try {
+        this.writer.releaseLock();
+      } catch {
+        // Writer may already be released
+      }
+      this.writer = null;
     }
   }
 

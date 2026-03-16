@@ -10,5 +10,6 @@ export interface IByteSource {
   onData(callback: ByteCallback): () => void;  // returns unsubscribe function
   connect(): Promise<void>;
   disconnect(): Promise<void>;
+  write(data: Uint8Array): Promise<void>;
   readonly isConnected: boolean;
 }
