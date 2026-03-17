@@ -326,9 +326,13 @@ export default function SettingsModal(props: SettingsModalProps) {
                 <ToggleSwitch
                   id="auto-connect-toggle"
                   label="Auto-connect serial"
-                  description="Automatically connect to a MAVLink device when one is detected."
-                  checked={appState.autoConnect}
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Not available on Android. Use the connect button instead."
+                    : "Automatically connect to a MAVLink device when one is detected."}
+                  checked={serialSessionController.backend === 'webusb' ? false : appState.autoConnect}
                   onChange={(v) => setAppState('autoConnect', v)}
+                  disabled={serialSessionController.backend === 'webusb'}
+                  disabledTooltip="Auto-connect is not yet supported over USB on Android. Use the connect button to connect manually."
                 />
                 <ToggleSwitch
                   id="auto-baud-toggle"

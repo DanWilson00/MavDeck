@@ -29,7 +29,7 @@ export function useAutoConnect(
       : null;
 
     const autoConnectOptions = {
-      enabled: appState.autoConnect,
+      enabled: backend === 'webusb' ? false : appState.autoConnect,
       autoBaud: backend === 'webusb' ? false : appState.autoDetectBaud,
       manualBaudRate: appState.baudRate,
       lastPortIdentity,
