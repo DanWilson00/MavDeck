@@ -15,6 +15,7 @@ vi.mock('../../services', async () => {
   return {
     ...actual,
     useSerialSessionController: () => serialController,
+    getSerialBackend: () => 'native' as const,
   };
 });
 

@@ -69,7 +69,6 @@ export {
 } from './tlog-service';
 export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported, isWebUsbAvailable, isSerialSupported, type BaudRate } from './baud-rates';
 export { getSerialBackend, requestPort, getGrantedPorts, type SerialBackend, type PortLike } from './serial-backend';
-export { diagnoseFtdiUsb, requestAnyUsbDevice, type UsbDiagnostic } from './ftdi-serial-port';
 export { WebSerialByteSource, type SerialBytesCallback } from './webserial-byte-source';
 export { WorkerSerialByteSource } from './worker-serial-byte-source';
 export { SerialSessionController, type AutoConnectOptions, type ManualConnectOptions } from './serial-session-controller';

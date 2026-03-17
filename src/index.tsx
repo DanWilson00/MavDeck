@@ -4,9 +4,15 @@ import './global.css';
 import { registerSW } from 'virtual:pwa-register';
 import { setAppState } from './store';
 
+/** Stored reference to the SW update function. Call with `true` to activate new SW and reload. */
+export let updateSW: ((reloadPage?: boolean) => Promise<void>) | null = null;
+
 if ('serviceWorker' in navigator) {
-  registerSW({
+  updateSW = registerSW({
     immediate: true,
+    onNeedRefresh() {
+      setAppState('updateAvailable', true);
+    },
     onOfflineReady() {
       setAppState('offlineReady', true);
       setAppState('offlineStatus', 'ready');

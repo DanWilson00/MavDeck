@@ -4,11 +4,12 @@ import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
   initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
-  useSerialSessionController, useWorkerBridge, isSerialSupported, isWebSerialSupported,
-  getSerialBackend, diagnoseFtdiUsb, requestAnyUsbDevice,
+  useSerialSessionController, useWorkerBridge, isSerialSupported,
+  getSerialBackend,
 } from '../services';
-import type { BaudRate, UnitProfile, UsbDiagnostic } from '../services';
+import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
+
 
 const UI_SCALE_MIN = 0.6;
 const UI_SCALE_MAX = 1.8;
@@ -39,8 +40,6 @@ export default function SettingsModal(props: SettingsModalProps) {
   const [activeTab, setActiveTab] = createSignal<SettingsTab>('general');
   const [importError, setImportError] = createSignal<string | null>(null);
   const [refreshing, setRefreshing] = createSignal(false);
-  const [usbDiag, setUsbDiag] = createSignal<UsbDiagnostic | null>(null);
-  const [diagRunning, setDiagRunning] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
 
   onMount(() => {
@@ -325,7 +324,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                   </p>
                 }
               >
-                <Show when={isWebSerialSupported()}>
+                <Show when={getSerialBackend() === 'native'}>
                   <ToggleSwitch
                     id="auto-connect-toggle"
                     label="Auto-connect serial"
@@ -333,14 +332,19 @@ export default function SettingsModal(props: SettingsModalProps) {
                     checked={appState.autoConnect}
                     onChange={(v) => setAppState('autoConnect', v)}
                   />
+                  <ToggleSwitch
+                    id="auto-baud-toggle"
+                    label="Auto-detect baud rate"
+                    description="Try different baud rates to find the correct one."
+                    checked={appState.autoDetectBaud}
+                    onChange={(v) => setAppState('autoDetectBaud', v)}
+                  />
                 </Show>
-                <ToggleSwitch
-                  id="auto-baud-toggle"
-                  label="Auto-detect baud rate"
-                  description="Try different baud rates to find the correct one."
-                  checked={appState.autoDetectBaud}
-                  onChange={(v) => setAppState('autoDetectBaud', v)}
-                />
+                <Show when={getSerialBackend() === 'webusb'}>
+                  <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Auto-connect and baud detection require native serial support (not available on Android).
+                  </p>
+                </Show>
                 <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
                   <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
                     Serial Baud Rate
@@ -372,95 +376,6 @@ export default function SettingsModal(props: SettingsModalProps) {
                   Forget All Ports
                 </button>
 
-                <Show when={getSerialBackend() === 'webusb'}>
-                <Divider />
-                  <SectionLabel>USB Diagnostics</SectionLabel>
-                  <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Opens the USB device picker with no filters to check if your tablet can see any USB device.
-                  </p>
-                  <button
-                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
-                    disabled={diagRunning()}
-                    onClick={async () => {
-                      setDiagRunning(true);
-                      try {
-                        setUsbDiag(await requestAnyUsbDevice());
-                      } finally {
-                        setDiagRunning(false);
-                      }
-                    }}
-                  >
-                    {diagRunning() ? 'Scanning...' : 'Scan for Any USB Device'}
-                  </button>
-                  <button
-                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
-                    style={{ 'border-color': 'var(--border)', color: 'var(--text-secondary)' }}
-                    disabled={diagRunning()}
-                    onClick={async () => {
-                      setDiagRunning(true);
-                      try {
-                        setUsbDiag(await diagnoseFtdiUsb());
-                      } finally {
-                        setDiagRunning(false);
-                      }
-                    }}
-                  >
-                    {diagRunning() ? 'Testing...' : 'Test USB Connection (granted only)'}
-                  </button>
-
-                  <Show when={usbDiag()}>
-                    {(diag) => (
-                      <div class="space-y-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        <div class="flex items-center gap-2">
-                          <span
-                            class="inline-block w-2 h-2 rounded-full"
-                            style={{ 'background-color': diag().webUsbAvailable ? '#22c55e' : '#ef4444' }}
-                          />
-                          <span>WebUSB: {diag().webUsbAvailable ? 'Available' : 'Not available'}</span>
-                        </div>
-                        <div>Granted devices: {diag().grantedDevices}</div>
-                        <div>FTDI devices: {diag().ftdiDevices}</div>
-
-                        <Show when={diag().allDeviceInfo.length > 0}>
-                          <div class="mt-1 space-y-1">
-                            {diag().allDeviceInfo.map(d => (
-                              <div
-                                class="px-2 py-1 rounded text-xs font-mono"
-                                style={{ 'background-color': 'var(--bg-hover)' }}
-                              >
-                                VID:0x{d.vendorId.toString(16).padStart(4, '0')} PID:0x{d.productId.toString(16).padStart(4, '0')}
-                                {d.productName ? ` — ${d.productName}` : ''}
-                              </div>
-                            ))}
-                          </div>
-                        </Show>
-
-                        <Show when={diag().grantedDevices === 0}>
-                          <div
-                            class="mt-2 p-2 rounded text-xs"
-                            style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
-                          >
-                            <p class="font-medium mb-1">No USB devices detected. Try:</p>
-                            <ul class="list-disc pl-4 space-y-0.5" style={{ color: 'var(--text-secondary)' }}>
-                              <li>Check USB OTG is enabled in Android settings</li>
-                              <li>Try a different OTG adapter or cable</li>
-                              <li>Test with a USB flash drive or mouse first</li>
-                              <li>Try a powered USB hub between OTG and FTDI</li>
-                              <li>Verify Android 9+ and Chrome 61+</li>
-                            </ul>
-                          </div>
-                        </Show>
-
-                        <Show when={diag().grantedDevices > 0 && diag().ftdiDevices === 0}>
-                          <p style={{ color: '#f59e0b' }}>
-                            USB devices found but no FTDI adapter — check the adapter connection.
-                          </p>
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
-                </Show>
               </Show>
             </div>
           </Show>

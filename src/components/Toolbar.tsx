@@ -3,6 +3,8 @@ import { appState, setAppState } from '../store';
 import { useLogViewerService, useSerialSessionController, isSerialSupported, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
+import InstallPrompt from './InstallPrompt';
+
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
@@ -68,6 +70,8 @@ export default function Toolbar(props: ToolbarProps) {
 
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
+        <InstallPrompt />
+
         {/* Serial connection */}
         <Show when={isSerialSupported() && !appState.logViewerState.isActive}>
           <Show when={!appState.autoConnect} fallback={

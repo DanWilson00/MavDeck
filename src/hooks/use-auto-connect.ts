@@ -8,7 +8,7 @@
 
 import { createEffect, onCleanup } from 'solid-js';
 import { appState } from '../store';
-import { useSerialSessionController, type MavDeckSettings } from '../services';
+import { useSerialSessionController, getSerialBackend, type MavDeckSettings } from '../services';
 import type { Accessor, Setter } from 'solid-js';
 
 export function useAutoConnect(
@@ -20,6 +20,7 @@ export function useAutoConnect(
 
   createEffect(() => {
     if (!appState.isReady || !settingsReady()) return;
+    if (getSerialBackend() !== 'native') return;
     const isLogActive = appState.logViewerState.isActive;
     const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
       ? { usbVendorId: appState.lastPortVendorId, usbProductId: appState.lastPortProductId }

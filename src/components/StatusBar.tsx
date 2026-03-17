@@ -3,6 +3,7 @@ import { appState } from '../store';
 import { isSerialSupported } from '../services';
 import { STATUS_COLORS } from '../models';
 
+
 const STATUS_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
   connecting: 'Connecting',

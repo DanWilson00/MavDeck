@@ -49,6 +49,7 @@ export interface AppState {
   lastSuccessfulBaudRate: BaudRate | null;
   connectedBaudRate: BaudRate | null;
   throughputBytesPerSec: number;
+  updateAvailable: boolean;
 }
 
 export function createInitialAppState(): AppState {
@@ -96,6 +97,7 @@ export function createInitialAppState(): AppState {
     lastSuccessfulBaudRate: DEFAULT_SETTINGS.lastSuccessfulBaudRate,
     connectedBaudRate: null,
     throughputBytesPerSec: 0,
+    updateAvailable: false,
   };
 }
 

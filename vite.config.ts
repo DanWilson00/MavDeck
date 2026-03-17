@@ -8,7 +8,7 @@ export default defineConfig({
     solidPlugin(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       devOptions: {
         enabled: true,
         type: 'module',
