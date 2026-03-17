@@ -325,7 +325,7 @@ export class SerialSessionController {
     if (backend === 'native') {
       const ports = await navigator.serial.getPorts();
       await Promise.all(ports.map(port => port.forget()));
-    } else if (backend === 'webusb-polyfill') {
+    } else if (backend === 'webusb') {
       const devices = await navigator.usb.getDevices();
       await Promise.all(devices.map(device => device.forget()));
     }

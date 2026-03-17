@@ -1,16 +1,16 @@
 /**
- * Serial backend abstraction — supports native Web Serial and WebUSB polyfill.
+ * Serial backend abstraction — supports native Web Serial and WebUSB.
  *
  * On desktop Chrome/Edge, uses native Web Serial API.
- * On Android Chrome (no Web Serial), falls back to web-serial-polyfill over WebUSB.
+ * On Android Chrome (no Web Serial), falls back to WebUSB with FTDI driver.
  */
 
 import { isWebSerialSupported, isWebUsbAvailable } from './baud-rates';
 
-export type SerialBackend = 'native' | 'webusb-polyfill';
+export type SerialBackend = 'native' | 'webusb';
 
 /**
- * Common interface for serial ports from both native Web Serial and the polyfill.
+ * Common interface for serial ports from both native Web Serial and WebUSB drivers.
  * Both provide the same surface: open/close, readable/writable streams, getInfo, forget.
  */
 export interface PortLike {
@@ -25,7 +25,7 @@ export interface PortLike {
 /** Determine which serial backend to use, or null if none is available. */
 export function getSerialBackend(): SerialBackend | null {
   if (isWebSerialSupported()) return 'native';
-  if (isWebUsbAvailable()) return 'webusb-polyfill';
+  if (isWebUsbAvailable()) return 'webusb';
   return null;
 }
 
@@ -37,19 +37,19 @@ export async function requestPort(backend: SerialBackend): Promise<PortLike> {
   if (backend === 'native') {
     return navigator.serial.requestPort();
   }
-  const { serial } = await import('web-serial-polyfill');
-  return serial.requestPort();
+  const { requestFtdiPort } = await import('./ftdi-serial-port');
+  return requestFtdiPort();
 }
 
 /**
  * Get previously-granted ports from the appropriate backend.
  * Native: navigator.serial.getPorts()
- * Polyfill: serial.getPorts() (calls navigator.usb.getDevices() internally)
+ * WebUSB: get granted FTDI devices
  */
 export async function getGrantedPorts(backend: SerialBackend): Promise<PortLike[]> {
   if (backend === 'native') {
     return navigator.serial.getPorts();
   }
-  const { serial } = await import('web-serial-polyfill');
-  return serial.getPorts();
+  const { getGrantedFtdiPorts } = await import('./ftdi-serial-port');
+  return getGrantedFtdiPorts();
 }
