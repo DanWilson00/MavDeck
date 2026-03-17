@@ -372,6 +372,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                   Forget All Ports
                 </button>
 
+                <Show when={getSerialBackend() === 'webusb'}>
                 <Divider />
                   <SectionLabel>USB Diagnostics</SectionLabel>
                   <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -459,6 +460,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                       </div>
                     )}
                   </Show>
+                </Show>
               </Show>
             </div>
           </Show>

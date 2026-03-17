@@ -637,20 +637,29 @@ describe('requestAnyUsbDevice', () => {
 
 describe('serial-backend', () => {
   it('getSerialBackend returns webusb when only USB is available', async () => {
-    vi.stubGlobal('navigator', { usb: {} });
-    // Re-import to pick up the stubbed navigator
+    vi.stubGlobal('navigator', { usb: {}, userAgent: '' });
     const { getSerialBackend } = await import('../serial-backend');
     expect(getSerialBackend()).toBe('webusb');
   });
 
-  it('getSerialBackend returns native when Web Serial is available', async () => {
-    vi.stubGlobal('navigator', { serial: {}, usb: {} });
+  it('getSerialBackend returns native when Web Serial is available on non-Android', async () => {
+    vi.stubGlobal('navigator', { serial: {}, usb: {}, userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' });
     const { getSerialBackend } = await import('../serial-backend');
     expect(getSerialBackend()).toBe('native');
   });
 
+  it('getSerialBackend returns webusb on Android even when Web Serial exists', async () => {
+    vi.stubGlobal('navigator', {
+      serial: {},
+      usb: {},
+      userAgent: 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120.0',
+    });
+    const { getSerialBackend } = await import('../serial-backend');
+    expect(getSerialBackend()).toBe('webusb');
+  });
+
   it('getSerialBackend returns null when neither is available', async () => {
-    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('navigator', { userAgent: '' });
     const { getSerialBackend } = await import('../serial-backend');
     expect(getSerialBackend()).toBeNull();
   });

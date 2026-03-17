@@ -22,9 +22,15 @@ export interface PortLike {
   forget(): Promise<void>;
 }
 
+function isAndroid(): boolean {
+  return typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+}
+
 /** Determine which serial backend to use, or null if none is available. */
 export function getSerialBackend(): SerialBackend | null {
-  if (isWebSerialSupported()) return 'native';
+  // Android Chrome exposes navigator.serial but it doesn't work with
+  // USB-serial adapters (FTDI etc). Prefer WebUSB on Android.
+  if (isWebSerialSupported() && !isAndroid()) return 'native';
   if (isWebUsbAvailable()) return 'webusb';
   return null;
 }
