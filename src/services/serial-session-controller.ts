@@ -215,7 +215,7 @@ export class SerialSessionController {
       }
     } catch (e: unknown) {
       if (backend === 'webusb' && e instanceof DOMException && e.name === 'NotFoundError') {
-        this.probeStatusEmitter.emit('No USB device selected — check Settings > USB Diagnostics');
+        // User cancelled the picker — no message needed
       }
     }
   }
@@ -251,7 +251,7 @@ export class SerialSessionController {
         port = await requestPort(backend);
       } catch (e: unknown) {
         if (e instanceof DOMException && e.name === 'NotFoundError') {
-          this.probeStatusEmitter.emit('No USB device selected — check Settings > USB Diagnostics');
+          // User cancelled the picker — no message needed
         }
         return;
       }
