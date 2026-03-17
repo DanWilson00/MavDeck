@@ -458,8 +458,6 @@ export class SerialSessionController {
     const detector = new MavlinkFrameDetector();
     let detected = false;
     let detectedBaud: BaudRate = baudRates[0];
-    /** When true, incoming bytes are discarded (stale USB buffer draining). */
-    let draining = false;
 
     // Open port at first baud rate
     try {
@@ -474,7 +472,7 @@ export class SerialSessionController {
       return false;
     }
 
-    // Read loop — feed bytes to detector (skip bytes while draining)
+    // Read loop — feed bytes to detector
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let readingDone = false;
 
@@ -485,7 +483,7 @@ export class SerialSessionController {
           while (!readingDone) {
             const { value, done } = await reader!.read();
             if (done || readingDone) break;
-            if (value && !draining && detector.feed(value)) {
+            if (value && detector.feed(value)) {
               detected = true;
               readingDone = true;
             }
@@ -507,23 +505,17 @@ export class SerialSessionController {
       if (i > 0) {
         // Change baud rate without close/reopen
         if (port.setBaudRate) {
-          // Drain stale bytes from USB buffer before switching
-          draining = true;
           try {
             await port.setBaudRate(rate);
           } catch (e) {
-            draining = false;
             console.warn(`[WebUSB probe] setBaudRate failed: ${e instanceof Error ? e.message : e}`);
             continue;
           }
-          // Wait for stale USB buffer bytes to flush through
-          await new Promise(r => setTimeout(r, 200));
-          detector.reset();
-          draining = false;
         } else {
           // Fallback: close and reopen (shouldn't happen for FTDI)
           break;
         }
+        detector.reset();
       }
 
       const label = `Trying ${rate} baud...`;
