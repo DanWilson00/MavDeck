@@ -206,8 +206,10 @@ export class SerialSessionController {
       if (backend === 'native') {
         this.workerBridge.notifyPortsChanged();
       }
-    } catch {
-      // User cancelled the picker
+    } catch (e: unknown) {
+      if (backend === 'webusb' && e instanceof DOMException && e.name === 'NotFoundError') {
+        this.probeStatusEmitter.emit('No USB device selected — check Settings > USB Diagnostics');
+      }
     }
   }
 
@@ -240,7 +242,10 @@ export class SerialSessionController {
       let port;
       try {
         port = await requestPort(backend);
-      } catch {
+      } catch (e: unknown) {
+        if (e instanceof DOMException && e.name === 'NotFoundError') {
+          this.probeStatusEmitter.emit('No USB device selected — check Settings > USB Diagnostics');
+        }
         return;
       }
 

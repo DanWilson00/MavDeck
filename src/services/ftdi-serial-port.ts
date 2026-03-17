@@ -269,6 +269,34 @@ export class FtdiSerialPort implements PortLike {
   }
 }
 
+// ── USB diagnostics ─────────────────────────────────────────────────────────
+
+export interface UsbDiagnostic {
+  webUsbAvailable: boolean;
+  grantedDevices: number;
+  ftdiDevices: number;
+  allDeviceInfo: Array<{ vendorId: number; productId: number; productName: string }>;
+}
+
+/** Inspect current WebUSB state without requiring a user gesture. */
+export async function diagnoseFtdiUsb(): Promise<UsbDiagnostic> {
+  if (typeof navigator === 'undefined' || !navigator.usb) {
+    return { webUsbAvailable: false, grantedDevices: 0, ftdiDevices: 0, allDeviceInfo: [] };
+  }
+
+  const devices = await navigator.usb.getDevices();
+  return {
+    webUsbAvailable: true,
+    grantedDevices: devices.length,
+    ftdiDevices: devices.filter(d => d.vendorId === FTDI_VENDOR_ID).length,
+    allDeviceInfo: devices.map(d => ({
+      vendorId: d.vendorId,
+      productId: d.productId,
+      productName: d.productName ?? '',
+    })),
+  };
+}
+
 // ── Factory functions ───────────────────────────────────────────────────────
 
 /** Show the WebUSB device picker filtered to FTDI vendor devices. */
