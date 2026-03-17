@@ -20,6 +20,7 @@ export interface PortLike {
   readonly writable: WritableStream<Uint8Array> | null;
   getInfo(): SerialPortInfo;
   forget(): Promise<void>;
+  setBaudRate?(rate: number): Promise<void>;
 }
 
 function isAndroid(): boolean {

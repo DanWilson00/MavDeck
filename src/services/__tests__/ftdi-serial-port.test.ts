@@ -285,6 +285,62 @@ describe('FtdiSerialPort.close', () => {
   });
 });
 
+// ── setBaudRate ──────────────────────────────────────────────────────────────
+
+describe('FtdiSerialPort.setBaudRate', () => {
+  beforeEach(() => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+  });
+
+  it('sends a SET_BAUD vendor transfer with correct divisor', async () => {
+    const { device, controlTransfers } = makeMockDevice();
+    const port = new FtdiSerialPort(device);
+    await port.open({ baudRate: 115200 });
+
+    // Clear the open() transfers
+    controlTransfers.length = 0;
+
+    await port.setBaudRate(57600);
+
+    expect(controlTransfers).toHaveLength(1);
+    const divisor = computeBaudDivisor(57600);
+    expect(controlTransfers[0]).toEqual({
+      requestType: 'vendor',
+      recipient: 'device',
+      request: 0x03,
+      value: divisor.value,
+      index: divisor.index,
+    });
+  });
+
+  it('can change baud rate multiple times', async () => {
+    const { device, controlTransfers } = makeMockDevice();
+    const port = new FtdiSerialPort(device);
+    await port.open({ baudRate: 115200 });
+    controlTransfers.length = 0;
+
+    await port.setBaudRate(9600);
+    await port.setBaudRate(921600);
+
+    expect(controlTransfers).toHaveLength(2);
+    expect(controlTransfers[0].request).toBe(0x03);
+    expect(controlTransfers[1].request).toBe(0x03);
+
+    const div9600 = computeBaudDivisor(9600);
+    expect(controlTransfers[0].value).toBe(div9600.value);
+    expect(controlTransfers[0].index).toBe(div9600.index);
+
+    const div921600 = computeBaudDivisor(921600);
+    expect(controlTransfers[1].value).toBe(div921600.value);
+    expect(controlTransfers[1].index).toBe(div921600.index);
+  });
+});
+
 // ── Modem status stripping ──────────────────────────────────────────────────
 
 describe('FtdiSerialPort readable', () => {

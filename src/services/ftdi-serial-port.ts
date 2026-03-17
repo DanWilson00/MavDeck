@@ -247,6 +247,11 @@ export class FtdiSerialPort implements PortLike {
     await this.device.forget();
   }
 
+  async setBaudRate(rate: number): Promise<void> {
+    const divisor = computeBaudDivisor(rate);
+    await this.vendorTransfer(FTDI_SET_BAUD, divisor.value, divisor.index);
+  }
+
   private async vendorTransfer(request: number, value: number, index: number): Promise<void> {
     await this.device.controlTransferOut({
       requestType: 'vendor',

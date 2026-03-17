@@ -7,7 +7,7 @@
 
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
-import type { BaudRate } from './baud-rates';
+import { BAUD_PROBE_ORDER, PROBE_TIMEOUT_MS, type BaudRate } from './baud-rates';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 
 /** Identifies a USB serial port across sessions. */
@@ -27,8 +27,6 @@ export type ProbeStatusCallback = (status: string | null) => void;
 
 export const WAITING_FOR_SERIAL_ACCESS_STATUS = 'Waiting for serial port access...';
 
-/** Timeout per port/baud combination (ms). HEARTBEAT is 1Hz, so 5s gives ~4-5 chances. */
-const PROBE_TIMEOUT_MS = 5000;
 
 /** Number of valid CRC-checked frames required to confirm a working connection.
  *  1 is sufficient — a single CRC-16-valid MAVLink frame has a false positive rate of ~1/65536. */
@@ -37,8 +35,6 @@ const PROBE_FRAME_THRESHOLD = 1;
 /** Delay between full probe cycles when no device is found (ms). */
 const RETRY_INTERVAL_MS = 3000;
 
-/** Baud rates to try, in priority order (most common first). */
-const BAUD_PROBE_ORDER: BaudRate[] = [115200, 57600, 921600, 230400, 38400, 19200, 9600, 500000, 1000000];
 
 export interface ProbeConfig {
   autoBaud: boolean;

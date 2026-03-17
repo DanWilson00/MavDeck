@@ -20,31 +20,49 @@ export function useAutoConnect(
 
   createEffect(() => {
     if (!appState.isReady || !settingsReady()) return;
-    if (getSerialBackend() !== 'native') return;
+    const backend = getSerialBackend();
+    if (!backend) return;
+
     const isLogActive = appState.logViewerState.isActive;
     const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
       ? { usbVendorId: appState.lastPortVendorId, usbProductId: appState.lastPortProductId }
       : null;
 
+    const autoConnectOptions = {
+      enabled: appState.autoConnect,
+      autoBaud: appState.autoDetectBaud,
+      manualBaudRate: appState.baudRate,
+      lastPortIdentity,
+      lastBaudRate: appState.lastSuccessfulBaudRate,
+    };
+
     if (isLogActive) {
       if (!serialController.hasSuspendedLiveSession) {
-        serialController.stopAutoConnect();
+        if (backend === 'native') {
+          serialController.stopAutoConnect();
+        } else {
+          serialController.stopAutoConnectWebUsb();
+        }
       }
     } else {
       if (serialController.hasSuspendedLiveSession) {
         return;
       }
-      serialController.syncAutoConnect({
-        enabled: appState.autoConnect,
-        autoBaud: appState.autoDetectBaud,
-        manualBaudRate: appState.baudRate,
-        lastPortIdentity,
-        lastBaudRate: appState.lastSuccessfulBaudRate,
-      });
+      if (backend === 'native') {
+        // Desktop: worker-side probing
+        serialController.syncAutoConnect(autoConnectOptions);
+      } else {
+        // Android: main-thread probing via WebUSB
+        serialController.syncAutoConnectWebUsb(autoConnectOptions);
+      }
     }
 
     onCleanup(() => {
-      serialController.stopAutoConnect();
+      if (backend === 'native') {
+        serialController.stopAutoConnect();
+      } else {
+        serialController.stopAutoConnectWebUsb();
+      }
     });
   });
 }
