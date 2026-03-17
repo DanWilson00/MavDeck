@@ -13,7 +13,15 @@
   "bugs": {
     "url": "https://github.com/DanWilson00/MavDeck/issues"
   },
-  "keywords": ["mavlink", "telemetry", "visualization", "pwa", "solidjs", "uplot", "drone"],
+  "keywords": [
+    "mavlink",
+    "telemetry",
+    "visualization",
+    "pwa",
+    "solidjs",
+    "uplot",
+    "drone"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -28,7 +36,8 @@
     "idb-keyval": "^6.2.2",
     "leaflet": "^1.9.4",
     "solid-js": "^1.9.11",
-    "uplot": "^1.6.32"
+    "uplot": "^1.6.32",
+    "xz-decompress": "^0.2.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

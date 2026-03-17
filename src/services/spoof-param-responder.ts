@@ -114,6 +114,18 @@ export class SpoofParamResponder {
       { id: 'RA_NEUTRAL', value: 0.5 },
       { id: 'RA_MAX', value: 0.8 },
       { id: 'RA_DIR', value: -1 },
+      // Array parameters: pitch FF velocity breakpoints
+      { id: 'SCL_PFF_V0', value: 0.0 },
+      { id: 'SCL_PFF_V1', value: 5.0 },
+      { id: 'SCL_PFF_V2', value: 10.0 },
+      { id: 'SCL_PFF_V3', value: 15.0 },
+      { id: 'SCL_PFF_V4', value: 20.0 },
+      // Array parameters: pitch FF coefficients
+      { id: 'SCL_PFF_C0', value: 0.0 },
+      { id: 'SCL_PFF_C1', value: 0.0 },
+      { id: 'SCL_PFF_C2', value: 0.0 },
+      { id: 'SCL_PFF_C3', value: 0.0 },
+      { id: 'SCL_PFF_C4', value: 0.0 },
     ];
 
     for (let i = 0; i < defaults.length; i++) {

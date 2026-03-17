@@ -25,6 +25,11 @@ export interface ParamDef {
   volatile?: boolean;
   reboot_required?: boolean;
   values?: Record<string, string>;
+  arrayInfo?: {
+    prefix: string;   // mavlink_prefix, e.g. "SCL_PFF_V"
+    index: number;    // 0-based element index
+    count: number;    // total elements in the array
+  };
 }
 
 export interface ArrayParamDef {

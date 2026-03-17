@@ -12,6 +12,7 @@ import { MavlinkFrameParser } from '../mavlink/frame-parser';
 import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import { SpoofParamResponder } from './spoof-param-responder';
+import { SpoofFtpResponder } from './spoof-ftp-responder';
 
 /** Status text entries with severity levels. */
 const STATUS_MESSAGES: ReadonlyArray<readonly [number, string]> = [
@@ -46,6 +47,7 @@ export class SpoofByteSource implements IByteSource {
   private readonly inboundParser: MavlinkFrameParser;
   private readonly inboundDecoder: MavlinkMessageDecoder;
   private readonly paramResponder: SpoofParamResponder;
+  private readonly ftpResponder: SpoofFtpResponder;
 
   private readonly systemId: number;
   private readonly componentId: number;
@@ -77,21 +79,29 @@ export class SpoofByteSource implements IByteSource {
     registry: MavlinkMetadataRegistry,
     systemId = 1,
     componentId = 1,
+    metadataJson = '',
   ) {
     this.registry = registry;
     this.frameBuilder = new MavlinkFrameBuilder(registry);
     this.systemId = systemId;
     this.componentId = componentId;
 
-    // Loopback pipeline: parse outbound frames, decode, dispatch to responder
+    // Loopback pipeline: parse outbound frames, decode, dispatch to responders
     this.inboundParser = new MavlinkFrameParser(registry);
     this.inboundDecoder = new MavlinkMessageDecoder(registry);
     this.paramResponder = new SpoofParamResponder(registry, systemId, componentId);
+    this.ftpResponder = new SpoofFtpResponder(registry, metadataJson, systemId, componentId);
 
     this.inboundParser.onFrame(frame => {
       const msg = this.inboundDecoder.decode(frame);
       if (!msg) return;
-      const responses = this.paramResponder.handleMessage(msg);
+
+      // Collect responses from all responders
+      const responses = [
+        ...this.paramResponder.handleMessage(msg),
+        ...this.ftpResponder.handleMessage(msg),
+      ];
+
       for (const responseFrame of responses) {
         // Emit response frames through the normal data path
         // Use setTimeout to avoid synchronous re-entry

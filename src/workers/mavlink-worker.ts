@@ -19,6 +19,7 @@ import {
   MavlinkService,
 } from '../services';
 import { ParameterManager } from '../services/parameter-manager';
+import { MetadataFtpDownloader } from '../services/metadata-ftp-downloader';
 import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
@@ -82,6 +83,7 @@ interface PipelineState {
   packetUnsub: (() => void) | null;
   vehicleTrackUnsub: (() => void) | null;
   paramMessageUnsub: (() => void) | null;
+  ftpMessageUnsub: (() => void) | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +107,7 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   packetUnsub: null,
   vehicleTrackUnsub: null,
   paramMessageUnsub: null,
+  ftpMessageUnsub: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +122,9 @@ let frameBuilder: MavlinkFrameBuilder | null = null;
 
 /** Parameter manager for the MAVLink parameter protocol. */
 let paramManager: ParameterManager | null = null;
+
+/** Metadata FTP downloader for component metadata protocol. */
+let metadataDownloader: MetadataFtpDownloader | null = null;
 
 /** Sequence number for outbound GCS messages. */
 let sendSequence = 0;
@@ -214,8 +220,11 @@ function resetPipelineConnection(): void {
   pipeline.packetUnsub = null;
   pipeline.vehicleTrackUnsub = null;
   pipeline.paramMessageUnsub = null;
+  pipeline.ftpMessageUnsub = null;
   paramManager?.dispose();
   paramManager = null;
+  metadataDownloader?.dispose();
+  metadataDownloader = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,12 +314,14 @@ function releasePipelineSubscriptions(): void {
   pipeline.packetUnsub?.();
   pipeline.vehicleTrackUnsub?.();
   pipeline.paramMessageUnsub?.();
+  pipeline.ftpMessageUnsub?.();
   pipeline.statsUnsub = null;
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
   pipeline.vehicleTrackUnsub = null;
   pipeline.paramMessageUnsub = null;
+  pipeline.ftpMessageUnsub = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +595,13 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   paramManager.onSetResult(result => {
     postEvent({ type: 'paramSetResult', result });
   });
+
+  metadataDownloader = new MetadataFtpDownloader(sendMavlinkMessage, getVehicleTarget);
+  pipeline.ftpMessageUnsub = pipeline.service.onMessage(msg => {
+    if (msg.name === 'FILE_TRANSFER_PROTOCOL') {
+      metadataDownloader?.handleMessage(msg);
+    }
+  });
 }
 
 async function reconnectWithCurrentSource(): Promise<void> {
@@ -645,9 +663,18 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
       const { config } = msg;
 
-      const source = config.type === 'spoof'
-        ? (pipeline.spoofSource = new SpoofByteSource(registry))
-        : (pipeline.externalSource = new ExternalByteSource());
+      let source: SpoofByteSource | ExternalByteSource;
+      if (config.type === 'spoof') {
+        // Load bundled metadata for spoof FTP responder (best-effort)
+        let metadataJson = '';
+        try {
+          const resp = await fetch('/parameters.json');
+          if (resp.ok) metadataJson = await resp.text();
+        } catch { /* spoof FTP will serve empty metadata */ }
+        source = pipeline.spoofSource = new SpoofByteSource(registry, 1, 1, metadataJson);
+      } else {
+        source = pipeline.externalSource = new ExternalByteSource();
+      }
 
       setupService(source);
 
@@ -891,6 +918,17 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
     case 'paramSet': {
       paramManager?.setValue(msg.paramId, msg.value);
+      break;
+    }
+
+    case 'ftpDownloadMetadata': {
+      if (!metadataDownloader) {
+        postEvent({ type: 'ftpMetadataError', error: 'Not connected' });
+        break;
+      }
+      metadataDownloader.download()
+        .then(result => postEvent({ type: 'ftpMetadataResult', json: result.json, crcValid: result.crcValid }))
+        .catch(err => postEvent({ type: 'ftpMetadataError', error: err instanceof Error ? err.message : String(err) }));
       break;
     }
   }

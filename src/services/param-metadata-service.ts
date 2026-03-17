@@ -36,6 +36,7 @@ export function flattenToLookup(file: ParamMetadataFile): Map<string, ParamDef> 
         unit: arrayParam.unit,
         decimal: arrayParam.decimal,
         description: arrayParam.description,
+        arrayInfo: { prefix: arrayParam.mavlink_prefix, index: i, count: arrayParam.count },
       };
       lookup.set(expanded.mavlink_id, expanded);
     }

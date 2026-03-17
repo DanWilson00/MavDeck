@@ -49,6 +49,8 @@ export class MavlinkWorkerBridge {
   private readonly throughputEmitter = new EventEmitter<(bytesPerSec: number) => void>();
   private readonly paramStateEmitter = new EventEmitter<(state: ParameterStateSnapshot) => void>();
   private readonly paramSetResultEmitter = new EventEmitter<(result: ParamSetResult) => void>();
+  private readonly ftpMetadataResultEmitter = new EventEmitter<(json: string, crcValid: boolean) => void>();
+  private readonly ftpMetadataErrorEmitter = new EventEmitter<(error: string) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -232,6 +234,21 @@ export class MavlinkWorkerBridge {
     return this.paramSetResultEmitter.on(callback);
   }
 
+  /** Request FTP metadata download from the connected device. */
+  downloadFtpMetadata(): void {
+    this.postCommand({ type: 'ftpDownloadMetadata' });
+  }
+
+  /** Subscribe to FTP metadata download result events. */
+  onFtpMetadataResult(callback: (json: string, crcValid: boolean) => void): () => void {
+    return this.ftpMetadataResultEmitter.on(callback);
+  }
+
+  /** Subscribe to FTP metadata download error events. */
+  onFtpMetadataError(callback: (error: string) => void): () => void {
+    return this.ftpMetadataErrorEmitter.on(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -347,6 +364,16 @@ export class MavlinkWorkerBridge {
 
       case 'paramSetResult': {
         this.paramSetResultEmitter.emit(msg.result);
+        break;
+      }
+
+      case 'ftpMetadataResult': {
+        this.ftpMetadataResultEmitter.emit(msg.json, msg.crcValid);
+        break;
+      }
+
+      case 'ftpMetadataError': {
+        this.ftpMetadataErrorEmitter.emit(msg.error);
         break;
       }
 

@@ -77,6 +77,57 @@ input:focus-visible {
   background-color: transparent !important;
 }
 
+/* Custom range slider */
+.custom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.custom-slider::-webkit-slider-runnable-track {
+  height: 24px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to bottom,
+    transparent calc(50% - 3px),
+    var(--border) calc(50% - 3px),
+    var(--border) calc(50% + 3px),
+    transparent calc(50% + 3px)
+  );
+}
+
+.custom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.custom-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.custom-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 /* uPlot drag-select box */
 .uplot .u-select { background: rgba(0, 212, 255, 0.1); }
 .light .uplot .u-select { background: rgba(0, 102, 204, 0.1); }

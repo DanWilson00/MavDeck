@@ -44,7 +44,8 @@ export type WorkerCommand =
   | { type: 'stopAutoConnect' }
   | { type: 'portsChanged' }
   | { type: 'paramRequestAll' }
-  | { type: 'paramSet'; paramId: string; value: number };
+  | { type: 'paramSet'; paramId: string; value: number }
+  | { type: 'ftpDownloadMetadata' };
 
 // ---------------------------------------------------------------------------
 // Worker → Main thread events
@@ -67,4 +68,6 @@ export type WorkerEvent =
   | { type: 'needPermission' }
   | { type: 'throughput'; bytesPerSec: number }
   | { type: 'paramState'; state: ParameterStateSnapshot }
-  | { type: 'paramSetResult'; result: ParamSetResult };
+  | { type: 'paramSetResult'; result: ParamSetResult }
+  | { type: 'ftpMetadataResult'; json: string; crcValid: boolean }
+  | { type: 'ftpMetadataError'; error: string };
