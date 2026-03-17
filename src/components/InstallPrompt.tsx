@@ -1,11 +1,7 @@
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
 import { appState } from '../store';
-import { updateSW } from '../index';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
+import { updateSW } from '../services/update-sw';
+import { getDeferredPrompt, clearDeferredPrompt, onPromptAvailable, type BeforeInstallPromptEvent } from '../services/install-prompt';
 
 export default function InstallPrompt() {
   const [installEvent, setInstallEvent] = createSignal<BeforeInstallPromptEvent | null>(null);
@@ -21,16 +17,15 @@ export default function InstallPrompt() {
     mql.addEventListener('change', handleChange);
     onCleanup(() => mql.removeEventListener('change', handleChange));
 
-    // Only listen for install prompt if not already installed
-    if (!mql.matches) {
-      function handleBeforeInstall(e: Event) {
-        e.preventDefault();
-        setInstallEvent(e as BeforeInstallPromptEvent);
-      }
-
-      window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-      onCleanup(() => window.removeEventListener('beforeinstallprompt', handleBeforeInstall));
+    // Pick up event already captured at module level
+    const captured = getDeferredPrompt();
+    if (captured) {
+      setInstallEvent(captured);
     }
+
+    // Subscribe for late arrivals
+    const unsub = onPromptAvailable((e) => setInstallEvent(e));
+    onCleanup(unsub);
   });
 
   async function handleInstall() {
@@ -40,6 +35,7 @@ export default function InstallPrompt() {
     const { outcome } = await event.userChoice;
     if (outcome === 'accepted') {
       setInstallEvent(null);
+      clearDeferredPrompt();
     }
   }
 
