@@ -1,9 +1,12 @@
 /**
  * Lightweight MAVLink frame detector for baud rate probing.
  *
- * Finds two consecutive well-formed MAVLink frames (v1 or v2) by checking
+ * Finds three consecutive well-formed MAVLink frames (v1 or v2) by checking
  * STX bytes and length-predicted frame boundaries. No CRC validation,
  * no registry dependency — designed for fast main-thread baud detection.
+ *
+ * Requiring 3 frames (vs 2) dramatically reduces false positives from
+ * random garbage at wrong baud rates (~1/16B vs ~1/65K).
  */
 
 const MAVLINK_V1_STX = 0xFE;
@@ -16,15 +19,15 @@ const V2_OVERHEAD = 12;
 
 const MAX_PAYLOAD = 255;
 const MAX_FRAME = V2_OVERHEAD + MAX_PAYLOAD; // 267
-/** Buffer cap: enough for 2 max-size frames plus some slack */
-const BUFFER_CAP = MAX_FRAME * 2 + 64; // ~598 bytes
+/** Buffer cap: enough for 3 max-size frames plus some slack */
+const BUFFER_CAP = MAX_FRAME * 3 + 64; // ~865 bytes
 
 export class MavlinkFrameDetector {
   private buf = new Uint8Array(BUFFER_CAP);
   private len = 0;
 
   /**
-   * Feed incoming bytes. Returns true when two consecutive
+   * Feed incoming bytes. Returns true when three consecutive
    * well-formed frames have been detected (baud rate is correct).
    */
   feed(data: Uint8Array): boolean {
@@ -46,41 +49,47 @@ export class MavlinkFrameDetector {
     this.len = 0;
   }
 
+  /**
+   * Check for a valid frame header at `pos`. Returns the frame size if valid,
+   * or -1 if not a valid frame start.
+   */
+  private frameAt(pos: number): number {
+    if (pos + 1 >= this.len) return -1;
+
+    const stx = this.buf[pos];
+    if (stx !== MAVLINK_V1_STX && stx !== MAVLINK_V2_STX) return -1;
+
+    const overhead = stx === MAVLINK_V1_STX ? V1_OVERHEAD : V2_OVERHEAD;
+    const payloadLen = this.buf[pos + 1];
+    if (payloadLen > MAX_PAYLOAD) return -1;
+
+    return overhead + payloadLen;
+  }
+
   private scan(): boolean {
-    const buf = this.buf;
     const len = this.len;
 
     for (let i = 0; i < len; i++) {
-      const stx = buf[i];
-      if (stx !== MAVLINK_V1_STX && stx !== MAVLINK_V2_STX) continue;
+      // First frame
+      const frame1Size = this.frameAt(i);
+      if (frame1Size < 0) continue;
 
-      const overhead = stx === MAVLINK_V1_STX ? V1_OVERHEAD : V2_OVERHEAD;
+      const secondStart = i + frame1Size;
 
-      // Need at least overhead bytes to read the length field
-      if (i + 1 >= len) continue;
-      const payloadLen = buf[i + 1];
-      if (payloadLen > MAX_PAYLOAD) continue;
+      // Second frame
+      const frame2Size = this.frameAt(secondStart);
+      if (frame2Size < 0) continue;
 
-      const frameSize = overhead + payloadLen;
-      const nextStart = i + frameSize;
+      const thirdStart = secondStart + frame2Size;
 
-      // Check we have enough data for the second frame's header
-      if (nextStart + 1 >= len) continue;
+      // Third frame — just need to verify its header exists and is valid
+      const frame3Size = this.frameAt(thirdStart);
+      if (frame3Size < 0) continue;
 
-      const nextStx = buf[nextStart];
-      if (nextStx !== MAVLINK_V1_STX && nextStx !== MAVLINK_V2_STX) continue;
+      // Verify the third frame fits in buffer (we need at least its header)
+      if (thirdStart + frame3Size > len) continue;
 
-      const nextOverhead = nextStx === MAVLINK_V1_STX ? V1_OVERHEAD : V2_OVERHEAD;
-      const nextPayloadLen = buf[nextStart + 1];
-      if (nextPayloadLen > MAX_PAYLOAD) continue;
-
-      const nextFrameSize = nextOverhead + nextPayloadLen;
-      const thirdStart = nextStart + nextFrameSize;
-
-      // Verify second frame fits in buffer (we need its full extent)
-      if (thirdStart > len) continue;
-
-      // Two consecutive frames found!
+      // Three consecutive frames found!
       return true;
     }
 
