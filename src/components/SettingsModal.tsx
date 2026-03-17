@@ -372,8 +372,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                   Forget All Ports
                 </button>
 
-                <Show when={getSerialBackend() === 'webusb'}>
-                  <Divider />
+                <Divider />
                   <SectionLabel>USB Diagnostics</SectionLabel>
                   <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
                     Opens the USB device picker with no filters to check if your tablet can see any USB device.
@@ -460,7 +459,6 @@ export default function SettingsModal(props: SettingsModalProps) {
                       </div>
                     )}
                   </Show>
-                </Show>
               </Show>
             </div>
           </Show>
