@@ -5,7 +5,6 @@ import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
   initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
   useSerialSessionController, useWorkerBridge, isSerialSupported,
-  getSerialBackend,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -324,27 +323,20 @@ export default function SettingsModal(props: SettingsModalProps) {
                   </p>
                 }
               >
-                <Show when={getSerialBackend() === 'native'}>
-                  <ToggleSwitch
-                    id="auto-connect-toggle"
-                    label="Auto-connect serial"
-                    description="Automatically connect to a MAVLink device when one is detected."
-                    checked={appState.autoConnect}
-                    onChange={(v) => setAppState('autoConnect', v)}
-                  />
-                  <ToggleSwitch
-                    id="auto-baud-toggle"
-                    label="Auto-detect baud rate"
-                    description="Try different baud rates to find the correct one."
-                    checked={appState.autoDetectBaud}
-                    onChange={(v) => setAppState('autoDetectBaud', v)}
-                  />
-                </Show>
-                <Show when={getSerialBackend() === 'webusb'}>
-                  <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Auto-connect and baud detection require native serial support (not available on Android).
-                  </p>
-                </Show>
+                <ToggleSwitch
+                  id="auto-connect-toggle"
+                  label="Auto-connect serial"
+                  description="Automatically connect to a MAVLink device when one is detected."
+                  checked={appState.autoConnect}
+                  onChange={(v) => setAppState('autoConnect', v)}
+                />
+                <ToggleSwitch
+                  id="auto-baud-toggle"
+                  label="Auto-detect baud rate"
+                  description="Try different baud rates to find the correct one."
+                  checked={appState.autoDetectBaud}
+                  onChange={(v) => setAppState('autoDetectBaud', v)}
+                />
                 <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
                   <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
                     Serial Baud Rate
