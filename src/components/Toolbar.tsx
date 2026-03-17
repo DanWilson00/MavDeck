@@ -74,7 +74,7 @@ export default function Toolbar(props: ToolbarProps) {
 
         {/* Serial connection */}
         <Show when={isSerialSupported() && !appState.logViewerState.isActive}>
-          <Show when={!appState.autoConnect} fallback={
+          <Show when={!appState.autoConnect || serialSessionController.backend === 'webusb'} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
               <Show when={!isConnected()}>
