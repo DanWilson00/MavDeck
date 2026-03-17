@@ -7,6 +7,8 @@ import type { MavlinkWorkerBridge } from './worker-bridge';
 import type { BaudRate } from './baud-rates';
 import type { SerialPortIdentity } from './serial-probe-service';
 import { getSerialPortIdentity } from './serial-port-identity';
+import { getSerialBackend, requestPort, type SerialBackend } from './serial-backend';
+import { WebSerialByteSource } from './webserial-byte-source';
 
 export interface SerialSessionControllerConfig {
   connectionManager: ConnectionManager;
@@ -75,6 +77,8 @@ export class SerialSessionController {
     sourceType: null,
     connectedBaudRate: null,
   };
+  /** Polyfill byte source running on main thread (Android path). */
+  private mainThreadSource: WebSerialByteSource | null = null;
 
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
@@ -101,6 +105,11 @@ export class SerialSessionController {
 
   setLogViewerService(logViewerService: LogViewerService): void {
     this.logViewerService = logViewerService;
+  }
+
+  /** Which serial backend is available, or null if neither. */
+  get backend(): SerialBackend | null {
+    return getSerialBackend();
   }
 
   get status(): ConnectionManager['status'] {
@@ -148,6 +157,7 @@ export class SerialSessionController {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
+    this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
   }
 
@@ -189,32 +199,82 @@ export class SerialSessionController {
   }
 
   async grantAccess(): Promise<void> {
-    return navigator.serial.requestPort()
-      .then(() => {
+    const backend = this.backend;
+    if (!backend) return;
+    try {
+      await requestPort(backend);
+      if (backend === 'native') {
         this.workerBridge.notifyPortsChanged();
-      })
-      .catch(() => {});
+      }
+    } catch {
+      // User cancelled the picker
+    }
   }
 
   async connectManual(options: ManualConnectOptions): Promise<void> {
+    const backend = this.backend;
+    if (!backend) return;
+
     this.prepareForLiveConnection(options.unloadLog === true);
 
-    let port: SerialPort;
-    try {
-      port = await navigator.serial.requestPort();
-    } catch {
-      return;
-    }
+    if (backend === 'native') {
+      // Desktop: worker-side serial — request port, then tell the worker to open it
+      let port: SerialPort;
+      try {
+        port = await navigator.serial.requestPort();
+      } catch {
+        return;
+      }
 
-    this.pendingLiveSourceType = 'serial';
-    this.setPhase('connecting_serial');
-    this.connectionManager.connect({
-      type: 'webserial',
-      baudRate: options.baudRate,
-      autoDetectBaud: options.autoDetectBaud,
-      portIdentity: getSerialPortIdentity(port),
-      lastBaudRate: options.lastBaudRate,
-    });
+      this.pendingLiveSourceType = 'serial';
+      this.setPhase('connecting_serial');
+      this.connectionManager.connect({
+        type: 'webserial',
+        baudRate: options.baudRate,
+        autoDetectBaud: options.autoDetectBaud,
+        portIdentity: getSerialPortIdentity(port),
+        lastBaudRate: options.lastBaudRate,
+      });
+    } else {
+      // Android polyfill: main-thread serial → forward bytes to worker's ExternalByteSource
+      let port;
+      try {
+        port = await requestPort(backend);
+      } catch {
+        return;
+      }
+
+      this.pendingLiveSourceType = 'serial';
+      this.setPhase('connecting_serial');
+
+      const baudRate = options.autoDetectBaud
+        ? (options.lastBaudRate ?? options.baudRate)
+        : options.baudRate;
+
+      const source = new WebSerialByteSource(baudRate, (data) => {
+        this.workerBridge.sendBytes(data);
+      }, () => {
+        this.disconnectMainThreadSource();
+        this.connectionManager.disconnect();
+      });
+
+      try {
+        await source.connect(port);
+      } catch {
+        this.setPhase('error');
+        return;
+      }
+
+      this.mainThreadSource = source;
+      const portIdentity = getSerialPortIdentity(port);
+
+      // Tell the worker to create an ExternalByteSource and start processing
+      this.connectionManager.connect({ type: 'webserial', baudRate });
+      // Emit serialConnected so the session controller picks up baud/identity
+      this.setSessionState({ sourceType: 'serial', connectedBaudRate: baudRate as BaudRate });
+      this.setPhase('connected_serial');
+      this.serialConnectedEmitter.emit({ baudRate: baudRate as BaudRate, portIdentity });
+    }
   }
 
   connectSpoof(options?: { unloadLog?: boolean }): void {
@@ -257,10 +317,18 @@ export class SerialSessionController {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
+    this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
-    const ports = await navigator.serial.getPorts();
-    await Promise.all(ports.map(port => port.forget()));
+
+    const backend = this.backend;
+    if (backend === 'native') {
+      const ports = await navigator.serial.getPorts();
+      await Promise.all(ports.map(port => port.forget()));
+    } else if (backend === 'webusb-polyfill') {
+      const devices = await navigator.usb.getDevices();
+      await Promise.all(devices.map(device => device.forget()));
+    }
   }
 
   persistSerialSettings(
@@ -283,6 +351,7 @@ export class SerialSessionController {
   }
 
   dispose(): void {
+    this.disconnectMainThreadSource();
     this.unsubBridgeStatus?.();
     this.unsubProbeStatus?.();
     this.unsubSerialConnected?.();
@@ -294,6 +363,13 @@ export class SerialSessionController {
     this.serialConnectedEmitter.clear();
     this.sessionStateEmitter.clear();
     this.phaseEmitter.clear();
+  }
+
+  private disconnectMainThreadSource(): void {
+    if (this.mainThreadSource) {
+      this.mainThreadSource.disconnect().catch(() => {});
+      this.mainThreadSource = null;
+    }
   }
 
   private prepareForLiveConnection(unloadLog: boolean): void {

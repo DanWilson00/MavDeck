@@ -7,15 +7,16 @@
  * Web Serial API is main-thread only — cannot run in a Web Worker.
  */
 
+import type { PortLike } from './serial-backend';
+
 export type SerialBytesCallback = (data: Uint8Array) => void;
 
 // Re-export baud rate constants from the shared module for backward compatibility.
 export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported } from './baud-rates';
 export type { BaudRate } from './baud-rates';
-import { isWebSerialSupported } from './baud-rates';
 
 export class WebSerialByteSource {
-  private port: SerialPort | null = null;
+  private port: PortLike | null = null;
   private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private _isConnected = false;
   private _isReading = false;
@@ -35,16 +36,10 @@ export class WebSerialByteSource {
 
   /**
    * Connect to a serial port. If `existingPort` is provided, uses it directly
-   * (no browser picker dialog). Otherwise, calls `requestPort()` which requires
-   * a user gesture.
+   * (no browser picker dialog). Otherwise throws — caller must provide a port.
    */
-  async connect(existingPort?: SerialPort): Promise<void> {
-    if (!isWebSerialSupported()) {
-      throw new Error('Web Serial API is not supported in this browser');
-    }
-
-    // Use provided port or request one via browser picker
-    this.port = existingPort ?? await navigator.serial.requestPort();
+  async connect(existingPort: PortLike): Promise<void> {
+    this.port = existingPort;
     await this.port.open({ baudRate: this.baudRate });
 
     this._isConnected = true;

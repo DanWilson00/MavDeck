@@ -4,7 +4,7 @@ import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
   initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
-  useSerialSessionController, useWorkerBridge, isWebSerialSupported,
+  useSerialSessionController, useWorkerBridge, isSerialSupported, isWebSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -315,20 +315,22 @@ export default function SettingsModal(props: SettingsModalProps) {
           <Show when={activeTab() === 'serial'}>
             <div role="tabpanel" class="space-y-4">
               <Show
-                when={isWebSerialSupported()}
+                when={isSerialSupported()}
                 fallback={
                   <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Web Serial is not supported in this browser. Use Chrome or Edge for serial connections.
+                    Serial/USB connections are not supported in this browser.
                   </p>
                 }
               >
-                <ToggleSwitch
-                  id="auto-connect-toggle"
-                  label="Auto-connect serial"
-                  description="Automatically connect to a MAVLink device when one is detected."
-                  checked={appState.autoConnect}
-                  onChange={(v) => setAppState('autoConnect', v)}
-                />
+                <Show when={isWebSerialSupported()}>
+                  <ToggleSwitch
+                    id="auto-connect-toggle"
+                    label="Auto-connect serial"
+                    description="Automatically connect to a MAVLink device when one is detected."
+                    checked={appState.autoConnect}
+                    onChange={(v) => setAppState('autoConnect', v)}
+                  />
+                </Show>
                 <ToggleSwitch
                   id="auto-baud-toggle"
                   label="Auto-detect baud rate"

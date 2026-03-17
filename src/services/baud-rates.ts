@@ -14,3 +14,13 @@ export const DEFAULT_BAUD_RATE: BaudRate = 115200;
 export function isWebSerialSupported(): boolean {
   return typeof navigator !== 'undefined' && 'serial' in navigator;
 }
+
+/** Check if the browser supports WebUSB (used by serial polyfill on Android). */
+export function isWebUsbAvailable(): boolean {
+  return typeof navigator !== 'undefined' && 'usb' in navigator;
+}
+
+/** Any serial connection method available (native Web Serial or WebUSB polyfill). */
+export function isSerialSupported(): boolean {
+  return isWebSerialSupported() || isWebUsbAvailable();
+}

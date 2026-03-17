@@ -1,6 +1,6 @@
 import { Show, For } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { useLogViewerService, useSerialSessionController, isWebSerialSupported } from '../services';
+import { useLogViewerService, useSerialSessionController, isSerialSupported, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
 
@@ -69,7 +69,7 @@ export default function Toolbar(props: ToolbarProps) {
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
         {/* Serial connection */}
-        <Show when={isWebSerialSupported() && !appState.logViewerState.isActive}>
+        <Show when={isSerialSupported() && !appState.logViewerState.isActive}>
           <Show when={!appState.autoConnect} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
@@ -113,7 +113,7 @@ export default function Toolbar(props: ToolbarProps) {
                   color: 'var(--text-primary)',
                 }}
               >
-                Connect Serial
+                {isWebSerialSupported() ? 'Connect Serial' : 'Connect USB'}
               </button>
             </Show>
             <Show when={appState.probeStatus}>

@@ -1,6 +1,7 @@
 import type { SerialPortIdentity } from './serial-probe-service';
+import type { PortLike } from './serial-backend';
 
-export function getSerialPortIdentity(port: SerialPort): SerialPortIdentity | null {
+export function getSerialPortIdentity(port: SerialPort | PortLike): SerialPortIdentity | null {
   const info = port.getInfo();
   if (info.usbVendorId != null && info.usbProductId != null) {
     return { usbVendorId: info.usbVendorId, usbProductId: info.usbProductId };
@@ -8,7 +9,7 @@ export function getSerialPortIdentity(port: SerialPort): SerialPortIdentity | nu
   return null;
 }
 
-export function matchesSerialPortIdentity(port: SerialPort, identity: SerialPortIdentity): boolean {
+export function matchesSerialPortIdentity(port: SerialPort | PortLike, identity: SerialPortIdentity): boolean {
   const portIdentity = getSerialPortIdentity(port);
   return portIdentity?.usbVendorId === identity.usbVendorId
     && portIdentity.usbProductId === identity.usbProductId;
