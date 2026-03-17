@@ -333,11 +333,15 @@ export default function SettingsModal(props: SettingsModalProps) {
                 <ToggleSwitch
                   id="auto-baud-toggle"
                   label="Auto-detect baud rate"
-                  description="Try different baud rates to find the correct one."
-                  checked={appState.autoDetectBaud}
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Not available on Android. Set the baud rate manually below."
+                    : "Try different baud rates to find the correct one."}
+                  checked={serialSessionController.backend === 'webusb' ? false : appState.autoDetectBaud}
                   onChange={(v) => setAppState('autoDetectBaud', v)}
+                  disabled={serialSessionController.backend === 'webusb'}
+                  disabledTooltip="Auto-baud detection is not yet supported over USB on Android. Please select your baud rate manually."
                 />
-                <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
+                <div style={{ opacity: appState.autoDetectBaud && serialSessionController.backend !== 'webusb' ? 0.5 : 1 }}>
                   <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
                     Serial Baud Rate
                   </label>
@@ -504,30 +508,50 @@ function Divider() {
   return <hr class="border-0 border-t" style={{ 'border-color': 'var(--border)' }} />;
 }
 
-function ToggleSwitch(props: { id: string; label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+function ToggleSwitch(props: {
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
+}) {
+  const isDisabled = () => props.disabled === true;
   return (
-    <div class="flex items-start gap-3">
+    <div
+      class="flex items-start gap-3"
+      style={{ opacity: isDisabled() ? 0.5 : 1, cursor: isDisabled() ? 'not-allowed' : undefined }}
+      title={isDisabled() ? props.disabledTooltip : undefined}
+    >
       <button
         id={props.id}
         role="switch"
         aria-checked={props.checked}
+        aria-disabled={isDisabled()}
+        disabled={isDisabled()}
         class="mt-0.5 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors"
         style={{
-          'background-color': props.checked ? 'var(--accent)' : 'var(--bg-hover)',
+          'background-color': props.checked && !isDisabled() ? 'var(--accent)' : 'var(--bg-hover)',
           border: '1px solid var(--border)',
+          cursor: isDisabled() ? 'not-allowed' : undefined,
         }}
-        onClick={() => props.onChange(!props.checked)}
+        onClick={() => { if (!isDisabled()) props.onChange(!props.checked); }}
       >
         <span
           class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
           style={{
-            'background-color': props.checked ? '#000' : 'var(--text-secondary)',
+            'background-color': props.checked && !isDisabled() ? '#000' : 'var(--text-secondary)',
             transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
           }}
         />
       </button>
       <div>
-        <label class="text-xs font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }} for={props.id}>
+        <label
+          class="text-xs font-medium"
+          style={{ color: 'var(--text-primary)', cursor: isDisabled() ? 'not-allowed' : 'pointer' }}
+          for={props.id}
+        >
           {props.label}
         </label>
         <p class="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{props.description}</p>

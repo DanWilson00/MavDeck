@@ -24,7 +24,7 @@ export default function Toolbar(props: ToolbarProps) {
     }
     await serialSessionController.connectManual({
       baudRate: appState.baudRate,
-      autoDetectBaud: appState.autoDetectBaud,
+      autoDetectBaud: serialSessionController.backend === 'webusb' ? false : appState.autoDetectBaud,
       lastBaudRate: appState.lastSuccessfulBaudRate,
       unloadLog: appState.logViewerState.isActive,
     });
