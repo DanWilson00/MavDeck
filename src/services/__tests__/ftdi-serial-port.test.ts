@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computeBaudDivisor, FtdiSerialPort, FTDI_VENDOR_ID, diagnoseFtdiUsb } from '../ftdi-serial-port';
+import { computeBaudDivisor, FtdiSerialPort, FTDI_VENDOR_ID, diagnoseFtdiUsb, requestAnyUsbDevice } from '../ftdi-serial-port';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -564,6 +564,72 @@ describe('diagnoseFtdiUsb', () => {
     expect(result.grantedDevices).toBe(0);
     expect(result.ftdiDevices).toBe(0);
     expect(result.allDeviceInfo).toEqual([]);
+  });
+});
+
+// ── requestAnyUsbDevice ──────────────────────────────────────────────────────
+
+describe('requestAnyUsbDevice', () => {
+  it('returns webUsbAvailable false when navigator.usb is missing', async () => {
+    vi.stubGlobal('navigator', {});
+    const result = await requestAnyUsbDevice();
+    expect(result).toEqual({
+      webUsbAvailable: false,
+      grantedDevices: 0,
+      ftdiDevices: 0,
+      allDeviceInfo: [],
+    });
+  });
+
+  it('calls requestDevice with empty filters then returns granted devices', async () => {
+    const requestDevice = vi.fn(async () => ({
+      vendorId: 0x1234, productId: 0x5678, productName: 'Mouse',
+    }));
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice,
+        getDevices: vi.fn(async () => [
+          { vendorId: 0x1234, productId: 0x5678, productName: 'Mouse' },
+        ]),
+      },
+    });
+
+    const result = await requestAnyUsbDevice();
+    expect(requestDevice).toHaveBeenCalledWith({ filters: [] });
+    expect(result.webUsbAvailable).toBe(true);
+    expect(result.grantedDevices).toBe(1);
+    expect(result.allDeviceInfo).toEqual([
+      { vendorId: 0x1234, productId: 0x5678, productName: 'Mouse' },
+    ]);
+  });
+
+  it('handles user cancelling the picker gracefully', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(async () => { throw new DOMException('No device selected', 'NotFoundError'); }),
+        getDevices: vi.fn(async () => []),
+      },
+    });
+
+    const result = await requestAnyUsbDevice();
+    expect(result.webUsbAvailable).toBe(true);
+    expect(result.grantedDevices).toBe(0);
+  });
+
+  it('identifies FTDI devices among selected devices', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(async () => ({})),
+        getDevices: vi.fn(async () => [
+          { vendorId: 0x0403, productId: 0x6001, productName: 'FT232R' },
+          { vendorId: 0x1234, productId: 0x5678, productName: 'Other' },
+        ]),
+      },
+    });
+
+    const result = await requestAnyUsbDevice();
+    expect(result.ftdiDevices).toBe(1);
+    expect(result.grantedDevices).toBe(2);
   });
 });
 

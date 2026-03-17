@@ -297,6 +297,32 @@ export async function diagnoseFtdiUsb(): Promise<UsbDiagnostic> {
   };
 }
 
+/** Open the unfiltered WebUSB picker to check if the OS sees any USB device. */
+export async function requestAnyUsbDevice(): Promise<UsbDiagnostic> {
+  if (typeof navigator === 'undefined' || !navigator.usb) {
+    return { webUsbAvailable: false, grantedDevices: 0, ftdiDevices: 0, allDeviceInfo: [] };
+  }
+
+  try {
+    await navigator.usb.requestDevice({ filters: [] });
+  } catch {
+    // User cancelled picker or no devices available — continue to getDevices()
+  }
+
+  // After the picker, query granted devices for the diagnostic report
+  const devices = await navigator.usb.getDevices();
+  return {
+    webUsbAvailable: true,
+    grantedDevices: devices.length,
+    ftdiDevices: devices.filter(d => d.vendorId === FTDI_VENDOR_ID).length,
+    allDeviceInfo: devices.map(d => ({
+      vendorId: d.vendorId,
+      productId: d.productId,
+      productName: d.productName ?? '',
+    })),
+  };
+}
+
 // ── Factory functions ───────────────────────────────────────────────────────
 
 /** Show the WebUSB device picker filtered to FTDI vendor devices. */

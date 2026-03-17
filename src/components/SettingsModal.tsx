@@ -5,7 +5,7 @@ import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
   initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
   useSerialSessionController, useWorkerBridge, isSerialSupported, isWebSerialSupported,
-  getSerialBackend, diagnoseFtdiUsb,
+  getSerialBackend, diagnoseFtdiUsb, requestAnyUsbDevice,
 } from '../services';
 import type { BaudRate, UnitProfile, UsbDiagnostic } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -375,9 +375,27 @@ export default function SettingsModal(props: SettingsModalProps) {
                 <Show when={getSerialBackend() === 'webusb'}>
                   <Divider />
                   <SectionLabel>USB Diagnostics</SectionLabel>
+                  <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    Opens the USB device picker with no filters to check if your tablet can see any USB device.
+                  </p>
                   <button
                     class="px-3 py-1.5 text-sm rounded border interactive-hover"
                     style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    disabled={diagRunning()}
+                    onClick={async () => {
+                      setDiagRunning(true);
+                      try {
+                        setUsbDiag(await requestAnyUsbDevice());
+                      } finally {
+                        setDiagRunning(false);
+                      }
+                    }}
+                  >
+                    {diagRunning() ? 'Scanning...' : 'Scan for Any USB Device'}
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-secondary)' }}
                     disabled={diagRunning()}
                     onClick={async () => {
                       setDiagRunning(true);
@@ -388,7 +406,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                       }
                     }}
                   >
-                    {diagRunning() ? 'Testing...' : 'Test USB Connection'}
+                    {diagRunning() ? 'Testing...' : 'Test USB Connection (granted only)'}
                   </button>
 
                   <Show when={usbDiag()}>
