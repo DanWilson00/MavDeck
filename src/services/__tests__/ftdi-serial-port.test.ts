@@ -283,6 +283,53 @@ describe('FtdiSerialPort.close', () => {
     expect(port.readable).toBeNull();
     expect(port.writable).toBeNull();
   });
+
+  it('can be reopened after close and recreates readable/writable streams', async () => {
+    const { device } = makeMockDevice();
+    const port = new FtdiSerialPort(device);
+
+    await port.open({ baudRate: 115200 });
+    const firstReadable = port.readable;
+    const firstWritable = port.writable;
+    expect(firstReadable).not.toBeNull();
+    expect(firstWritable).not.toBeNull();
+
+    await port.close();
+    expect(port.readable).toBeNull();
+    expect(port.writable).toBeNull();
+
+    await port.open({ baudRate: 115200 });
+
+    expect(port.readable).not.toBeNull();
+    expect(port.writable).not.toBeNull();
+    expect(port.readable).not.toBe(firstReadable);
+    expect(port.writable).not.toBe(firstWritable);
+  });
+
+  it('can read payload bytes after reopen', async () => {
+    const payload = new Uint8Array([0x01, 0x60, 0xAA, 0xBB, 0xCC]);
+    const { device } = makeMockDevice();
+    const port = new FtdiSerialPort(device);
+
+    await port.open({ baudRate: 115200 });
+    await port.close();
+
+    let callCount = 0;
+    (device as unknown as Record<string, unknown>).transferIn = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { data: new DataView(payload.buffer) };
+      }
+      throw new Error('done');
+    };
+
+    await port.open({ baudRate: 115200 });
+    const reader = port.readable!.getReader();
+    const { value } = await reader.read();
+    reader.releaseLock();
+
+    expect(value).toEqual(new Uint8Array([0xAA, 0xBB, 0xCC]));
+  });
 });
 
 // ── setBaudRate ──────────────────────────────────────────────────────────────

@@ -123,6 +123,7 @@ export class FtdiSerialPort implements PortLike {
   }
 
   async open(options: SerialOptions): Promise<void> {
+    this._closed = false;
     await this.device.open();
 
     try {
