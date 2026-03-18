@@ -38,6 +38,8 @@ describe('useSettingsSync', () => {
     setAppState('isReady', true);
     setAppState('connectionSourceType', null);
     setAppState('connectionStatus', 'disconnected');
+    setAppState('connectedBaudRate', null);
+    setAppState('autoConnect', false);
     setAppState('autoDetectBaud', false);
     setAppState('baudRate', 500000);
     setAppState('lastPortVendorId', 11);
@@ -62,6 +64,37 @@ describe('useSettingsSync', () => {
 
       setAppState('connectionSourceType', 'serial');
       setAppState('connectionStatus', 'connected');
+      setAppState('connectedBaudRate', 500000);
+
+      useSettingsSync(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      serialController.reconnectLiveSerial.mockClear();
+      setAppState('baudRate', 230400);
+      await Promise.resolve();
+
+      expect(serialController.reconnectLiveSerial).toHaveBeenCalledWith({
+        baudRate: 230400,
+        autoDetectBaud: false,
+        lastBaudRate: 921600,
+        lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      });
+
+      dispose();
+    });
+  });
+
+  it('reconnects active manual serial when auto-connect is enabled and selected baud changes', async () => {
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+      });
+
+      setAppState('connectionSourceType', 'serial');
+      setAppState('connectionStatus', 'connected');
+      setAppState('connectedBaudRate', 500000);
+      setAppState('autoConnect', true);
 
       useSettingsSync(settingsReady, loadedSettings, setLoadedSettings);
       await Promise.resolve();
@@ -90,6 +123,7 @@ describe('useSettingsSync', () => {
 
       setAppState('connectionSourceType', 'serial');
       setAppState('connectionStatus', 'connected');
+      setAppState('connectedBaudRate', 500000);
       setAppState('autoDetectBaud', true);
 
       useSettingsSync(settingsReady, loadedSettings, setLoadedSettings);

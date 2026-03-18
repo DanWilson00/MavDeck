@@ -33,30 +33,47 @@ export function useSettingsSync(
     saveSettingsDebounced(nextSettings);
   });
 
-  createEffect((prev: { baudRate: number; autoDetectBaud: boolean } | undefined) => {
+  createEffect((prev: {
+    baudRate: number;
+    autoDetectBaud: boolean;
+    connectionSourceType: typeof appState.connectionSourceType;
+    connectionStatus: typeof appState.connectionStatus;
+    connectedBaudRate: typeof appState.connectedBaudRate;
+  } | undefined) => {
     if (!settingsReady() || !appState.isReady) {
       return {
         baudRate: appState.baudRate,
         autoDetectBaud: appState.autoDetectBaud,
+        connectionSourceType: appState.connectionSourceType,
+        connectionStatus: appState.connectionStatus,
+        connectedBaudRate: appState.connectedBaudRate,
       };
     }
 
     const current = {
       baudRate: appState.baudRate,
       autoDetectBaud: appState.autoDetectBaud,
+      connectionSourceType: appState.connectionSourceType,
+      connectionStatus: appState.connectionStatus,
+      connectedBaudRate: appState.connectedBaudRate,
     };
 
     if (!prev) {
       return current;
     }
 
-    const baudChanged = prev.baudRate !== current.baudRate;
     const activeManualSerial =
       appState.connectionSourceType === 'serial'
       && (appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data')
-      && !appState.autoDetectBaud;
+      && !appState.autoDetectBaud
+      && appState.connectedBaudRate != null;
+    const manualBaudMismatch = activeManualSerial && appState.connectedBaudRate !== appState.baudRate;
+    const mismatchJustAppeared =
+      (!prev.connectedBaudRate || prev.connectedBaudRate === prev.baudRate)
+      && current.connectedBaudRate != null
+      && current.connectedBaudRate !== current.baudRate;
 
-    if (baudChanged && activeManualSerial) {
+    if (manualBaudMismatch && (prev.baudRate !== current.baudRate || mismatchJustAppeared)) {
       const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
         ? {
             usbVendorId: appState.lastPortVendorId,
