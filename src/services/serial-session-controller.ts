@@ -193,11 +193,9 @@ export class SerialSessionController {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
-    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
-    void this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
-    this.suppressWebUsbReconnect = false;
+    void this.disconnectMainThreadSourceSuppressed();
   }
 
   enterLogMode(): void {
@@ -205,11 +203,10 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.pendingLiveSourceType = null;
     this.setPhase('idle');
-    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
-    this.suppressWebUsbReconnect = false;
+    void this.disconnectMainThreadSourceSuppressed();
   }
 
   suspendForLogPlayback(): boolean {
@@ -285,8 +282,8 @@ export class SerialSessionController {
       });
     } else {
       // Android polyfill: main-thread serial → forward bytes to worker's ExternalByteSource
-      await this.disconnectMainThreadSource();
       this.connectionManager.disconnect();
+      await this.disconnectMainThreadSourceSuppressed();
       let port: PortLike;
       try {
         port = await requestPort(backend);
@@ -348,8 +345,18 @@ export class SerialSessionController {
       return;
     }
 
-    await this.disconnectMainThreadSource();
+    if (this.webusbAutoConnectOptions) {
+      this.webusbAutoConnectOptions = {
+        ...this.webusbAutoConnectOptions,
+        autoBaud: options.autoDetectBaud,
+        manualBaudRate: options.baudRate,
+        lastPortIdentity: options.lastPortIdentity,
+        lastBaudRate: options.lastBaudRate,
+      };
+    }
+
     this.connectionManager.disconnect();
+    await this.disconnectMainThreadSourceSuppressed();
 
     const ports = await getGrantedPorts('webusb');
     const port = options.lastPortIdentity
@@ -419,9 +426,9 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.setPhase('idle');
     this.stopAutoConnectWebUsb();
-    void this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
+    await this.disconnectMainThreadSourceSuppressed();
 
     const backend = this.backend;
     if (backend === 'native') {
@@ -455,7 +462,7 @@ export class SerialSessionController {
 
   dispose(): void {
     this.stopAutoConnectWebUsb();
-    void this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSourceSuppressed();
     this.unsubBridgeStatus?.();
     this.unsubProbeStatus?.();
     this.unsubSerialConnected?.();
@@ -805,6 +812,15 @@ export class SerialSessionController {
       await source.disconnect();
     } catch {
       // Ignore teardown errors while resetting transport state
+    }
+  }
+
+  private async disconnectMainThreadSourceSuppressed(): Promise<void> {
+    this.suppressWebUsbReconnect = true;
+    try {
+      await this.disconnectMainThreadSource();
+    } finally {
+      this.suppressWebUsbReconnect = false;
     }
   }
 

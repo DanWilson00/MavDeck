@@ -831,4 +831,73 @@ describe('serial-session-controller', () => {
 
     expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
   });
+
+  it('Android live baud reconnect suppresses old-session auto-restart and reconnects at the new baud', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: false,
+      manualBaudRate: 500000,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 500000,
+    };
+    (controller as unknown as { sessionState: { sourceType: 'serial'; connectedBaudRate: number | null } }).sessionState = {
+      sourceType: 'serial',
+      connectedBaudRate: 500000,
+    };
+    (controller as unknown as { phase: string }).phase = 'connected_serial';
+
+    const oldSource = {
+      disconnect: vi.fn(async () => {
+        (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
+      }),
+    };
+    (controller as unknown as { mainThreadSource: { disconnect: () => Promise<void> } }).mainThreadSource = oldSource;
+
+    vi.spyOn(serialBackend, 'getGrantedPorts').mockResolvedValue([port as never]);
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    await controller.reconnectLiveSerial({
+      baudRate: 230400,
+      autoDetectBaud: false,
+      lastBaudRate: 500000,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+    });
+
+    vi.advanceTimersByTime(1000);
+
+    expect(oldSource.disconnect).toHaveBeenCalledOnce();
+    expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
+    expect(restartSpy).not.toHaveBeenCalled();
+    expect((controller as unknown as {
+      webusbAutoConnectOptions: { manualBaudRate: number; autoBaud: boolean };
+    }).webusbAutoConnectOptions).toMatchObject({
+      manualBaudRate: 230400,
+      autoBaud: false,
+    });
+  });
 });
