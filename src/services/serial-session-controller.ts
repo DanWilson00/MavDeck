@@ -9,11 +9,14 @@ import type { SerialPortIdentity } from './serial-probe-service';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 import { getSerialBackend, getGrantedPorts, requestPort, type PortLike, type SerialBackend } from './serial-backend';
 import { WebSerialByteSource } from './webserial-byte-source';
-import { MavlinkFrameDetector } from './mavlink-frame-detector';
+import { MavlinkFrameParser } from '../mavlink/frame-parser';
+import { MavlinkMessageDecoder } from '../mavlink/decoder';
+import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 
 export interface SerialSessionControllerConfig {
   connectionManager: ConnectionManager;
   workerBridge: MavlinkWorkerBridge;
+  registry: MavlinkMetadataRegistry;
   logViewerService?: LogViewerService;
 }
 
@@ -70,6 +73,7 @@ export type WebUsbAvailability = 'unknown' | 'needs_grant' | 'needs_regrant_andr
 export class SerialSessionController {
   private readonly connectionManager: ConnectionManager;
   private readonly workerBridge: MavlinkWorkerBridge;
+  private readonly registry: MavlinkMetadataRegistry;
   private logViewerService: LogViewerService | null;
   private readonly statusEmitter = new EventEmitter<StatusCallback>();
   private readonly probeStatusEmitter = new EventEmitter<ProbeStatusCallback>();
@@ -102,6 +106,7 @@ export class SerialSessionController {
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
     this.workerBridge = config.workerBridge;
+    this.registry = config.registry;
     this.logViewerService = config.logViewerService ?? null;
 
     this.unsubBridgeStatus = this.connectionManager.onStatusChange(status => {
@@ -496,7 +501,7 @@ export class SerialSessionController {
   }
 
   /**
-   * Probe a WebUSB port across baud rates using MavlinkFrameDetector.
+   * Probe a WebUSB port across baud rates using full MAVLink CRC validation plus decode.
    * On success, establishes the full connection pipeline. Returns true if connected.
    */
   private async probeAndConnectWebUsb(
@@ -506,7 +511,8 @@ export class SerialSessionController {
   ): Promise<boolean> {
     if (baudRates.length === 0) return false;
 
-    const detector = new MavlinkFrameDetector();
+    const parser = new MavlinkFrameParser(this.registry);
+    const decoder = new MavlinkMessageDecoder(this.registry);
     let detected = false;
     let detectedBaud: BaudRate = baudRates[0];
 
@@ -536,10 +542,8 @@ export class SerialSessionController {
           while (!readingDone) {
             const { value, done } = await reader!.read();
             if (done || readingDone) break;
-            if (value && detector.feed(value)) {
-              detected = true;
-              readingDone = true;
-              resolveDetected?.();
+            if (value) {
+              parser.parse(value);
             }
           }
         } catch {
@@ -549,6 +553,14 @@ export class SerialSessionController {
     };
 
     startReading();
+
+    const unsub = parser.onFrame((frame) => {
+      const decoded = decoder.decode(frame);
+      if (!decoded || detected) return;
+      detected = true;
+      readingDone = true;
+      resolveDetected?.();
+    });
 
     // Try each baud rate
     for (let i = 0; i < baudRates.length; i++) {
@@ -568,7 +580,7 @@ export class SerialSessionController {
           // Fallback: close and reopen (shouldn't happen for FTDI)
           break;
         }
-        detector.reset();
+        parser.reset();
       }
 
       const label = `Trying ${rate} baud...`;
@@ -612,6 +624,7 @@ export class SerialSessionController {
       }
       await readLoopDone;
     } catch { /* */ }
+    unsub();
 
     if (!detected || signal.aborted) {
       try { await port.close(); } catch { /* */ }

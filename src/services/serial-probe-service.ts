@@ -6,6 +6,7 @@
  */
 
 import { MavlinkFrameParser } from '../mavlink/frame-parser';
+import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import { BAUD_PROBE_ORDER, PROBE_TIMEOUT_MS, type BaudRate } from './baud-rates';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
@@ -29,9 +30,8 @@ export type ProbeStatusCallback = (status: string | null) => void;
 export const WAITING_FOR_SERIAL_ACCESS_STATUS = 'Waiting for serial port access...';
 
 
-/** Number of valid CRC-checked frames required to confirm a working connection.
- *  1 is sufficient — a single CRC-16-valid MAVLink frame has a false positive rate of ~1/65536. */
-const PROBE_FRAME_THRESHOLD = 1;
+/** Number of successfully decoded packets required to confirm a working connection. */
+const PROBE_DECODE_THRESHOLD = 1;
 
 /** Delay between full probe cycles when no device is found (ms). */
 const RETRY_INTERVAL_MS = 3000;
@@ -216,7 +216,8 @@ export class SerialProbeService {
     }
 
     const parser = new MavlinkFrameParser(this.registry);
-    let frameCount = 0;
+    const decoder = new MavlinkMessageDecoder(this.registry);
+    let decodedCount = 0;
     let resolved = false;
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
@@ -228,11 +229,14 @@ export class SerialProbeService {
         resolve(value);
       };
 
-      const unsub = parser.onFrame(() => {
-        frameCount++;
-        console.log(`[SerialProbe] Got ${frameCount}/${PROBE_FRAME_THRESHOLD} valid frames at ${baudRate}`);
-        onStatus(`${statusLabel} (${frameCount}/${PROBE_FRAME_THRESHOLD} frames)`);
-        if (frameCount >= PROBE_FRAME_THRESHOLD) {
+      const unsub = parser.onFrame((frame) => {
+        const decoded = decoder.decode(frame);
+        if (!decoded) return;
+
+        decodedCount++;
+        console.log(`[SerialProbe] Got ${decodedCount}/${PROBE_DECODE_THRESHOLD} decoded packets at ${baudRate}`);
+        onStatus(`${statusLabel} (${decodedCount}/${PROBE_DECODE_THRESHOLD} packets)`);
+        if (decodedCount >= PROBE_DECODE_THRESHOLD) {
           finish({ port, baudRate, portIdentity: this.getPortIdentity(port) });
         }
       });

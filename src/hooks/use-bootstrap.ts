@@ -101,6 +101,7 @@ export function useBootstrap(): BootstrapResult {
       serialController = new SerialSessionController({
         connectionManager: connMgr,
         workerBridge: bridge,
+        registry: reg,
       });
 
       // Initialize log viewer service
