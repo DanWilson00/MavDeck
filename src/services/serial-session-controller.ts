@@ -511,135 +511,104 @@ export class SerialSessionController {
   ): Promise<boolean> {
     if (baudRates.length === 0) return false;
 
-    const parser = new MavlinkFrameParser(this.registry);
-    const decoder = new MavlinkMessageDecoder(this.registry);
-    let detected = false;
-    let detectedBaud: BaudRate = baudRates[0];
-
-    // Open port at first baud rate
-    try {
-      await port.open({ baudRate: baudRates[0] });
-    } catch (e) {
-      console.warn(`[WebUSB probe] Port open failed: ${e instanceof Error ? e.message : e}`);
-      return false;
-    }
-
-    if (!port.readable) {
-      try { await port.close(); } catch { /* */ }
-      return false;
-    }
-
-    // Read loop — feed bytes to detector
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    let readingDone = false;
-
-    let resolveDetected: (() => void) | null = null;
-    let readLoopDone: Promise<void> = Promise.resolve();
-    const startReading = () => {
-      reader = port.readable!.getReader();
-      readLoopDone = (async () => {
-        try {
-          while (!readingDone) {
-            const { value, done } = await reader!.read();
-            if (done || readingDone) break;
-            if (value) {
-              parser.parse(value);
-            }
-          }
-        } catch {
-          // Read error — port disconnected or closed
-        }
-      })().catch(() => {});
-    };
-
-    startReading();
-
-    const unsub = parser.onFrame((frame) => {
-      const decoded = decoder.decode(frame);
-      if (!decoded || detected) return;
-      detected = true;
-      readingDone = true;
-      resolveDetected?.();
-    });
-
-    // Try each baud rate
-    for (let i = 0; i < baudRates.length; i++) {
-      if (signal.aborted || detected) break;
-      const rate = baudRates[i];
-
-      if (i > 0) {
-        // Change baud rate without close/reopen
-        if (port.setBaudRate) {
-          try {
-            await port.setBaudRate(rate);
-          } catch (e) {
-            console.warn(`[WebUSB probe] setBaudRate failed: ${e instanceof Error ? e.message : e}`);
-            continue;
-          }
-        } else {
-          // Fallback: close and reopen (shouldn't happen for FTDI)
-          break;
-        }
-        parser.reset();
-      }
-
+    for (const rate of baudRates) {
+      if (signal.aborted) break;
       const label = `Trying ${rate} baud...`;
       console.log(`[WebUSB probe] ${label}`);
       this.setProbeStatus(label);
 
-      // Wait for detection or timeout
-      const found = await new Promise<boolean>((resolve) => {
-        if (detected) { resolve(true); return; }
+      const found = await this.probeWebUsbAtBaud(port, rate, signal);
+      if (found) {
+        console.log(`[WebUSB probe] MAVLink detected at ${rate} baud`);
+        await this.connectWebUsbAtBaud(port, rate);
+        return true;
+      }
+    }
 
-        resolveDetected = () => {
-          clearTimeout(timer);
-          resolve(true);
+    if (!signal.aborted) {
+      this.setProbeStatus('No MAVLink device detected');
+    }
+    return false;
+  }
+
+  private async probeWebUsbAtBaud(
+    port: PortLike,
+    baudRate: BaudRate,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const parser = new MavlinkFrameParser(this.registry);
+    const decoder = new MavlinkMessageDecoder(this.registry);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let settled = false;
+    let openSucceeded = false;
+
+    try {
+      await port.open({ baudRate });
+      openSucceeded = true;
+      if (!port.readable) {
+        return false;
+      }
+
+      reader = port.readable.getReader();
+
+      return await new Promise<boolean>((resolve) => {
+        const finish = (value: boolean) => {
+          if (settled) return;
+          settled = true;
+          resolve(value);
         };
 
+        const unsub = parser.onFrame((frame) => {
+          const decoded = decoder.decode(frame);
+          if (decoded) {
+            clearTimeout(timer);
+            unsub();
+            finish(true);
+          }
+        });
+
         const timer = setTimeout(() => {
-          resolveDetected = null;
-          resolve(false);
+          unsub();
+          finish(false);
         }, PROBE_TIMEOUT_MS);
 
         signal.addEventListener('abort', () => {
           clearTimeout(timer);
-          resolveDetected = null;
-          resolve(false);
+          unsub();
+          finish(false);
         }, { once: true });
+
+        void (async () => {
+          try {
+            while (!settled) {
+              const { value, done } = await reader!.read();
+              if (done || settled) break;
+              if (value) {
+                parser.parse(value);
+              }
+            }
+          } catch {
+            // Read error — treat as probe failure for this baud
+          }
+          finish(false);
+        })();
       });
-
-      if (found) {
-        detectedBaud = rate;
-        break;
-      }
-    }
-
-    // Stop reading
-    readingDone = true;
-    try {
-      const currentReader = reader as ReadableStreamDefaultReader<Uint8Array> | null;
-      if (currentReader) {
-        await currentReader.cancel();
-        currentReader.releaseLock();
-      }
-      await readLoopDone;
-    } catch { /* */ }
-    unsub();
-
-    if (!detected || signal.aborted) {
-      try { await port.close(); } catch { /* */ }
-      if (!signal.aborted) {
-        this.setProbeStatus('No MAVLink device detected');
-      }
+    } catch (e) {
+      console.warn(`[WebUSB probe] Port open failed at ${baudRate}: ${e instanceof Error ? e.message : e}`);
       return false;
+    } finally {
+      try {
+        if (reader) {
+          await reader.cancel();
+          reader.releaseLock();
+        }
+      } catch {
+        // Reader may already be closed
+      }
+      if (openSucceeded) {
+        try { await port.close(); } catch { /* */ }
+      }
     }
-
-    // Close and reconnect properly through the standard pipeline
-    try { await port.close(); } catch { /* */ }
-
-    console.log(`[WebUSB probe] MAVLink detected at ${detectedBaud} baud`);
-    await this.connectWebUsbAtBaud(port, detectedBaud);
-    return true;
   }
 
   /** Open a WebUSB port at a known baud rate and wire up the full pipeline. */

@@ -65,6 +65,8 @@ describe('serial-session-controller', () => {
     };
 
     const open = vi.fn(async ({ baudRate }: { baudRate: number }) => {
+      queue.length = 0;
+      pendingResolve = null;
       emitForBaud(baudRate);
     });
     const setBaudRate = vi.fn(async (baudRate: number) => {
@@ -620,7 +622,7 @@ describe('serial-session-controller', () => {
         mavlink_version: 3,
       },
     });
-    const { port: probePort } = createMockProbePort({
+    const { port: probePort, open, close } = createMockProbePort({
       921600: [createStructuredGarbageFrame(), createStructuredGarbageFrame()],
       500000: [heartbeat],
     });
@@ -637,5 +639,8 @@ describe('serial-session-controller', () => {
 
     await expect(probePromise).resolves.toBe(true);
     expect(connectSpy).toHaveBeenCalledWith(probePort, 500000);
+    expect(open).toHaveBeenNthCalledWith(1, { baudRate: 921600 });
+    expect(open).toHaveBeenNthCalledWith(2, { baudRate: 500000 });
+    expect(close).toHaveBeenCalledTimes(2);
   });
 });
