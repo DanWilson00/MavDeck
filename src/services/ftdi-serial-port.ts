@@ -73,53 +73,22 @@ export function computeBaudDivisor(baudRate: number): { value: number; index: nu
 
 export class FtdiSerialPort implements PortLike {
   private readonly device: USBDevice;
-  private readonly interfaceNumber: number;
-  private readonly endpointIn: number;
-  private readonly endpointOut: number;
+  private interfaceNumber: number | null = null;
+  private endpointIn: number | null = null;
+  private endpointOut: number | null = null;
   private _readable: ReadableStream<Uint8Array> | null = null;
   private _writable: WritableStream<Uint8Array> | null = null;
   private _closed = false;
   private disconnectListener: (() => void) | null = null;
 
   constructor(device: USBDevice) {
-    // Validate single-interface vendor-specific layout (FT232R)
-    const config = device.configuration;
-    if (!config) {
-      throw new Error('FTDI: device has no active configuration');
-    }
-
-    if (config.interfaces.length !== 1) {
-      throw new Error(
-        `FTDI: expected 1 interface (single-port FT232R), got ${config.interfaces.length}. ` +
-        'Multi-port FTDI chips (FT2232H/FT4232H) are not supported.',
-      );
-    }
-
-    const iface = config.interfaces[0];
-    const alt = iface.alternate;
-
-    if (alt.interfaceClass !== 0xFF) {
-      throw new Error(
-        `FTDI: expected vendor-specific interface class 0xFF, got 0x${alt.interfaceClass.toString(16)}`,
-      );
-    }
-
-    let bulkIn: number | null = null;
-    let bulkOut: number | null = null;
-    for (const ep of alt.endpoints) {
-      if (ep.type !== 'bulk') continue;
-      if (ep.direction === 'in') bulkIn = ep.endpointNumber;
-      if (ep.direction === 'out') bulkOut = ep.endpointNumber;
-    }
-
-    if (bulkIn === null || bulkOut === null) {
-      throw new Error('FTDI: could not find bulk IN and OUT endpoints');
-    }
-
     this.device = device;
-    this.interfaceNumber = iface.interfaceNumber;
-    this.endpointIn = bulkIn;
-    this.endpointOut = bulkOut;
+
+    // Granted WebUSB devices can legitimately come back from getDevices() with no
+    // active configuration after a physical replug. Defer validation until open().
+    if (device.configuration) {
+      this.resolveInterfaceLayout();
+    }
   }
 
   async open(options: SerialOptions): Promise<void> {
@@ -135,7 +104,8 @@ export class FtdiSerialPort implements PortLike {
       }
     }
 
-    await this.device.claimInterface(this.interfaceNumber);
+    this.resolveInterfaceLayout();
+    await this.device.claimInterface(this.interfaceNumber!);
 
     const baudRate = options.baudRate;
     const divisor = computeBaudDivisor(baudRate);
@@ -170,7 +140,9 @@ export class FtdiSerialPort implements PortLike {
     this.disconnectListener = null;
 
     try {
-      await this.device.releaseInterface(this.interfaceNumber);
+      if (this.interfaceNumber !== null) {
+        await this.device.releaseInterface(this.interfaceNumber);
+      }
     } catch {
       // Interface may already be released
     }
@@ -183,8 +155,9 @@ export class FtdiSerialPort implements PortLike {
   get readable(): ReadableStream<Uint8Array> | null {
     if (this._closed) return null;
     if (!this._readable) {
+      this.ensureResolved();
       const device = this.device;
-      const epIn = this.endpointIn;
+      const epIn = this.endpointIn!;
 
       this._readable = new ReadableStream<Uint8Array>({
         pull: async (controller) => {
@@ -220,8 +193,9 @@ export class FtdiSerialPort implements PortLike {
   get writable(): WritableStream<Uint8Array> | null {
     if (this._closed) return null;
     if (!this._writable) {
+      this.ensureResolved();
       const device = this.device;
-      const epOut = this.endpointOut;
+      const epOut = this.endpointOut!;
 
       this._writable = new WritableStream<Uint8Array>({
         write: async (chunk) => {
@@ -251,6 +225,51 @@ export class FtdiSerialPort implements PortLike {
   async setBaudRate(rate: number): Promise<void> {
     const divisor = computeBaudDivisor(rate);
     await this.vendorTransfer(FTDI_SET_BAUD, divisor.value, divisor.index);
+  }
+
+  private ensureResolved(): void {
+    if (this.interfaceNumber === null || this.endpointIn === null || this.endpointOut === null) {
+      this.resolveInterfaceLayout();
+    }
+  }
+
+  private resolveInterfaceLayout(): void {
+    const config = this.device.configuration;
+    if (!config) {
+      throw new Error('FTDI: device has no active configuration');
+    }
+
+    if (config.interfaces.length !== 1) {
+      throw new Error(
+        `FTDI: expected 1 interface (single-port FT232R), got ${config.interfaces.length}. ` +
+        'Multi-port FTDI chips (FT2232H/FT4232H) are not supported.',
+      );
+    }
+
+    const iface = config.interfaces[0];
+    const alt = iface.alternate;
+
+    if (alt.interfaceClass !== 0xFF) {
+      throw new Error(
+        `FTDI: expected vendor-specific interface class 0xFF, got 0x${alt.interfaceClass.toString(16)}`,
+      );
+    }
+
+    let bulkIn: number | null = null;
+    let bulkOut: number | null = null;
+    for (const ep of alt.endpoints) {
+      if (ep.type !== 'bulk') continue;
+      if (ep.direction === 'in') bulkIn = ep.endpointNumber;
+      if (ep.direction === 'out') bulkOut = ep.endpointNumber;
+    }
+
+    if (bulkIn === null || bulkOut === null) {
+      throw new Error('FTDI: could not find bulk IN and OUT endpoints');
+    }
+
+    this.interfaceNumber = iface.interfaceNumber;
+    this.endpointIn = bulkIn;
+    this.endpointOut = bulkOut;
   }
 
   private async vendorTransfer(request: number, value: number, index: number): Promise<void> {

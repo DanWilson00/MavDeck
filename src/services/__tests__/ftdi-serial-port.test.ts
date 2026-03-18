@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { computeBaudDivisor, FtdiSerialPort, FTDI_VENDOR_ID } from '../ftdi-serial-port';
+import { computeBaudDivisor, FtdiSerialPort, FTDI_VENDOR_ID, getGrantedFtdiPorts } from '../ftdi-serial-port';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -15,11 +15,12 @@ interface ControlTransferCall {
 function makeMockDevice(overrides?: {
   interfaces?: number;
   interfaceClass?: number;
-  endpoints?: Array<{ type: string; direction: string; endpointNumber: number }>;
+  endpoints?: USBEndpoint[];
   vendorId?: number;
   productId?: number;
+  configuration?: USBConfiguration | null;
 }) {
-  const endpoints = overrides?.endpoints ?? [
+  const endpoints: USBEndpoint[] = overrides?.endpoints ?? [
     { type: 'bulk', direction: 'in', endpointNumber: 1 },
     { type: 'bulk', direction: 'out', endpointNumber: 2 },
   ];
@@ -41,10 +42,14 @@ function makeMockDevice(overrides?: {
       vendorId: overrides?.vendorId ?? 0x0403,
       productId: overrides?.productId ?? 0x6001,
       opened: false,
-      configuration: { interfaces },
+      configuration: overrides?.configuration === undefined ? { interfaces } : overrides.configuration,
       open: vi.fn(async function (this: { opened: boolean }) { this.opened = true; }),
       close: vi.fn(async function (this: { opened: boolean }) { this.opened = false; }),
-      selectConfiguration: vi.fn(async () => {}),
+      selectConfiguration: vi.fn(async function (this: { configuration: USBConfiguration | null }) {
+        if (!this.configuration) {
+          this.configuration = { interfaces };
+        }
+      }),
       claimInterface: vi.fn(async () => {}),
       releaseInterface: vi.fn(async () => {}),
       controlTransferOut: vi.fn(async (setup: ControlTransferCall) => {
@@ -240,6 +245,18 @@ describe('FtdiSerialPort.open', () => {
     await port.open({ baudRate: 115200 });
 
     expect(navigator.usb.addEventListener).toHaveBeenCalledWith('disconnect', expect.any(Function));
+  });
+
+  it('resolves interface layout from a device with null configuration after selectConfiguration', async () => {
+    const { device } = makeMockDevice({ configuration: null });
+    const port = new FtdiSerialPort(device);
+
+    await port.open({ baudRate: 115200 });
+
+    expect((device as unknown as { selectConfiguration: ReturnType<typeof vi.fn> }).selectConfiguration).toHaveBeenCalledWith(1);
+    expect((device as unknown as { claimInterface: ReturnType<typeof vi.fn> }).claimInterface).toHaveBeenCalledWith(0);
+    expect(port.readable).not.toBeNull();
+    expect(port.writable).not.toBeNull();
   });
 });
 
@@ -526,9 +543,9 @@ describe('FtdiSerialPort.forget', () => {
 // ── Constructor validation ──────────────────────────────────────────────────
 
 describe('FtdiSerialPort constructor validation', () => {
-  it('rejects device with no configuration', () => {
+  it('allows device with no configuration and defers validation until open', () => {
     const device = { configuration: null } as unknown as USBDevice;
-    expect(() => new FtdiSerialPort(device)).toThrow('no active configuration');
+    expect(() => new FtdiSerialPort(device)).not.toThrow();
   });
 
   it('rejects multi-interface device (FT2232H/FT4232H)', () => {
@@ -620,6 +637,28 @@ describe('FtdiSerialPort constructor validation', () => {
 describe('FTDI_VENDOR_ID', () => {
   it('is 0x0403', () => {
     expect(FTDI_VENDOR_ID).toBe(0x0403);
+  });
+});
+
+describe('getGrantedFtdiPorts', () => {
+  it('returns previously granted FTDI devices even when configuration is null', async () => {
+    const { device } = makeMockDevice({ configuration: null });
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => [device]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+
+    const ports = await getGrantedFtdiPorts();
+
+    expect(ports).toHaveLength(1);
+    expect(ports[0]).toBeInstanceOf(FtdiSerialPort);
+    expect(ports[0].getInfo()).toEqual({
+      usbVendorId: 0x0403,
+      usbProductId: 0x6001,
+    });
   });
 });
 
