@@ -87,7 +87,7 @@ export default function Toolbar(props: ToolbarProps) {
                   onClick={handleGrantAccess}
                   class="px-3 py-1 rounded text-sm font-medium transition-colors"
                   style={{
-                    'background-color': 'var(--bg-hover)',
+                    'background-color': 'var(--bg-button)',
                     color: 'var(--text-primary)',
                   }}
                 >
@@ -107,7 +107,7 @@ export default function Toolbar(props: ToolbarProps) {
                 onClick={handleDisconnectSerial}
                 class="px-3 py-1 rounded text-sm font-medium transition-colors"
                 style={{
-                  'background-color': 'var(--bg-hover)',
+                  'background-color': 'var(--bg-button)',
                   color: 'var(--text-primary)',
                 }}
               >
@@ -118,7 +118,7 @@ export default function Toolbar(props: ToolbarProps) {
                 onClick={handleConnectSerial}
                 class="px-3 py-1 rounded text-sm font-medium transition-colors"
                 style={{
-                  'background-color': 'var(--bg-hover)',
+                  'background-color': 'var(--bg-button)',
                   color: 'var(--text-primary)',
                 }}
               >
@@ -157,7 +157,7 @@ export default function Toolbar(props: ToolbarProps) {
         <Show when={appState.logViewerState.isActive}>
           <button
             class="px-2 py-1 rounded text-xs interactive-hover"
-            style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-primary)' }}
+            style={{ 'background-color': 'var(--bg-button)', color: 'var(--text-primary)' }}
             onClick={() => logViewerService.unload()}
           >
             Unload Log

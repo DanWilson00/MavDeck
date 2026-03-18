@@ -106,6 +106,8 @@ export class SerialSessionController {
   private webusbAutoConnectOptions: AutoConnectOptions | null = null;
   /** True while a disconnect is an intentional teardown and should not restart probing. */
   private suppressWebUsbReconnect = false;
+  /** True while a user-initiated serial reconnect/retune is actively replacing the live session. */
+  private manualSerialReconnectInProgress = false;
   private webusbAvailability: WebUsbAvailability = 'unknown';
   private lastProbeStatus: string | null = null;
 
@@ -156,6 +158,10 @@ export class SerialSessionController {
 
   get hasSuspendedLiveSession(): boolean {
     return this.suspendedLiveSession !== null;
+  }
+
+  get isManualSerialReconnectInProgress(): boolean {
+    return this.manualSerialReconnectInProgress;
   }
 
   onStatusChange(callback: StatusCallback): () => void {
@@ -326,62 +332,67 @@ export class SerialSessionController {
 
     this.prepareForLiveConnection(false);
     this.pendingLiveSourceType = 'serial';
+    this.manualSerialReconnectInProgress = true;
 
-    if (backend === 'native') {
-      if (!options.lastPortIdentity) {
+    try {
+      if (backend === 'native') {
+        if (!options.lastPortIdentity) {
+          this.setPhase('error');
+          return;
+        }
+
+        this.setPhase(options.autoDetectBaud ? 'probing' : 'connecting_serial');
+        this.connectionManager.disconnect();
+        this.connectionManager.connect({
+          type: 'webserial',
+          baudRate: options.baudRate,
+          autoDetectBaud: options.autoDetectBaud,
+          portIdentity: options.lastPortIdentity,
+          lastBaudRate: options.lastBaudRate,
+        });
+        return;
+      }
+
+      if (this.webusbAutoConnectOptions) {
+        this.webusbAutoConnectOptions = {
+          ...this.webusbAutoConnectOptions,
+          autoBaud: options.autoDetectBaud,
+          manualBaudRate: options.baudRate,
+          lastPortIdentity: options.lastPortIdentity,
+          lastBaudRate: options.lastBaudRate,
+        };
+      }
+
+      this.connectionManager.disconnect();
+      await this.disconnectMainThreadSourceSuppressed();
+
+      const ports = await getGrantedPorts('webusb');
+      const port = options.lastPortIdentity
+        ? ports.find(candidate => matchesSerialPortIdentity(candidate, options.lastPortIdentity!))
+        : ports[0];
+
+      if (!port) {
         this.setPhase('error');
         return;
       }
 
-      this.setPhase(options.autoDetectBaud ? 'probing' : 'connecting_serial');
-      this.connectionManager.disconnect();
-      this.connectionManager.connect({
-        type: 'webserial',
-        baudRate: options.baudRate,
-        autoDetectBaud: options.autoDetectBaud,
-        portIdentity: options.lastPortIdentity,
-        lastBaudRate: options.lastBaudRate,
-      });
-      return;
-    }
+      if (options.autoDetectBaud) {
+        this.setPhase('probing');
+        const abort = new AbortController();
+        this.webusbAbort = abort;
+        await this.probeAndConnectWebUsb(port, this.buildBaudList(options.lastBaudRate), abort.signal);
+        return;
+      }
 
-    if (this.webusbAutoConnectOptions) {
-      this.webusbAutoConnectOptions = {
-        ...this.webusbAutoConnectOptions,
-        autoBaud: options.autoDetectBaud,
-        manualBaudRate: options.baudRate,
-        lastPortIdentity: options.lastPortIdentity,
-        lastBaudRate: options.lastBaudRate,
-      };
-    }
-
-    this.connectionManager.disconnect();
-    await this.disconnectMainThreadSourceSuppressed();
-
-    const ports = await getGrantedPorts('webusb');
-    const port = options.lastPortIdentity
-      ? ports.find(candidate => matchesSerialPortIdentity(candidate, options.lastPortIdentity!))
-      : ports[0];
-
-    if (!port) {
-      this.setPhase('error');
-      return;
-    }
-
-    if (options.autoDetectBaud) {
-      this.setPhase('probing');
-      const abort = new AbortController();
-      this.webusbAbort = abort;
-      await this.probeAndConnectWebUsb(port, this.buildBaudList(options.lastBaudRate), abort.signal);
-      return;
-    }
-
-    this.setPhase('connecting_serial');
-    this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
-    const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
-    if (!connected) {
-      this.setPhase('error');
-      this.setProbeStatus(`No MAVLink traffic verified at ${options.baudRate} baud`);
+      this.setPhase('connecting_serial');
+      this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
+      const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
+      if (!connected) {
+        this.setPhase('error');
+        this.setProbeStatus(`No MAVLink traffic verified at ${options.baudRate} baud`);
+      }
+    } finally {
+      this.manualSerialReconnectInProgress = false;
     }
   }
 
@@ -981,6 +992,9 @@ export class SerialSessionController {
     }
 
     if (status === 'disconnected') {
+      if (this.manualSerialReconnectInProgress) {
+        return;
+      }
       this.isSuspendedForLogPlayback = false;
       this.suspendedLiveSession = null;
       this.pendingLiveSourceType = null;

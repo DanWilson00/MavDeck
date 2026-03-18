@@ -870,6 +870,7 @@ describe('serial-session-controller', () => {
 
     const oldSource = {
       disconnect: vi.fn(async () => {
+        statusListener?.('disconnected');
         (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
       }),
     };
@@ -893,6 +894,7 @@ describe('serial-session-controller', () => {
     expect(oldSource.disconnect).toHaveBeenCalledOnce();
     expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
     expect(restartSpy).not.toHaveBeenCalled();
+    expect(controller.currentPhase).toBe('connecting_serial');
     expect((controller as unknown as {
       webusbAutoConnectOptions: { manualBaudRate: number; autoBaud: boolean };
     }).webusbAutoConnectOptions).toMatchObject({

@@ -52,6 +52,9 @@ export function useAutoConnect(
       if (serialController.hasSuspendedLiveSession) {
         return;
       }
+      if (serialController.isManualSerialReconnectInProgress) {
+        return;
+      }
       if (backend === 'native') {
         // Desktop: worker-side probing
         serialController.syncAutoConnect(autoConnectOptions);

@@ -13,6 +13,7 @@ const serialController = {
   onSerialConnected: vi.fn(() => () => {}),
   persistSerialSettings: vi.fn(),
   hasSuspendedLiveSession: false,
+  isManualSerialReconnectInProgress: false,
 };
 
 vi.mock('../../services', async () => {
@@ -39,6 +40,7 @@ describe('useAutoConnect', () => {
     serialController.onSerialConnected.mockClear();
     serialController.persistSerialSettings.mockClear();
     serialController.hasSuspendedLiveSession = false;
+    serialController.isManualSerialReconnectInProgress = false;
     backend = 'native';
 
     setAppState('isReady', true);
@@ -195,6 +197,36 @@ describe('useAutoConnect', () => {
       await Promise.resolve();
 
       expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
+
+      dispose();
+    });
+  });
+
+  it('does not restart probing while a manual serial reconnect is in progress', async () => {
+    backend = 'webusb';
+
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+        autoConnect: true,
+        autoDetectBaud: false,
+        baudRate: 500000,
+        lastPortVendorId: 11,
+        lastPortProductId: 22,
+        lastPortSerialNumber: null,
+        lastSuccessfulBaudRate: 500000 as const,
+      });
+
+      useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      serialController.syncAutoConnectWebUsb.mockClear();
+      serialController.isManualSerialReconnectInProgress = true;
+      setAppState('baudRate', 230400);
+      await Promise.resolve();
+
+      expect(serialController.syncAutoConnectWebUsb).not.toHaveBeenCalled();
 
       dispose();
     });
