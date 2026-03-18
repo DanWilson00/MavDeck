@@ -8,6 +8,7 @@ const serialController = {
   stopAutoConnect: vi.fn(),
   syncAutoConnectWebUsb: vi.fn(),
   stopAutoConnectWebUsb: vi.fn(),
+  reconnectLiveSerial: vi.fn(),
   onProbeStatus: vi.fn(() => () => {}),
   onSerialConnected: vi.fn(() => () => {}),
   persistSerialSettings: vi.fn(),
@@ -33,6 +34,7 @@ describe('useAutoConnect', () => {
     serialController.stopAutoConnect.mockClear();
     serialController.syncAutoConnectWebUsb.mockClear();
     serialController.stopAutoConnectWebUsb.mockClear();
+    serialController.reconnectLiveSerial.mockClear();
     serialController.onProbeStatus.mockClear();
     serialController.onSerialConnected.mockClear();
     serialController.persistSerialSettings.mockClear();

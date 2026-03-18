@@ -5,11 +5,10 @@
  * into a temporary MavlinkFrameParser to detect valid MAVLink traffic.
  */
 
-import { MavlinkFrameParser } from '../mavlink/frame-parser';
-import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
 import { BAUD_PROBE_ORDER, PROBE_TIMEOUT_MS, type BaudRate } from './baud-rates';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
+import { MavlinkDecodeVerifier } from './mavlink-decode-verifier';
 
 /** Identifies a USB serial port across sessions. */
 export interface SerialPortIdentity {
@@ -215,9 +214,12 @@ export class SerialProbeService {
       return null;
     }
 
-    const parser = new MavlinkFrameParser(this.registry);
-    const decoder = new MavlinkMessageDecoder(this.registry);
-    let decodedCount = 0;
+    const verifier = new MavlinkDecodeVerifier(this.registry, {
+      onDecodedPacket: (decodedCount) => {
+        console.log(`[SerialProbe] Got ${decodedCount}/${PROBE_DECODE_THRESHOLD} decoded packets at ${baudRate}`);
+        onStatus(`${statusLabel} (${decodedCount}/${PROBE_DECODE_THRESHOLD} packets)`);
+      },
+    });
     let resolved = false;
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
@@ -225,45 +227,36 @@ export class SerialProbeService {
       const finish = (value: ProbeResult | null) => {
         if (resolved) return;
         resolved = true;
-        unsub();
+        verifier.dispose();
         resolve(value);
       };
-
-      const unsub = parser.onFrame((frame) => {
-        const decoded = decoder.decode(frame);
-        if (!decoded) return;
-
-        decodedCount++;
-        console.log(`[SerialProbe] Got ${decodedCount}/${PROBE_DECODE_THRESHOLD} decoded packets at ${baudRate}`);
-        onStatus(`${statusLabel} (${decodedCount}/${PROBE_DECODE_THRESHOLD} packets)`);
-        if (decodedCount >= PROBE_DECODE_THRESHOLD) {
-          finish({ port, baudRate, portIdentity: this.getPortIdentity(port) });
-        }
-      });
-
-      const timer = setTimeout(() => {
-        console.log(`[SerialProbe] Timeout — no valid frames at ${baudRate}`);
-        finish(null);
-      }, PROBE_TIMEOUT_MS);
-
-      const onAbort = () => {
-        clearTimeout(timer);
-        finish(null);
-      };
-      signal.addEventListener('abort', onAbort, { once: true });
 
       reader = port.readable!.getReader();
       const readLoop = async () => {
         try {
+          const verified = verifier.waitForDecodedPacket({
+            signal,
+            timeoutMs: PROBE_TIMEOUT_MS,
+            threshold: PROBE_DECODE_THRESHOLD,
+          }).then((matched) => {
+            if (matched) {
+              finish({ port, baudRate, portIdentity: this.getPortIdentity(port) });
+              return;
+            }
+            console.log(`[SerialProbe] Timeout — no valid frames at ${baudRate}`);
+            finish(null);
+          });
+
           while (!resolved) {
             const { value, done } = await reader!.read();
             if (done || resolved) break;
-            if (value) parser.parse(value);
+            if (value) verifier.parse(value);
           }
+          await verified;
         } catch (e) {
           console.warn(`[SerialProbe] Read error: ${e instanceof Error ? e.message : e}`);
+          finish(null);
         }
-        finish(null);
       };
       readLoop();
     });
