@@ -45,6 +45,7 @@ describe('Toolbar', () => {
     setAppState('autoConnect', false);
     setAppState('autoDetectBaud', true);
     setAppState('connectionStatus', 'disconnected');
+    setAppState('webusbAvailability', 'unknown');
     setAppState('logViewerState', {
       isActive: false,
       sourceName: '',
@@ -69,10 +70,26 @@ describe('Toolbar', () => {
     backend = 'webusb';
     serialSessionController.backend = 'webusb';
     setAppState('autoConnect', true);
+    setAppState('webusbAvailability', 'needs_grant');
 
     const dispose = render(() => <Toolbar onSelectTab={() => {}} />, document.body);
 
     expect(document.body.textContent).toContain('Grant USB Access');
+
+    dispose();
+  });
+
+  it('hides Grant USB Access while waiting for a previously granted Android device', () => {
+    backend = 'webusb';
+    serialSessionController.backend = 'webusb';
+    setAppState('autoConnect', true);
+    setAppState('webusbAvailability', 'waiting_for_device');
+    setAppState('probeStatus', 'Waiting for USB device...');
+
+    const dispose = render(() => <Toolbar onSelectTab={() => {}} />, document.body);
+
+    expect(document.body.textContent).not.toContain('Grant USB Access');
+    expect(document.body.textContent).toContain('Waiting for USB device...');
 
     dispose();
   });

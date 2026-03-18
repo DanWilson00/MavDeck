@@ -44,6 +44,7 @@ export interface AppState {
   autoConnect: boolean;
   autoDetectBaud: boolean;
   probeStatus: string | null;
+  webusbAvailability: 'unknown' | 'needs_grant' | 'waiting_for_device' | 'granted';
   lastPortVendorId: number | null;
   lastPortProductId: number | null;
   lastSuccessfulBaudRate: BaudRate | null;
@@ -92,6 +93,7 @@ export function createInitialAppState(): AppState {
     autoConnect: DEFAULT_SETTINGS.autoConnect,
     autoDetectBaud: DEFAULT_SETTINGS.autoDetectBaud,
     probeStatus: null,
+    webusbAvailability: 'unknown',
     lastPortVendorId: DEFAULT_SETTINGS.lastPortVendorId,
     lastPortProductId: DEFAULT_SETTINGS.lastPortProductId,
     lastSuccessfulBaudRate: DEFAULT_SETTINGS.lastSuccessfulBaudRate,

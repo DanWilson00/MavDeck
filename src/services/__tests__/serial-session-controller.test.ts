@@ -312,6 +312,72 @@ describe('serial-session-controller', () => {
     });
   });
 
+  it('marks Android WebUSB as waiting for a device when a previously granted port is absent', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+
+    await vi.waitFor(() => {
+      expect(states).toContain('waiting_for_device');
+    });
+  });
+
+  it('marks Android WebUSB as needing grant when no prior granted device is known', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: null,
+      lastBaudRate: 57600,
+    });
+
+    await vi.waitFor(() => {
+      expect(states).toContain('needs_grant');
+    });
+  });
+
   it('restarts Android WebUSB auto-connect after an unexpected transport disconnect', () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', {

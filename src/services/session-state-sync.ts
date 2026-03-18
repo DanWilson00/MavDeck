@@ -24,6 +24,10 @@ export function bindSessionState(
     setAppState('probeStatus', status);
   });
 
+  const unsubWebUsbAvailability = controller.onWebUsbAvailabilityChange(state => {
+    setAppState('webusbAvailability', state);
+  });
+
   const unsubSession = controller.onSessionStateChange(state => {
     batch(() => {
       setAppState('connectionSourceType', state.sourceType);
@@ -49,6 +53,7 @@ export function bindSessionState(
   return () => {
     unsubStatus();
     unsubProbe();
+    unsubWebUsbAvailability();
     unsubSession();
     unsubSerial();
   };

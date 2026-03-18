@@ -57,10 +57,13 @@ type ProbeStatusCallback = Parameters<MavlinkWorkerBridge['onProbeStatus']>[0];
 type SerialConnectedCallback = Parameters<MavlinkWorkerBridge['onSerialConnected']>[0];
 type SessionStateCallback = (state: SessionStateSnapshot) => void;
 type PhaseCallback = (phase: SessionPhase) => void;
+type WebUsbAvailabilityCallback = (state: WebUsbAvailability) => void;
 
 const WEBUSB_WAITING_FOR_ACCESS_STATUS = 'Waiting for USB access...';
 const WEBUSB_WAITING_FOR_DEVICE_STATUS = 'Waiting for USB device...';
 const WEBUSB_RECONNECT_DELAY_MS = 1000;
+
+export type WebUsbAvailability = 'unknown' | 'needs_grant' | 'waiting_for_device' | 'granted';
 
 export class SerialSessionController {
   private readonly connectionManager: ConnectionManager;
@@ -71,6 +74,7 @@ export class SerialSessionController {
   private readonly serialConnectedEmitter = new EventEmitter<SerialConnectedCallback>();
   private readonly sessionStateEmitter = new EventEmitter<SessionStateCallback>();
   private readonly phaseEmitter = new EventEmitter<PhaseCallback>();
+  private readonly webusbAvailabilityEmitter = new EventEmitter<WebUsbAvailabilityCallback>();
   private unsubBridgeStatus: (() => void) | null = null;
   private unsubProbeStatus: (() => void) | null = null;
   private unsubSerialConnected: (() => void) | null = null;
@@ -92,6 +96,7 @@ export class SerialSessionController {
   private webusbAutoConnectOptions: AutoConnectOptions | null = null;
   /** True while a disconnect is an intentional teardown and should not restart probing. */
   private suppressWebUsbReconnect = false;
+  private webusbAvailability: WebUsbAvailability = 'unknown';
 
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
@@ -165,6 +170,12 @@ export class SerialSessionController {
     return unsub;
   }
 
+  onWebUsbAvailabilityChange(callback: WebUsbAvailabilityCallback): () => void {
+    const unsub = this.webusbAvailabilityEmitter.on(callback);
+    callback(this.webusbAvailability);
+    return unsub;
+  }
+
   disconnectLiveSession(): void {
     this.pendingLiveSourceType = null;
     this.isSuspendedForLogPlayback = false;
@@ -222,6 +233,9 @@ export class SerialSessionController {
     if (!backend) return;
     try {
       await requestPort(backend);
+      if (backend === 'webusb') {
+        this.setWebUsbAvailability('granted');
+      }
       if (backend === 'native') {
         this.workerBridge.notifyPortsChanged();
       }
@@ -384,6 +398,7 @@ export class SerialSessionController {
   syncAutoConnectWebUsb(options: AutoConnectOptions): void {
     if (!options.enabled) {
       this.webusbAutoConnectOptions = null;
+      this.setWebUsbAvailability('unknown');
       this.stopAutoConnectWebUsb();
       return;
     }
@@ -444,6 +459,7 @@ export class SerialSessionController {
 
       if (ports.length > 0) {
         hasSeenGrantedPort = true;
+        this.setWebUsbAvailability('granted');
         // Sort so last-working port is tried first
         if (options.lastPortIdentity) {
           const identity = options.lastPortIdentity;
@@ -460,7 +476,11 @@ export class SerialSessionController {
           if (success) return; // Connected!
         }
       } else {
-        this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_ACCESS_STATUS);
+        const availability = options.lastPortIdentity ? 'waiting_for_device' : 'needs_grant';
+        this.setWebUsbAvailability(availability);
+        this.probeStatusEmitter.emit(
+          availability === 'needs_grant' ? WEBUSB_WAITING_FOR_ACCESS_STATUS : WEBUSB_WAITING_FOR_DEVICE_STATUS,
+        );
       }
 
       if (signal.aborted) return;
@@ -469,9 +489,14 @@ export class SerialSessionController {
       const usbConnected = await this.waitForUsbOrTimeout(3000, signal);
       if (signal.aborted) return;
       if (usbConnected) {
+        this.setWebUsbAvailability('granted');
         this.probeStatusEmitter.emit('USB device connected, probing...');
       } else if (!this.mainThreadSource) {
-        this.probeStatusEmitter.emit(hasSeenGrantedPort ? WEBUSB_WAITING_FOR_DEVICE_STATUS : WEBUSB_WAITING_FOR_ACCESS_STATUS);
+        const availability = hasSeenGrantedPort || options.lastPortIdentity ? 'waiting_for_device' : 'needs_grant';
+        this.setWebUsbAvailability(availability);
+        this.probeStatusEmitter.emit(
+          availability === 'needs_grant' ? WEBUSB_WAITING_FOR_ACCESS_STATUS : WEBUSB_WAITING_FOR_DEVICE_STATUS,
+        );
       }
     }
   }
@@ -626,6 +651,7 @@ export class SerialSessionController {
 
     this.mainThreadSource = source;
     const portIdentity = getSerialPortIdentity(port);
+    this.setWebUsbAvailability('granted');
 
     // Tell the worker to create an ExternalByteSource and start processing
     this.connectionManager.connect({ type: 'webserial', baudRate });
@@ -700,6 +726,7 @@ export class SerialSessionController {
       return;
     }
 
+    this.setWebUsbAvailability('waiting_for_device');
     this.setPhase('idle');
     this.setSessionState({ sourceType: null, connectedBaudRate: null });
 
@@ -732,6 +759,12 @@ export class SerialSessionController {
     if (this.phase === phase) return;
     this.phase = phase;
     this.phaseEmitter.emit(phase);
+  }
+
+  private setWebUsbAvailability(state: WebUsbAvailability): void {
+    if (this.webusbAvailability === state) return;
+    this.webusbAvailability = state;
+    this.webusbAvailabilityEmitter.emit(state);
   }
 
   private handleStatusChange(status: ConnectionManager['status']): void {

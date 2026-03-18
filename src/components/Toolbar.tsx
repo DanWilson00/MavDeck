@@ -47,6 +47,10 @@ export default function Toolbar(props: ToolbarProps) {
   }
 
   const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data';
+  const shouldShowGrantAccess = () =>
+    serialSessionController.backend === 'webusb'
+      ? appState.webusbAvailability === 'needs_grant'
+      : !isConnected();
 
   return (
     <header
@@ -77,7 +81,7 @@ export default function Toolbar(props: ToolbarProps) {
           <Show when={!appState.autoConnect} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
-              <Show when={!isConnected()}>
+              <Show when={shouldShowGrantAccess()}>
                 <button
                   onClick={handleGrantAccess}
                   class="px-3 py-1 rounded text-sm font-medium transition-colors"
