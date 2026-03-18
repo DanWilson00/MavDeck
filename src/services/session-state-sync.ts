@@ -24,6 +24,10 @@ export function bindSessionState(
     setAppState('probeStatus', status);
   });
 
+  const unsubWebUsbAvailability = controller.onWebUsbAvailabilityChange(state => {
+    setAppState('webusbAvailability', state);
+  });
+
   const unsubSession = controller.onSessionStateChange(state => {
     batch(() => {
       setAppState('connectionSourceType', state.sourceType);
@@ -35,6 +39,7 @@ export function bindSessionState(
     batch(() => {
       setAppState('lastPortVendorId', info.portIdentity?.usbVendorId ?? null);
       setAppState('lastPortProductId', info.portIdentity?.usbProductId ?? null);
+      setAppState('lastPortSerialNumber', info.portIdentity?.usbSerialNumber ?? null);
       setAppState('lastSuccessfulBaudRate', info.baudRate);
     });
     controller.persistSerialSettings(
@@ -49,6 +54,7 @@ export function bindSessionState(
   return () => {
     unsubStatus();
     unsubProbe();
+    unsubWebUsbAvailability();
     unsubSession();
     unsubSerial();
   };

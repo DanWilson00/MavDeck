@@ -32,6 +32,7 @@ export interface MavDeckSettings {
   autoDetectBaud: boolean;
   lastPortVendorId: number | null;
   lastPortProductId: number | null;
+  lastPortSerialNumber: string | null;
   lastSuccessfulBaudRate: BaudRate | null;
 }
 
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   autoDetectBaud: false,
   lastPortVendorId: null,
   lastPortProductId: null,
+  lastPortSerialNumber: null,
   lastSuccessfulBaudRate: null,
 };
 

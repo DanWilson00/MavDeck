@@ -1,8 +1,10 @@
 import { Show, For } from 'solid-js';
 import { appState, setAppState } from '../store';
-import { useLogViewerService, useSerialSessionController, isWebSerialSupported } from '../services';
+import { useLogViewerService, useSerialSessionController, isSerialSupported, isWebSerialSupported } from '../services';
 import { STATUS_COLORS, type TimeWindow } from '../models';
 import SettingsModal from './SettingsModal';
+import InstallPrompt from './InstallPrompt';
+
 
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
@@ -45,6 +47,10 @@ export default function Toolbar(props: ToolbarProps) {
   }
 
   const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data';
+  const shouldShowGrantAccess = () =>
+    serialSessionController.backend === 'webusb'
+      ? appState.webusbAvailability === 'needs_grant' || appState.webusbAvailability === 'needs_regrant_android'
+      : !isConnected();
 
   return (
     <header
@@ -68,12 +74,14 @@ export default function Toolbar(props: ToolbarProps) {
 
       {/* Right: Controls */}
       <div class="flex items-center gap-3">
+        <InstallPrompt />
+
         {/* Serial connection */}
-        <Show when={isWebSerialSupported() && !appState.logViewerState.isActive}>
+        <Show when={isSerialSupported() && !appState.logViewerState.isActive}>
           <Show when={!appState.autoConnect} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
-              <Show when={!isConnected()}>
+              <Show when={shouldShowGrantAccess()}>
                 <button
                   onClick={handleGrantAccess}
                   class="px-3 py-1 rounded text-sm font-medium transition-colors"
@@ -82,7 +90,7 @@ export default function Toolbar(props: ToolbarProps) {
                     color: 'var(--text-primary)',
                   }}
                 >
-                  Grant Serial Access
+                  {serialSessionController.backend === 'webusb' ? 'Grant USB Access' : 'Grant Serial Access'}
                 </button>
               </Show>
               <Show when={appState.probeStatus && !isConnected()}>
@@ -113,7 +121,7 @@ export default function Toolbar(props: ToolbarProps) {
                   color: 'var(--text-primary)',
                 }}
               >
-                Connect Serial
+                {isWebSerialSupported() ? 'Connect Serial' : 'Connect USB'}
               </button>
             </Show>
             <Show when={appState.probeStatus}>

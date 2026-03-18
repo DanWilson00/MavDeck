@@ -5,6 +5,12 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Ensure WebUSB is not blocked by Permissions-Policy
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "usb=(self)"
+
 # SPA routing — all paths serve index.html
 [[redirects]]
   from = "/*"

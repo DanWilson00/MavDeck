@@ -12,13 +12,19 @@ describe('serial-session-controller', () => {
   } as unknown as SerialPort;
 
   let statusListener: ((status: ConnectionStatus) => void) | null;
-  let serialConnectedListener: ((info: { baudRate: number; portIdentity: { usbVendorId: number; usbProductId: number } | null }) => void) | null;
+  let probeStatusListener: ((status: string | null) => void) | null;
+  let serialConnectedListener: ((info: {
+    baudRate: number;
+    portIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+  }) => void) | null;
   let connectionManager: Pick<ConnectionManager, 'connect' | 'disconnect' | 'startAutoConnect' | 'stopAutoConnect' | 'onStatusChange' | 'status' | 'pause' | 'resume'>;
   let workerBridge: Pick<MavlinkWorkerBridge, 'notifyPortsChanged' | 'onProbeStatus' | 'onSerialConnected' | 'suspendLiveForLog' | 'resumeSuspendedLive'>;
   let logViewerService: Pick<LogViewerService, 'unload'>;
 
   beforeEach(() => {
+    vi.useRealTimers();
     statusListener = null;
+    probeStatusListener = null;
     serialConnectedListener = null;
     connectionManager = {
       connect: vi.fn(),
@@ -37,7 +43,12 @@ describe('serial-session-controller', () => {
     };
     workerBridge = {
       notifyPortsChanged: vi.fn(),
-      onProbeStatus: vi.fn(() => () => {}),
+      onProbeStatus: vi.fn((callback) => {
+        probeStatusListener = callback;
+        return () => {
+          probeStatusListener = null;
+        };
+      }),
       onSerialConnected: vi.fn((callback) => {
         serialConnectedListener = callback;
         return () => {
@@ -55,6 +66,7 @@ describe('serial-session-controller', () => {
         requestPort: vi.fn(async () => port),
         getPorts: vi.fn(async () => [port]),
       },
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64)',
     });
   });
 
@@ -264,5 +276,315 @@ describe('serial-session-controller', () => {
       sourceType: null,
       connectedBaudRate: null,
     });
+  });
+
+  it('starts Android WebUSB auto-connect with the persisted settings', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+
+    await Promise.resolve();
+
+    expect(controller.currentPhase).toBe('probing');
+    expect((controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+    }).webusbAutoConnectOptions).toEqual({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+  });
+
+  it('marks Android WebUSB as waiting for a device when a serial-numbered granted port is absent', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22, usbSerialNumber: 'ftdi-123' },
+      lastBaudRate: 57600,
+    });
+
+    await vi.waitFor(() => {
+      expect(states).toContain('waiting_for_device');
+    });
+  });
+
+  it('marks Android WebUSB as needing re-grant when the remembered device has no serial number', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+
+    await vi.waitFor(() => {
+      expect(states).toContain('needs_regrant_android');
+    });
+  });
+
+  it('marks Android WebUSB as needing grant when no prior granted device is known', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: null,
+      lastBaudRate: 57600,
+    });
+
+    await vi.waitFor(() => {
+      expect(states).toContain('needs_grant');
+    });
+  });
+
+  it('restarts Android WebUSB auto-connect after an unexpected transport disconnect', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+      mainThreadSource: { disconnect: () => Promise<void> };
+      phase: 'idle';
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22, usbSerialNumber: 'ftdi-123' },
+      lastBaudRate: 57600,
+    };
+    (controller as unknown as {
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).mainThreadSource = {
+      disconnect: vi.fn(async () => {}),
+    };
+
+    (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
+    vi.advanceTimersByTime(1000);
+
+    expect(connectionManager.disconnect).toHaveBeenCalledOnce();
+    expect(restartSpy).toHaveBeenCalledOnce();
+  });
+
+  it('returns to re-grant state after unexpected disconnect when the WebUSB device has no serial number', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const states: string[] = [];
+    controller.onWebUsbAvailabilityChange(state => {
+      states.push(state);
+    });
+
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    };
+    (controller as unknown as {
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).mainThreadSource = {
+      disconnect: vi.fn(async () => {}),
+    };
+
+    (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
+    vi.advanceTimersByTime(1000);
+
+    expect(restartSpy).not.toHaveBeenCalled();
+    expect(states).toContain('needs_regrant_android');
+  });
+
+  it('does not restart Android WebUSB auto-connect after an intentional disconnect', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22, usbSerialNumber: 'ftdi-123' },
+      lastBaudRate: 57600,
+    };
+    (controller as unknown as {
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).mainThreadSource = {
+      disconnect: vi.fn(async () => {}),
+    };
+
+    controller.disconnectLiveSession();
+    vi.advanceTimersByTime(1000);
+
+    expect(restartSpy).not.toHaveBeenCalled();
+  });
+
+  it('dedupes probe status emitted from the worker path', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const statuses: Array<string | null> = [];
+    controller.onProbeStatus(status => {
+      statuses.push(status);
+    });
+
+    probeStatusListener?.('Trying 115200 baud...');
+    probeStatusListener?.('Trying 115200 baud...');
+    probeStatusListener?.(null);
+    probeStatusListener?.(null);
+
+    expect(statuses).toEqual(['Trying 115200 baud...', null]);
   });
 });

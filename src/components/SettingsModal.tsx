@@ -4,10 +4,11 @@ import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
   initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
-  useSerialSessionController, useWorkerBridge, isWebSerialSupported,
+  useSerialSessionController, useWorkerBridge, isSerialSupported,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
+
 
 const UI_SCALE_MIN = 0.6;
 const UI_SCALE_MAX = 1.8;
@@ -315,24 +316,28 @@ export default function SettingsModal(props: SettingsModalProps) {
           <Show when={activeTab() === 'serial'}>
             <div role="tabpanel" class="space-y-4">
               <Show
-                when={isWebSerialSupported()}
+                when={isSerialSupported()}
                 fallback={
                   <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Web Serial is not supported in this browser. Use Chrome or Edge for serial connections.
+                    Serial/USB connections are not supported in this browser.
                   </p>
                 }
               >
                 <ToggleSwitch
                   id="auto-connect-toggle"
                   label="Auto-connect serial"
-                  description="Automatically connect to a MAVLink device when one is detected."
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Automatically reconnect to a previously granted USB MAVLink device."
+                    : "Automatically connect to a MAVLink device when one is detected."}
                   checked={appState.autoConnect}
                   onChange={(v) => setAppState('autoConnect', v)}
                 />
                 <ToggleSwitch
                   id="auto-baud-toggle"
                   label="Auto-detect baud rate"
-                  description="Try different baud rates to find the correct one."
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Try common baud rates when reconnecting to a granted USB device."
+                    : "Try different baud rates to find the correct one."}
                   checked={appState.autoDetectBaud}
                   onChange={(v) => setAppState('autoDetectBaud', v)}
                 />
@@ -366,6 +371,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                 >
                   Forget All Ports
                 </button>
+
               </Show>
             </div>
           </Show>
@@ -502,30 +508,50 @@ function Divider() {
   return <hr class="border-0 border-t" style={{ 'border-color': 'var(--border)' }} />;
 }
 
-function ToggleSwitch(props: { id: string; label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+function ToggleSwitch(props: {
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
+}) {
+  const isDisabled = () => props.disabled === true;
   return (
-    <div class="flex items-start gap-3">
+    <div
+      class="flex items-start gap-3"
+      style={{ opacity: isDisabled() ? 0.5 : 1, cursor: isDisabled() ? 'not-allowed' : undefined }}
+      title={isDisabled() ? props.disabledTooltip : undefined}
+    >
       <button
         id={props.id}
         role="switch"
         aria-checked={props.checked}
+        aria-disabled={isDisabled()}
+        disabled={isDisabled()}
         class="mt-0.5 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors"
         style={{
-          'background-color': props.checked ? 'var(--accent)' : 'var(--bg-hover)',
+          'background-color': props.checked && !isDisabled() ? 'var(--accent)' : 'var(--bg-hover)',
           border: '1px solid var(--border)',
+          cursor: isDisabled() ? 'not-allowed' : undefined,
         }}
-        onClick={() => props.onChange(!props.checked)}
+        onClick={() => { if (!isDisabled()) props.onChange(!props.checked); }}
       >
         <span
           class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
           style={{
-            'background-color': props.checked ? '#000' : 'var(--text-secondary)',
+            'background-color': props.checked && !isDisabled() ? '#000' : 'var(--text-secondary)',
             transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
           }}
         />
       </button>
       <div>
-        <label class="text-xs font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }} for={props.id}>
+        <label
+          class="text-xs font-medium"
+          style={{ color: 'var(--text-primary)', cursor: isDisabled() ? 'not-allowed' : 'pointer' }}
+          for={props.id}
+        >
           {props.label}
         </label>
         <p class="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{props.description}</p>
