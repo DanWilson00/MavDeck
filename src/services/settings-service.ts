@@ -34,6 +34,7 @@ export interface MavDeckSettings {
   lastPortProductId: number | null;
   lastPortSerialNumber: string | null;
   lastSuccessfulBaudRate: BaudRate | null;
+  dialectUrl: string;
 }
 
 export const DEFAULT_SETTINGS: MavDeckSettings = {
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   lastPortProductId: null,
   lastPortSerialNumber: null,
   lastSuccessfulBaudRate: null,
+  dialectUrl: 'https://github.com/DanWilson00/js_c_library_v2/blob/master/message_definitions/jetshark.xml',
 };
 
 /**

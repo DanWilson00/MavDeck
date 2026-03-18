@@ -59,6 +59,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: '',
     };
     mockStore.set('mavdeck-settings-v1', saved);
 
@@ -111,6 +112,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: '',
     };
 
     await saveSettings(settings);
@@ -142,6 +144,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: 'https://example.com/test.xml',
     };
 
     await saveSettings(settings);

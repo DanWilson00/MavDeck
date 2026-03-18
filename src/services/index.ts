@@ -1,5 +1,5 @@
 export type { ByteCallback, IByteSource } from './byte-source';
-export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect } from './dialect-loader';
+export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect, resolveIncludes, loadRemoteDialect, validateDialectUrl, normalizeGithubUrl } from './dialect-loader';
 export { ConnectionManager } from './connection-manager';
 export {
   SerialProbeService,

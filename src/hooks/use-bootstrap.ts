@@ -6,7 +6,10 @@ import {
   loadSettings,
   loadDialect,
   loadBundledDialect,
+  loadRemoteDialect,
+  normalizeGithubUrl,
   initDialect,
+  saveDialect,
   DEFAULT_SETTINGS,
   LogViewerService,
   recoverStagedSessions,
@@ -51,19 +54,40 @@ export function useBootstrap(): BootstrapResult {
       applySettingsToAppState(settings);
       setSettingsReady(true);
 
-      // Load dialect: custom from IndexedDB, or parse bundled XML (never cached)
+      // Load dialect: remote URL → cached → bundled
       let json: string;
       let dialectName: string;
 
-      const cached = await loadDialect();
-      if (cached) {
-        // Custom dialect was imported previously — restore it
-        json = cached.json;
-        dialectName = cached.name;
+      if (settings.dialectUrl) {
+        // Remote dialect URL configured — try to fetch latest
+        try {
+          const fetchUrl = normalizeGithubUrl(settings.dialectUrl);
+          const remote = await loadRemoteDialect(fetchUrl);
+          json = remote.json;
+          dialectName = remote.name;
+          await saveDialect(dialectName, json);
+        } catch (err) {
+          console.warn('[Bootstrap] Remote dialect fetch failed, trying cache:', err);
+          const cached = await loadDialect();
+          if (cached) {
+            json = cached.json;
+            dialectName = cached.name;
+          } else {
+            console.warn('[Bootstrap] No cached dialect, falling back to bundled');
+            dialectName = 'common';
+            json = await loadBundledDialect();
+          }
+        }
       } else {
-        // Default: parse bundled XML every load (fast enough, avoids stale cache)
-        dialectName = 'common';
-        json = await loadBundledDialect();
+        // No URL configured — use cached custom or bundled
+        const cached = await loadDialect();
+        if (cached) {
+          json = cached.json;
+          dialectName = cached.name;
+        } else {
+          dialectName = 'common';
+          json = await loadBundledDialect();
+        }
       }
 
       // Initialize registry and worker bridge

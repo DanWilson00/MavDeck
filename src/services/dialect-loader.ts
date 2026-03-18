@@ -82,3 +82,79 @@ export function detectMainDialect(fileMap: Map<string, string>): string {
     `Cannot auto-detect main dialect. Files: ${filenames.join(', ')}. All appear in include chains: ${[...included].join(', ')}.`
   );
 }
+
+/**
+ * Transitively resolve all missing `<include>` references in a file map
+ * by fetching them from bundled `public/dialects/`.
+ */
+export async function resolveIncludes(fileMap: Map<string, string>): Promise<void> {
+  let missing = detectMissingIncludes(fileMap);
+  while (missing.length > 0) {
+    for (const name of missing) {
+      const resp = await fetch(`${import.meta.env.BASE_URL}dialects/${name}`);
+      if (!resp.ok) {
+        throw new Error(`Missing dialect file: ${name}. Cannot resolve include.`);
+      }
+      fileMap.set(name, await resp.text());
+    }
+    missing = detectMissingIncludes(fileMap);
+  }
+}
+
+/**
+ * Convert a GitHub blob URL to a raw.githubusercontent.com URL.
+ * Returns the URL unchanged if it's not a GitHub blob URL.
+ */
+export function normalizeGithubUrl(url: string): string {
+  const match = url.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/
+  );
+  if (match) {
+    return `https://raw.githubusercontent.com/${match[1]}/${match[2]}/${match[3]}`;
+  }
+  return url;
+}
+
+/**
+ * Validate a dialect URL. Returns an error message string, or null if valid.
+ */
+export function validateDialectUrl(url: string): string | null {
+  if (!url.startsWith('https://')) {
+    return 'URL must start with https://';
+  }
+  try {
+    new URL(url);
+  } catch {
+    return 'Invalid URL format';
+  }
+  if (!url.toLowerCase().endsWith('.xml')) {
+    return 'URL must point to an .xml file';
+  }
+  return null;
+}
+
+/**
+ * Fetch a dialect XML from a remote URL, resolve bundled includes, parse to JSON string.
+ * Returns `{ name, json }` where name is the dialect name (filename without extension).
+ */
+export async function loadRemoteDialect(url: string): Promise<{ name: string; json: string }> {
+  const resp = await fetch(url, { cache: 'no-cache' });
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch dialect: ${resp.status} ${resp.statusText}`);
+  }
+  const xml = await resp.text();
+
+  // Extract filename from URL path
+  const pathname = new URL(url).pathname;
+  const filename = pathname.split('/').pop() ?? 'remote.xml';
+
+  const fileMap = new Map<string, string>();
+  fileMap.set(filename, xml);
+
+  await resolveIncludes(fileMap);
+
+  const mainFile = detectMainDialect(fileMap);
+  const json = parseFromFileMap(fileMap, mainFile);
+  const name = mainFile.replace(/\.xml$/i, '');
+  return { name, json };
+}

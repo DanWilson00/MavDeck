@@ -80,6 +80,10 @@ interface PipelineState {
   packetUnsub: (() => void) | null;
 }
 
+interface ResetPipelineOptions {
+  disconnectSource?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Initial state constants
 // ---------------------------------------------------------------------------
@@ -221,18 +225,7 @@ async function cleanupService(): Promise<void> {
   clearNoDataTimer();
   dataActivity.noDataActive = false;
   stopThroughputCounter();
-  await disconnectPipeline();
-  releasePipelineSubscriptions();
-  resetPipelineConnection();
-}
-
-async function disconnectPipeline(): Promise<void> {
-  if (pipeline.service) {
-    await pipeline.service.disconnect();
-  }
-  pipeline.tracker = null;
-  pipeline.timeseriesManager?.dispose();
-  pipeline.timeseriesManager = null;
+  await resetPipeline({ disconnectSource: true });
 }
 
 function releasePipelineSubscriptions(): void {
@@ -244,6 +237,22 @@ function releasePipelineSubscriptions(): void {
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
+}
+
+async function resetPipeline(options: ResetPipelineOptions = {}): Promise<void> {
+  const timeseriesManager = pipeline.timeseriesManager;
+
+  if (pipeline.service) {
+    if (options.disconnectSource) {
+      await pipeline.service.disconnect();
+    } else {
+      pipeline.service.detach();
+    }
+  }
+
+  releasePipelineSubscriptions();
+  resetPipelineConnection();
+  timeseriesManager?.dispose();
 }
 
 // ---------------------------------------------------------------------------
@@ -500,17 +509,17 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
 async function reconnectWithCurrentSource(): Promise<void> {
   if (!registry) return;
   const source = pipeline.spoofSource ?? pipeline.externalSource ?? serial.serialSource;
-  if (!source || !pipeline.service) return;
+  if (!source) return;
 
-  await disconnectPipeline();
-  releasePipelineSubscriptions();
-  pipeline.lastAvailableFieldsSignature = '';
+  clearNoDataTimer();
+  stopThroughputCounter();
+  await resetPipeline({ disconnectSource: false });
+  clearMainThreadTelemetryState(pipeline, postEvent);
 
   setupService(source);
 
   try {
     if (source === serial.serialSource) {
-      serial.serialSource.resumeAttached();
       pipeline.service?.attach();
       startThroughputCounter(source);
       if (!dataActivity.noDataActive) {
@@ -518,8 +527,13 @@ async function reconnectWithCurrentSource(): Promise<void> {
       }
       postEvent({ type: 'statusChange', status: dataActivity.noDataActive ? 'no_data' : 'connected' });
     } else {
-      await pipeline.service?.connect();
-      startThroughputCounter(source);
+      if (source.isConnected) {
+        pipeline.service?.attach();
+        startThroughputCounter(source);
+      } else {
+        await pipeline.service?.connect();
+        startThroughputCounter(source);
+      }
     }
   } catch (err) {
     await cleanupService();
@@ -539,6 +553,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
     case 'init': {
       registry = new MavlinkMetadataRegistry();
       registry.loadFromJsonString(msg.dialectJson);
+      void reconnectWithCurrentSource();
       postEvent({ type: 'initComplete' });
       break;
     }
