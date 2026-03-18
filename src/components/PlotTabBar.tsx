@@ -162,6 +162,7 @@ export default function PlotTabBar(props: PlotTabBarProps) {
                 height: '100%',
                 'background-color': isActive() ? 'var(--bg-hover)' : 'transparent',
                 color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
+                'border-bottom': isActive() ? '2px solid var(--accent)' : '2px solid transparent',
                 'border-right': '1px solid var(--border)',
               }}
               draggable={!isEditing()}

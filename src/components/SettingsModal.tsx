@@ -204,10 +204,11 @@ export default function SettingsModal(props: SettingsModalProps) {
       aria-label="Settings"
     >
       <div
-        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border shadow-xl"
+        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border"
         style={{
           'background-color': 'var(--bg-panel)',
           'border-color': 'var(--border)',
+          'box-shadow': 'var(--shadow-modal)',
         }}
       >
         {/* Header */}

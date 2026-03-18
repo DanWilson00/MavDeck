@@ -58,6 +58,7 @@ export default function Toolbar(props: ToolbarProps) {
       style={{
         'background-color': 'var(--bg-panel)',
         'border-color': 'var(--border)',
+        'box-shadow': 'var(--shadow-panel)',
       }}
     >
       {/* Left: Tab navigation */}
