@@ -128,4 +128,25 @@ describe('MavlinkService', () => {
     vi.advanceTimersByTime(200);
     expect(messages.length).toBe(countBefore);
   });
+
+  it('detach preserves the connected source and attach resumes decoding without reconnecting', async () => {
+    const messages: MavlinkMessage[] = [];
+    const disconnectSpy = vi.spyOn(spoofSource, 'disconnect');
+    service.onMessage(msg => messages.push(msg));
+
+    await service.connect();
+    vi.advanceTimersByTime(300);
+    const countBeforeDetach = messages.length;
+
+    service.detach();
+    vi.advanceTimersByTime(300);
+    expect(messages.length).toBe(countBeforeDetach);
+    expect(spoofSource.isConnected).toBe(true);
+    expect(disconnectSpy).not.toHaveBeenCalled();
+
+    service.attach();
+    vi.advanceTimersByTime(300);
+    expect(messages.length).toBeGreaterThan(countBeforeDetach);
+    expect(disconnectSpy).not.toHaveBeenCalled();
+  });
 });

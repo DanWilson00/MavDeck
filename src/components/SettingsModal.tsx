@@ -3,11 +3,14 @@ import { appState, setAppState } from '../store';
 import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
-  useSerialSessionController, useWorkerBridge, isWebSerialSupported,
+  initDialect, resolveIncludes, detectMainDialect, useRegistry,
+  useSerialSessionController, useWorkerBridge, isSerialSupported,
+  loadRemoteDialect, validateDialectUrl, normalizeGithubUrl,
+  saveSettings, loadSettings,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
+
 
 const UI_SCALE_MIN = 0.6;
 const UI_SCALE_MAX = 1.8;
@@ -38,7 +41,14 @@ export default function SettingsModal(props: SettingsModalProps) {
   const [activeTab, setActiveTab] = createSignal<SettingsTab>('general');
   const [importError, setImportError] = createSignal<string | null>(null);
   const [refreshing, setRefreshing] = createSignal(false);
+  const [dialectUrl, setDialectUrl] = createSignal('');
+  const [urlSaving, setUrlSaving] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
+
+  // Load current dialectUrl from persisted settings
+  onMount(() => {
+    void loadSettings().then(s => setDialectUrl(s.dialectUrl));
+  });
 
   onMount(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -69,20 +79,11 @@ export default function SettingsModal(props: SettingsModalProps) {
     setAppState('mapTrailLength', clamped);
   }
 
-  function disconnectIfActive() {
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
-      serialSessionController.disconnectLiveSession();
-    }
-  }
-
   async function handleFileSelected(e: Event) {
     const input = e.target as HTMLInputElement;
     const files = input.files;
     if (!files || files.length === 0) return;
     setImportError(null);
-
-    // Auto-disconnect before re-initializing with a new dialect
-    disconnectIfActive();
 
     try {
       // Read all files into a map
@@ -94,17 +95,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       input.value = '';
 
       // Transitively resolve all missing includes from bundled dialects
-      let missing = detectMissingIncludes(fileMap);
-      while (missing.length > 0) {
-        for (const name of missing) {
-          const resp = await fetch(`${import.meta.env.BASE_URL}dialects/${name}`);
-          if (!resp.ok) {
-            throw new Error(`Missing dialect file: ${name}. Select all required XML files together.`);
-          }
-          fileMap.set(name, await resp.text());
-        }
-        missing = detectMissingIncludes(fileMap);
-      }
+      await resolveIncludes(fileMap);
 
       // Auto-detect main file: the one not included by any other file
       const mainFile = detectMainDialect(fileMap);
@@ -119,11 +110,70 @@ export default function SettingsModal(props: SettingsModalProps) {
     }
   }
 
+  async function handleSaveDialectUrl() {
+    setImportError(null);
+    setUrlSaving(true);
+
+    try {
+      const raw = dialectUrl().trim();
+      if (!raw) {
+        // Treat empty as "clear"
+        await handleClearDialectUrl();
+        return;
+      }
+
+      const normalized = normalizeGithubUrl(raw);
+
+      const error = validateDialectUrl(normalized);
+      if (error) {
+        setImportError(error);
+        return;
+      }
+
+      const remote = await loadRemoteDialect(normalized);
+      await initDialect(workerBridge, registry, remote.json);
+      setAppState('dialectName', remote.name);
+      await saveDialect(remote.name, remote.json);
+
+      // Persist the URL to settings
+      const settings = await loadSettings();
+      settings.dialectUrl = raw;
+      await saveSettings(settings);
+    } catch (err) {
+      console.error('[SettingsModal] Dialect URL save failed:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to load dialect from URL.');
+    } finally {
+      setUrlSaving(false);
+    }
+  }
+
+  async function handleClearDialectUrl() {
+    setImportError(null);
+    setUrlSaving(true);
+
+    try {
+      // Clear URL from settings
+      const settings = await loadSettings();
+      settings.dialectUrl = '';
+      await saveSettings(settings);
+      setDialectUrl('');
+
+      // Clear custom dialect and reload bundled
+      await clearDialect();
+      const jsonString = await loadBundledDialect();
+      await initDialect(workerBridge, registry, jsonString);
+      setAppState('dialectName', 'common');
+    } catch (err) {
+      console.error('[SettingsModal] Dialect URL clear failed:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to clear dialect URL.');
+    } finally {
+      setUrlSaving(false);
+    }
+  }
+
   async function handleRefreshDialect() {
     setImportError(null);
     setRefreshing(true);
-
-    disconnectIfActive();
 
     try {
       // Clear any custom dialect, re-parse bundled XML (no caching)
@@ -154,10 +204,11 @@ export default function SettingsModal(props: SettingsModalProps) {
       aria-label="Settings"
     >
       <div
-        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border shadow-xl"
+        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border"
         style={{
           'background-color': 'var(--bg-panel)',
           'border-color': 'var(--border)',
+          'box-shadow': 'var(--shadow-modal)',
         }}
       >
         {/* Header */}
@@ -315,24 +366,28 @@ export default function SettingsModal(props: SettingsModalProps) {
           <Show when={activeTab() === 'serial'}>
             <div role="tabpanel" class="space-y-4">
               <Show
-                when={isWebSerialSupported()}
+                when={isSerialSupported()}
                 fallback={
                   <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    Web Serial is not supported in this browser. Use Chrome or Edge for serial connections.
+                    Serial/USB connections are not supported in this browser.
                   </p>
                 }
               >
                 <ToggleSwitch
                   id="auto-connect-toggle"
                   label="Auto-connect serial"
-                  description="Automatically connect to a MAVLink device when one is detected."
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Automatically reconnect to a previously granted USB MAVLink device."
+                    : "Automatically connect to a MAVLink device when one is detected."}
                   checked={appState.autoConnect}
                   onChange={(v) => setAppState('autoConnect', v)}
                 />
                 <ToggleSwitch
                   id="auto-baud-toggle"
                   label="Auto-detect baud rate"
-                  description="Try different baud rates to find the correct one."
+                  description={serialSessionController.backend === 'webusb'
+                    ? "Try common baud rates when reconnecting to a granted USB device."
+                    : "Try different baud rates to find the correct one."}
                   checked={appState.autoDetectBaud}
                   onChange={(v) => setAppState('autoDetectBaud', v)}
                 />
@@ -366,6 +421,7 @@ export default function SettingsModal(props: SettingsModalProps) {
                 >
                   Forget All Ports
                 </button>
+
               </Show>
             </div>
           </Show>
@@ -428,6 +484,50 @@ export default function SettingsModal(props: SettingsModalProps) {
                 class="hidden"
                 onChange={handleFileSelected}
               />
+
+              <Divider />
+
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="dialect-url-input">
+                  Dialect URL
+                </label>
+                <p class="text-xs mt-0.5 mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Auto-fetches the latest dialect XML on every app load.
+                </p>
+                <input
+                  id="dialect-url-input"
+                  type="url"
+                  placeholder="https://example.com/dialect.xml"
+                  value={dialectUrl()}
+                  onInput={(e) => setDialectUrl(e.currentTarget.value)}
+                  class="w-full rounded px-2 py-1.5 text-xs"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                    'text-overflow': 'ellipsis',
+                  }}
+                />
+                <div class="flex items-center gap-2 mt-2">
+                  <button
+                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    onClick={handleSaveDialectUrl}
+                    disabled={!appState.isReady || urlSaving()}
+                  >
+                    {urlSaving() ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    onClick={handleClearDialectUrl}
+                    disabled={!appState.isReady || urlSaving()}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
               {importError() && (
                 <p class="text-xs" style={{ color: '#ef4444' }}>
                   {importError()}
@@ -502,30 +602,50 @@ function Divider() {
   return <hr class="border-0 border-t" style={{ 'border-color': 'var(--border)' }} />;
 }
 
-function ToggleSwitch(props: { id: string; label: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+function ToggleSwitch(props: {
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
+}) {
+  const isDisabled = () => props.disabled === true;
   return (
-    <div class="flex items-start gap-3">
+    <div
+      class="flex items-start gap-3"
+      style={{ opacity: isDisabled() ? 0.5 : 1, cursor: isDisabled() ? 'not-allowed' : undefined }}
+      title={isDisabled() ? props.disabledTooltip : undefined}
+    >
       <button
         id={props.id}
         role="switch"
         aria-checked={props.checked}
+        aria-disabled={isDisabled()}
+        disabled={isDisabled()}
         class="mt-0.5 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors"
         style={{
-          'background-color': props.checked ? 'var(--accent)' : 'var(--bg-hover)',
+          'background-color': props.checked && !isDisabled() ? 'var(--accent)' : 'var(--bg-hover)',
           border: '1px solid var(--border)',
+          cursor: isDisabled() ? 'not-allowed' : undefined,
         }}
-        onClick={() => props.onChange(!props.checked)}
+        onClick={() => { if (!isDisabled()) props.onChange(!props.checked); }}
       >
         <span
           class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
           style={{
-            'background-color': props.checked ? '#000' : 'var(--text-secondary)',
+            'background-color': props.checked && !isDisabled() ? '#000' : 'var(--text-secondary)',
             transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
           }}
         />
       </button>
       <div>
-        <label class="text-xs font-medium cursor-pointer" style={{ color: 'var(--text-primary)' }} for={props.id}>
+        <label
+          class="text-xs font-medium"
+          style={{ color: 'var(--text-primary)', cursor: isDisabled() ? 'not-allowed' : 'pointer' }}
+          for={props.id}
+        >
           {props.label}
         </label>
         <p class="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>{props.description}</p>

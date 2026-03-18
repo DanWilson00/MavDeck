@@ -8,7 +8,7 @@
 
 import { createEffect, onCleanup } from 'solid-js';
 import { appState } from '../store';
-import { useSerialSessionController, type MavDeckSettings } from '../services';
+import { useSerialSessionController, getSerialBackend, type MavDeckSettings } from '../services';
 import type { Accessor, Setter } from 'solid-js';
 
 export function useAutoConnect(
@@ -20,30 +20,56 @@ export function useAutoConnect(
 
   createEffect(() => {
     if (!appState.isReady || !settingsReady()) return;
+    const backend = getSerialBackend();
+    if (!backend) return;
+
     const isLogActive = appState.logViewerState.isActive;
     const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
-      ? { usbVendorId: appState.lastPortVendorId, usbProductId: appState.lastPortProductId }
+      ? {
+          usbVendorId: appState.lastPortVendorId,
+          usbProductId: appState.lastPortProductId,
+          ...(appState.lastPortSerialNumber ? { usbSerialNumber: appState.lastPortSerialNumber } : {}),
+        }
       : null;
+
+    const autoConnectOptions = {
+      enabled: appState.autoConnect,
+      autoBaud: appState.autoDetectBaud,
+      manualBaudRate: appState.baudRate,
+      lastPortIdentity,
+      lastBaudRate: appState.lastSuccessfulBaudRate,
+    };
 
     if (isLogActive) {
       if (!serialController.hasSuspendedLiveSession) {
-        serialController.stopAutoConnect();
+        if (backend === 'native') {
+          serialController.stopAutoConnect();
+        } else {
+          serialController.stopAutoConnectWebUsb();
+        }
       }
     } else {
       if (serialController.hasSuspendedLiveSession) {
         return;
       }
-      serialController.syncAutoConnect({
-        enabled: appState.autoConnect,
-        autoBaud: appState.autoDetectBaud,
-        manualBaudRate: appState.baudRate,
-        lastPortIdentity,
-        lastBaudRate: appState.lastSuccessfulBaudRate,
-      });
+      if (serialController.isManualSerialReconnectInProgress) {
+        return;
+      }
+      if (backend === 'native') {
+        // Desktop: worker-side probing
+        serialController.syncAutoConnect(autoConnectOptions);
+      } else {
+        // Android: main-thread probing via WebUSB
+        serialController.syncAutoConnectWebUsb(autoConnectOptions);
+      }
     }
 
     onCleanup(() => {
-      serialController.stopAutoConnect();
+      if (backend === 'native') {
+        serialController.stopAutoConnect();
+      } else {
+        serialController.stopAutoConnectWebUsb();
+      }
     });
   });
 }

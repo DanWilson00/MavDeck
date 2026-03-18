@@ -3,20 +3,27 @@
 /* Dark theme (default) */
 :root {
   --ui-scale: 1;
-  --bg-primary: #111217;
-  --bg-panel: #181b1f;
+  --bg-primary: #0c0d11;
+  --bg-panel: #1a1d24;
   --bg-hover: #1e2128;
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
   --accent: #00d4ff;
   --accent-green: #00ff88;
-  --border: #2a2d35;
-  --chart-grid: rgba(255, 255, 255, 0.06);
+  --border: #2e323c;
+  --chart-grid: rgba(255, 255, 255, 0.10);
   --chart-axis: #888;
   --map-overlay-bg: rgba(0, 0, 0, 0.72);
   --map-overlay-text: #e4e4e7;
   --map-overlay-border: rgba(255, 255, 255, 0.2);
   --map-marker-stroke: #000;
+  --shadow-panel: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --tooltip-bg: rgba(0, 0, 0, 0.82);
+  --tooltip-text: #e4e4e7;
+  --bg-button: #262a33;
+  --shadow-modal: 0 10px 25px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.3);
+  --shadow-statusbar: none;
+  --chip-bg: var(--bg-hover);
 }
 
 html {
@@ -25,20 +32,27 @@ html {
 
 /* Light theme — activated by .light class on <html> */
 .light {
-  --bg-primary: #f8f9fa;
+  --bg-primary: #f0f2f5;
   --bg-panel: #ffffff;
-  --bg-hover: #f0f0f0;
+  --bg-hover: #e8eaed;
   --text-primary: #18181b;
-  --text-secondary: #52525b;
-  --accent: #0066cc;
+  --text-secondary: #6b7280;
+  --accent: #0077cc;
   --accent-green: #059669;
-  --border: #e4e4e7;
-  --chart-grid: rgba(0, 0, 0, 0.08);
+  --border: #d1d5db;
+  --chart-grid: rgba(0, 0, 0, 0.10);
   --chart-axis: #666;
   --map-overlay-bg: rgba(255, 255, 255, 0.88);
   --map-overlay-text: #18181b;
   --map-overlay-border: rgba(0, 0, 0, 0.2);
   --map-marker-stroke: #0f172a;
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --tooltip-bg: rgba(255, 255, 255, 0.92);
+  --tooltip-text: #18181b;
+  --bg-button: #dde0e5;
+  --shadow-modal: 0 10px 25px rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.08);
+  --shadow-statusbar: 0 -1px 3px rgba(0, 0, 0, 0.06);
+  --chip-bg: rgba(0, 0, 0, 0.06);
 }
 
 body {

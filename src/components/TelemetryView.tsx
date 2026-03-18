@@ -417,13 +417,7 @@ export default function TelemetryView() {
                             'border-color': 'var(--border)',
                           }}
                         >
-                          <p class="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                            No plots in this tab
-                          </p>
-                          <p class="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                            Add a plot to begin.
-                          </p>
-                          <div class="mt-4 flex items-center justify-center gap-3">
+                          <div class="flex items-center justify-center gap-3">
                             <button
                               class="rounded px-3 py-1.5 text-sm font-medium interactive-hover"
                               style={{

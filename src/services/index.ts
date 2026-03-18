@@ -1,5 +1,5 @@
 export type { ByteCallback, IByteSource } from './byte-source';
-export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect } from './dialect-loader';
+export { loadBundledDialect, initDialect, detectMissingIncludes, detectMainDialect, resolveIncludes, loadRemoteDialect, validateDialectUrl, normalizeGithubUrl } from './dialect-loader';
 export { ConnectionManager } from './connection-manager';
 export {
   SerialProbeService,
@@ -75,7 +75,8 @@ export {
   type LogMetadata,
   type LogLibraryEntry,
 } from './tlog-service';
-export { BAUD_RATES, DEFAULT_BAUD_RATE, isWebSerialSupported, type BaudRate } from './baud-rates';
+export { BAUD_RATES, DEFAULT_BAUD_RATE, BAUD_PROBE_ORDER, PROBE_TIMEOUT_MS, isWebSerialSupported, isWebUsbAvailable, isSerialSupported, type BaudRate } from './baud-rates';
+export { getSerialBackend, requestPort, getGrantedPorts, type SerialBackend, type PortLike } from './serial-backend';
 export { WebSerialByteSource, type SerialBytesCallback } from './webserial-byte-source';
 export { WorkerSerialByteSource } from './worker-serial-byte-source';
 export { SerialSessionController, type AutoConnectOptions, type ManualConnectOptions } from './serial-session-controller';

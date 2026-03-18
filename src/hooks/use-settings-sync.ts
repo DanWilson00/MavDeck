@@ -4,6 +4,7 @@ import {
   flushSettings,
   saveSettingsDebounced,
   useConnectionManager,
+  useSerialSessionController,
   useWorkerBridge,
   type MavDeckSettings,
 } from '../services';
@@ -20,6 +21,7 @@ export function useSettingsSync(
 ): void {
   const workerBridge = useWorkerBridge();
   const connectionManager = useConnectionManager();
+  const serialSessionController = useSerialSessionController();
 
   // Persist settings reactively when display/connection preferences change.
   createEffect(() => {
@@ -29,6 +31,66 @@ export function useSettingsSync(
       setLoadedSettings(nextSettings);
     }
     saveSettingsDebounced(nextSettings);
+  });
+
+  createEffect((prev: {
+    baudRate: number;
+    autoDetectBaud: boolean;
+    connectionSourceType: typeof appState.connectionSourceType;
+    connectionStatus: typeof appState.connectionStatus;
+    connectedBaudRate: typeof appState.connectedBaudRate;
+  } | undefined) => {
+    if (!settingsReady() || !appState.isReady) {
+      return {
+        baudRate: appState.baudRate,
+        autoDetectBaud: appState.autoDetectBaud,
+        connectionSourceType: appState.connectionSourceType,
+        connectionStatus: appState.connectionStatus,
+        connectedBaudRate: appState.connectedBaudRate,
+      };
+    }
+
+    const current = {
+      baudRate: appState.baudRate,
+      autoDetectBaud: appState.autoDetectBaud,
+      connectionSourceType: appState.connectionSourceType,
+      connectionStatus: appState.connectionStatus,
+      connectedBaudRate: appState.connectedBaudRate,
+    };
+
+    if (!prev) {
+      return current;
+    }
+
+    const activeManualSerial =
+      appState.connectionSourceType === 'serial'
+      && (appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data')
+      && !appState.autoDetectBaud
+      && appState.connectedBaudRate != null;
+    const manualBaudMismatch = activeManualSerial && appState.connectedBaudRate !== appState.baudRate;
+    const mismatchJustAppeared =
+      (!prev.connectedBaudRate || prev.connectedBaudRate === prev.baudRate)
+      && current.connectedBaudRate != null
+      && current.connectedBaudRate !== current.baudRate;
+
+    if (manualBaudMismatch && (prev.baudRate !== current.baudRate || mismatchJustAppeared)) {
+      const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
+        ? {
+            usbVendorId: appState.lastPortVendorId,
+            usbProductId: appState.lastPortProductId,
+            ...(appState.lastPortSerialNumber ? { usbSerialNumber: appState.lastPortSerialNumber } : {}),
+          }
+        : null;
+
+      void serialSessionController.reconnectLiveSerial({
+        baudRate: appState.baudRate,
+        autoDetectBaud: appState.autoDetectBaud,
+        lastBaudRate: appState.lastSuccessfulBaudRate,
+        lastPortIdentity,
+      });
+    }
+
+    return current;
   });
 
   // Apply telemetry buffer-capacity changes immediately in worker.

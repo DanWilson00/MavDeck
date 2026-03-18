@@ -12,6 +12,8 @@ interface PlotTabBarProps {
   onLayoutDirty: () => void;
 }
 
+const IS_TOUCH_DEVICE = 'ontouchstart' in globalThis;
+
 export default function PlotTabBar(props: PlotTabBarProps) {
   const [editingTabId, setEditingTabId] = createSignal<string | null>(null);
   const [editingValue, setEditingValue] = createSignal('');
@@ -57,6 +59,10 @@ export default function PlotTabBar(props: PlotTabBarProps) {
 
   function handleDelete(e: MouseEvent, tabId: string) {
     e.stopPropagation();
+    const tab = appState.plotTabs.find(t => t.id === tabId);
+    if (tab && tab.plots.length > 0) {
+      if (!window.confirm(`Close tab "${tab.name}"? It has ${tab.plots.length} plot(s).`)) return;
+    }
     deletePlotTab(tabId);
     props.onLayoutDirty();
   }
@@ -119,6 +125,36 @@ export default function PlotTabBar(props: PlotTabBarProps) {
           const showDropIndicator = () =>
             dragOverIdx() === idx() && dragSourceIdx() !== null && dragSourceIdx() !== idx();
 
+          let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+          let touchStartPos: { x: number; y: number } | null = null;
+
+          function handleTouchStart(e: TouchEvent) {
+            const touch = e.touches[0];
+            touchStartPos = { x: touch.clientX, y: touch.clientY };
+            longPressTimer = setTimeout(() => {
+              longPressTimer = null;
+              handleDoubleClick(tab.id, tab.name);
+            }, 500);
+          }
+
+          function handleTouchMove(e: TouchEvent) {
+            if (!longPressTimer || !touchStartPos) return;
+            const touch = e.touches[0];
+            const dx = touch.clientX - touchStartPos.x;
+            const dy = touch.clientY - touchStartPos.y;
+            if (Math.sqrt(dx * dx + dy * dy) > 10) {
+              clearTimeout(longPressTimer);
+              longPressTimer = null;
+            }
+          }
+
+          function handleTouchEnd() {
+            if (longPressTimer) {
+              clearTimeout(longPressTimer);
+              longPressTimer = null;
+            }
+          }
+
           return (
             <div
               class="group relative flex items-center gap-1 px-3 shrink-0 cursor-pointer select-none"
@@ -126,11 +162,15 @@ export default function PlotTabBar(props: PlotTabBarProps) {
                 height: '100%',
                 'background-color': isActive() ? 'var(--bg-hover)' : 'transparent',
                 color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
+                'border-bottom': isActive() ? '2px solid var(--accent)' : '2px solid transparent',
                 'border-right': '1px solid var(--border)',
               }}
               draggable={!isEditing()}
               onClick={() => handleTabClick(tab.id)}
               onDblClick={() => handleDoubleClick(tab.id, tab.name)}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               onDragStart={(e) => handleDragStart(e, idx())}
               onDragOver={(e) => handleDragOver(e, idx())}
               onDragLeave={handleDragLeave}
@@ -181,7 +221,7 @@ export default function PlotTabBar(props: PlotTabBarProps) {
 
               {/* Delete button */}
               <button
-                class="flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                class={`flex items-center justify-center rounded transition-opacity ${IS_TOUCH_DEVICE ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'}`}
                 style={{
                   width: '16px',
                   height: '16px',

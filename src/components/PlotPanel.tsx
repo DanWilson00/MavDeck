@@ -115,6 +115,7 @@ export default function PlotPanel(props: PlotPanelProps) {
       style={{
         'background-color': 'var(--bg-panel)',
         border: '1px solid var(--border)',
+        'box-shadow': 'var(--shadow-panel)',
         overflow: 'hidden',
         outline: props.isSelected() ? '2px solid var(--accent)' : 'none',
         'outline-offset': '-2px',
@@ -135,7 +136,7 @@ export default function PlotPanel(props: PlotPanelProps) {
                 class="inline-flex max-w-[13rem] min-w-0 flex-shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono"
                 style={{
                   color: getThemeColor(sig.color, appState.theme),
-                  'background-color': 'var(--bg-hover)',
+                  'background-color': 'var(--chip-bg)',
                 }}
                 title={formatSignalDisplayLabel(registry, sig, appState.unitProfile)}
               >
@@ -158,7 +159,7 @@ export default function PlotPanel(props: PlotPanelProps) {
               class="inline-flex flex-shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-mono"
               style={{
                 color: 'var(--text-secondary)',
-                'background-color': 'var(--bg-hover)',
+                'background-color': 'var(--chip-bg)',
               }}
               title={hiddenSignalsTitle()}
             >

@@ -1,7 +1,8 @@
 import { Show } from 'solid-js';
 import { appState } from '../store';
-import { isWebSerialSupported } from '../services';
+import { isSerialSupported } from '../services';
 import { STATUS_COLORS } from '../models';
+
 
 const STATUS_LABELS: Record<string, string> = {
   disconnected: 'Disconnected',
@@ -73,6 +74,7 @@ export default function StatusBar() {
         height: '24px',
         'background-color': 'var(--bg-panel)',
         'border-top': '1px solid var(--border)',
+        'box-shadow': 'var(--shadow-statusbar)',
         'font-size': '11px',
         'font-family': 'monospace',
         color: 'var(--text-secondary)',
@@ -108,7 +110,7 @@ export default function StatusBar() {
       </Show>
 
       {/* Browser warning — no Web Serial */}
-      <Show when={!isWebSerialSupported()}>
+      <Show when={!isSerialSupported()}>
         <Divider />
         <span style={{ color: '#eab308' }}>&#9888; Serial unavailable</span>
       </Show>
