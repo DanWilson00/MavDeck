@@ -14,6 +14,7 @@ import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-
 export interface SerialPortIdentity {
   usbVendorId: number;
   usbProductId: number;
+  usbSerialNumber?: string;
 }
 
 /** Result of a successful probe. */

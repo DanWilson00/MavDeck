@@ -61,9 +61,11 @@ type WebUsbAvailabilityCallback = (state: WebUsbAvailability) => void;
 
 const WEBUSB_WAITING_FOR_ACCESS_STATUS = 'Waiting for USB access...';
 const WEBUSB_WAITING_FOR_DEVICE_STATUS = 'Waiting for USB device...';
+const WEBUSB_REGRANT_ANDROID_STATUS = 'USB access must be granted again on Android';
 const WEBUSB_RECONNECT_DELAY_MS = 1000;
+const WEBUSB_EMPTY_POLLS_BEFORE_REGRANT = 2;
 
-export type WebUsbAvailability = 'unknown' | 'needs_grant' | 'waiting_for_device' | 'granted';
+export type WebUsbAvailability = 'unknown' | 'needs_grant' | 'needs_regrant_android' | 'waiting_for_device' | 'granted';
 
 export class SerialSessionController {
   private readonly connectionManager: ConnectionManager;
@@ -235,6 +237,7 @@ export class SerialSessionController {
       await requestPort(backend);
       if (backend === 'webusb') {
         this.setWebUsbAvailability('granted');
+        this.probeStatusEmitter.emit(null);
       }
       if (backend === 'native') {
         this.workerBridge.notifyPortsChanged();
@@ -367,6 +370,7 @@ export class SerialSessionController {
       autoDetectBaud,
       lastPortVendorId: info.portIdentity?.usbVendorId ?? null,
       lastPortProductId: info.portIdentity?.usbProductId ?? null,
+      lastPortSerialNumber: info.portIdentity?.usbSerialNumber ?? null,
       lastSuccessfulBaudRate: info.baudRate,
     };
     saveSettingsDebounced(nextSettings);
@@ -399,6 +403,7 @@ export class SerialSessionController {
     if (!options.enabled) {
       this.webusbAutoConnectOptions = null;
       this.setWebUsbAvailability('unknown');
+      this.probeStatusEmitter.emit(null);
       this.stopAutoConnectWebUsb();
       return;
     }
@@ -446,6 +451,7 @@ export class SerialSessionController {
     signal: AbortSignal,
   ): Promise<void> {
     let hasSeenGrantedPort = false;
+    let emptyPolls = 0;
 
     while (!signal.aborted) {
       let ports: PortLike[];
@@ -459,6 +465,7 @@ export class SerialSessionController {
 
       if (ports.length > 0) {
         hasSeenGrantedPort = true;
+        emptyPolls = 0;
         this.setWebUsbAvailability('granted');
         // Sort so last-working port is tried first
         if (options.lastPortIdentity) {
@@ -476,11 +483,9 @@ export class SerialSessionController {
           if (success) return; // Connected!
         }
       } else {
-        const availability = options.lastPortIdentity ? 'waiting_for_device' : 'needs_grant';
-        this.setWebUsbAvailability(availability);
-        this.probeStatusEmitter.emit(
-          availability === 'needs_grant' ? WEBUSB_WAITING_FOR_ACCESS_STATUS : WEBUSB_WAITING_FOR_DEVICE_STATUS,
-        );
+        emptyPolls++;
+        const availability = this.getMissingWebUsbAvailability(options, hasSeenGrantedPort, emptyPolls);
+        this.emitWebUsbAvailabilityStatus(availability);
       }
 
       if (signal.aborted) return;
@@ -492,11 +497,8 @@ export class SerialSessionController {
         this.setWebUsbAvailability('granted');
         this.probeStatusEmitter.emit('USB device connected, probing...');
       } else if (!this.mainThreadSource) {
-        const availability = hasSeenGrantedPort || options.lastPortIdentity ? 'waiting_for_device' : 'needs_grant';
-        this.setWebUsbAvailability(availability);
-        this.probeStatusEmitter.emit(
-          availability === 'needs_grant' ? WEBUSB_WAITING_FOR_ACCESS_STATUS : WEBUSB_WAITING_FOR_DEVICE_STATUS,
-        );
+        const availability = this.getMissingWebUsbAvailability(options, hasSeenGrantedPort, emptyPolls);
+        this.emitWebUsbAvailabilityStatus(availability);
       }
     }
   }
@@ -644,7 +646,13 @@ export class SerialSessionController {
 
     try {
       await source.connect(port);
-    } catch {
+    } catch (error) {
+      const needsRegrant = this.shouldRequireWebUsbRegrantOnError(error);
+      if (needsRegrant) {
+        this.emitWebUsbAvailabilityStatus('needs_regrant_android');
+      } else {
+        this.setWebUsbAvailability('granted');
+      }
       this.setPhase('error');
       return;
     }
@@ -726,9 +734,15 @@ export class SerialSessionController {
       return;
     }
 
-    this.setWebUsbAvailability('waiting_for_device');
     this.setPhase('idle');
     this.setSessionState({ sourceType: null, connectedBaudRate: null });
+
+    if (!this.canWaitForWebUsbReconnect(this.webusbAutoConnectOptions)) {
+      this.emitWebUsbAvailabilityStatus('needs_regrant_android');
+      return;
+    }
+
+    this.emitWebUsbAvailabilityStatus('waiting_for_device');
 
     setTimeout(() => {
       if (this.mainThreadSource || this.phase !== 'idle') {
@@ -765,6 +779,58 @@ export class SerialSessionController {
     if (this.webusbAvailability === state) return;
     this.webusbAvailability = state;
     this.webusbAvailabilityEmitter.emit(state);
+  }
+
+  private canWaitForWebUsbReconnect(options: AutoConnectOptions | null): boolean {
+    return options?.lastPortIdentity?.usbSerialNumber != null;
+  }
+
+  private shouldRequireWebUsbRegrantOnError(error: unknown): boolean {
+    if (!(error instanceof DOMException)) {
+      return false;
+    }
+    return error.name === 'SecurityError'
+      || error.name === 'NetworkError'
+      || error.name === 'NotFoundError'
+      || error.name === 'InvalidStateError';
+  }
+
+  private getMissingWebUsbAvailability(
+    options: AutoConnectOptions,
+    hasSeenGrantedPort: boolean,
+    emptyPolls: number,
+  ): WebUsbAvailability {
+    if (!options.lastPortIdentity) {
+      return 'needs_grant';
+    }
+
+    if (!this.canWaitForWebUsbReconnect(options)) {
+      return 'needs_regrant_android';
+    }
+
+    if ((hasSeenGrantedPort || options.lastPortIdentity) && emptyPolls >= WEBUSB_EMPTY_POLLS_BEFORE_REGRANT) {
+      return 'needs_regrant_android';
+    }
+
+    return 'waiting_for_device';
+  }
+
+  private emitWebUsbAvailabilityStatus(availability: WebUsbAvailability): void {
+    this.setWebUsbAvailability(availability);
+
+    if (availability === 'needs_grant') {
+      this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_ACCESS_STATUS);
+      return;
+    }
+
+    if (availability === 'needs_regrant_android') {
+      this.probeStatusEmitter.emit(WEBUSB_REGRANT_ANDROID_STATUS);
+      return;
+    }
+
+    if (availability === 'waiting_for_device') {
+      this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_DEVICE_STATUS);
+    }
   }
 
   private handleStatusChange(status: ConnectionManager['status']): void {

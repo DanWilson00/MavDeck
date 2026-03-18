@@ -25,7 +25,11 @@ export function useAutoConnect(
 
     const isLogActive = appState.logViewerState.isActive;
     const lastPortIdentity = appState.lastPortVendorId != null && appState.lastPortProductId != null
-      ? { usbVendorId: appState.lastPortVendorId, usbProductId: appState.lastPortProductId }
+      ? {
+          usbVendorId: appState.lastPortVendorId,
+          usbProductId: appState.lastPortProductId,
+          ...(appState.lastPortSerialNumber ? { usbSerialNumber: appState.lastPortSerialNumber } : {}),
+        }
       : null;
 
     const autoConnectOptions = {

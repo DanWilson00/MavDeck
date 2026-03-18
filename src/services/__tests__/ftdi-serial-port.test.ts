@@ -525,6 +525,18 @@ describe('FtdiSerialPort.getInfo', () => {
       usbProductId: 0x1234,
     });
   });
+
+  it('includes the USB serial number when available', () => {
+    const { device } = makeMockDevice();
+    (device as USBDevice).serialNumber = 'ftdi-123';
+    const port = new FtdiSerialPort(device);
+
+    expect(port.getInfo()).toEqual({
+      usbVendorId: 0x0403,
+      usbProductId: 0x6001,
+      serialNumber: 'ftdi-123',
+    });
+  });
 });
 
 // ── forget() ────────────────────────────────────────────────────────────────
@@ -658,6 +670,26 @@ describe('getGrantedFtdiPorts', () => {
     expect(ports[0].getInfo()).toEqual({
       usbVendorId: 0x0403,
       usbProductId: 0x6001,
+    });
+  });
+
+  it('preserves serial number from previously granted FTDI devices', async () => {
+    const { device } = makeMockDevice({ configuration: null });
+    (device as USBDevice).serialNumber = 'ftdi-123';
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => [device]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+
+    const ports = await getGrantedFtdiPorts();
+
+    expect(ports[0].getInfo()).toEqual({
+      usbVendorId: 0x0403,
+      usbProductId: 0x6001,
+      serialNumber: 'ftdi-123',
     });
   });
 });

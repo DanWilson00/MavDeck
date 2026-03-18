@@ -33,6 +33,7 @@ interface USBConfiguration {
 interface USBDevice {
   vendorId: number;
   productId: number;
+  serialNumber?: string;
   opened: boolean;
   configuration: USBConfiguration | null;
   open(): Promise<void>;

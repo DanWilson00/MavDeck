@@ -57,6 +57,7 @@ describe('settings-service', () => {
       autoDetectBaud: false,
       lastPortVendorId: null,
       lastPortProductId: null,
+      lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
     };
     mockStore.set('mavdeck-settings-v1', saved);
@@ -108,6 +109,7 @@ describe('settings-service', () => {
       autoDetectBaud: false,
       lastPortVendorId: null,
       lastPortProductId: null,
+      lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
     };
 
@@ -138,6 +140,7 @@ describe('settings-service', () => {
       autoDetectBaud: false,
       lastPortVendorId: null,
       lastPortProductId: null,
+      lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
     };
 

@@ -93,4 +93,19 @@ describe('Toolbar', () => {
 
     dispose();
   });
+
+  it('shows Grant USB Access again when Android requires re-grant after detach', () => {
+    backend = 'webusb';
+    serialSessionController.backend = 'webusb';
+    setAppState('autoConnect', true);
+    setAppState('webusbAvailability', 'needs_regrant_android');
+    setAppState('probeStatus', 'USB access must be granted again on Android');
+
+    const dispose = render(() => <Toolbar onSelectTab={() => {}} />, document.body);
+
+    expect(document.body.textContent).toContain('Grant USB Access');
+    expect(document.body.textContent).toContain('USB access must be granted again on Android');
+
+    dispose();
+  });
 });

@@ -45,6 +45,7 @@ describe('useAutoConnect', () => {
     setAppState('baudRate', 115200);
     setAppState('lastPortVendorId', 11);
     setAppState('lastPortProductId', 22);
+    setAppState('lastPortSerialNumber', null);
     setAppState('lastSuccessfulBaudRate', 57600);
     setAppState('logViewerState', {
       isActive: false,
@@ -63,6 +64,7 @@ describe('useAutoConnect', () => {
         autoDetectBaud: true,
         lastPortVendorId: 11,
         lastPortProductId: 22,
+        lastPortSerialNumber: null,
         lastSuccessfulBaudRate: 57600 as const,
       });
 
@@ -82,6 +84,7 @@ describe('useAutoConnect', () => {
         ...loadedSettings(),
         lastPortVendorId: 33,
         lastPortProductId: 44,
+        lastPortSerialNumber: null,
         lastSuccessfulBaudRate: 921600 as const,
       });
       await Promise.resolve();
@@ -89,6 +92,7 @@ describe('useAutoConnect', () => {
 
       setAppState('lastPortVendorId', 11);
       setAppState('lastPortProductId', 22);
+      setAppState('lastPortSerialNumber', null);
       setAppState('lastSuccessfulBaudRate', 57600);
 
       setAppState('logViewerState', {
@@ -132,6 +136,7 @@ describe('useAutoConnect', () => {
         autoDetectBaud: true,
         lastPortVendorId: 11,
         lastPortProductId: 22,
+        lastPortSerialNumber: null,
         lastSuccessfulBaudRate: 57600 as const,
       });
 
@@ -169,6 +174,7 @@ describe('useAutoConnect', () => {
         autoDetectBaud: true,
         lastPortVendorId: 11,
         lastPortProductId: 22,
+        lastPortSerialNumber: null,
         lastSuccessfulBaudRate: 57600 as const,
       });
 
@@ -187,6 +193,37 @@ describe('useAutoConnect', () => {
       await Promise.resolve();
 
       expect(serialController.syncAutoConnect).not.toHaveBeenCalled();
+
+      dispose();
+    });
+  });
+
+  it('passes the persisted USB serial number through to the WebUSB controller', async () => {
+    backend = 'webusb';
+    setAppState('lastPortSerialNumber', 'ftdi-123');
+
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+        autoConnect: true,
+        autoDetectBaud: true,
+        lastPortVendorId: 11,
+        lastPortProductId: 22,
+        lastPortSerialNumber: 'ftdi-123',
+        lastSuccessfulBaudRate: 57600 as const,
+      });
+
+      useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      expect(serialController.syncAutoConnectWebUsb).toHaveBeenCalledWith({
+        enabled: true,
+        autoBaud: true,
+        manualBaudRate: 115200,
+        lastPortIdentity: { usbVendorId: 11, usbProductId: 22, usbSerialNumber: 'ftdi-123' },
+        lastBaudRate: 57600,
+      });
 
       dispose();
     });

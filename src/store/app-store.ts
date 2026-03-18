@@ -44,9 +44,10 @@ export interface AppState {
   autoConnect: boolean;
   autoDetectBaud: boolean;
   probeStatus: string | null;
-  webusbAvailability: 'unknown' | 'needs_grant' | 'waiting_for_device' | 'granted';
+  webusbAvailability: 'unknown' | 'needs_grant' | 'needs_regrant_android' | 'waiting_for_device' | 'granted';
   lastPortVendorId: number | null;
   lastPortProductId: number | null;
+  lastPortSerialNumber: string | null;
   lastSuccessfulBaudRate: BaudRate | null;
   connectedBaudRate: BaudRate | null;
   throughputBytesPerSec: number;
@@ -96,6 +97,7 @@ export function createInitialAppState(): AppState {
     webusbAvailability: 'unknown',
     lastPortVendorId: DEFAULT_SETTINGS.lastPortVendorId,
     lastPortProductId: DEFAULT_SETTINGS.lastPortProductId,
+    lastPortSerialNumber: DEFAULT_SETTINGS.lastPortSerialNumber,
     lastSuccessfulBaudRate: DEFAULT_SETTINGS.lastSuccessfulBaudRate,
     connectedBaudRate: null,
     throughputBytesPerSec: 0,
@@ -110,7 +112,7 @@ type PersistedSettingsState = Pick<
   'activeTab' | 'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
   'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapAutoCenter' | 'sidebarCollapsed' |
   'sidebarWidth' | 'autoConnect' | 'autoDetectBaud' | 'lastSuccessfulBaudRate'
-  | 'lastPortVendorId' | 'lastPortProductId'
+  | 'lastPortVendorId' | 'lastPortProductId' | 'lastPortSerialNumber'
 >;
 
 export function applySettingsToAppState(settings: PersistedSettingsState): void {
@@ -132,6 +134,7 @@ export function applySettingsToAppState(settings: PersistedSettingsState): void 
     setAppState('autoDetectBaud', settings.autoDetectBaud);
     setAppState('lastPortVendorId', settings.lastPortVendorId);
     setAppState('lastPortProductId', settings.lastPortProductId);
+    setAppState('lastPortSerialNumber', settings.lastPortSerialNumber);
     setAppState('lastSuccessfulBaudRate', settings.lastSuccessfulBaudRate);
   });
 }
@@ -156,6 +159,7 @@ export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): ty
     autoDetectBaud: appState.autoDetectBaud,
     lastPortVendorId: appState.lastPortVendorId,
     lastPortProductId: appState.lastPortProductId,
+    lastPortSerialNumber: appState.lastPortSerialNumber,
     lastSuccessfulBaudRate: appState.lastSuccessfulBaudRate,
   };
 }

@@ -49,7 +49,7 @@ export default function Toolbar(props: ToolbarProps) {
   const isConnected = () => appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data';
   const shouldShowGrantAccess = () =>
     serialSessionController.backend === 'webusb'
-      ? appState.webusbAvailability === 'needs_grant'
+      ? appState.webusbAvailability === 'needs_grant' || appState.webusbAvailability === 'needs_regrant_android'
       : !isConnected();
 
   return (

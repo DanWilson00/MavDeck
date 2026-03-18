@@ -215,6 +215,7 @@ export class FtdiSerialPort implements PortLike {
     return {
       usbVendorId: this.device.vendorId,
       usbProductId: this.device.productId,
+      ...(this.device.serialNumber ? { serialNumber: this.device.serialNumber } : {}),
     };
   }
 

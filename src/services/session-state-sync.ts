@@ -39,6 +39,7 @@ export function bindSessionState(
     batch(() => {
       setAppState('lastPortVendorId', info.portIdentity?.usbVendorId ?? null);
       setAppState('lastPortProductId', info.portIdentity?.usbProductId ?? null);
+      setAppState('lastPortSerialNumber', info.portIdentity?.usbSerialNumber ?? null);
       setAppState('lastSuccessfulBaudRate', info.baudRate);
     });
     controller.persistSerialSettings(
