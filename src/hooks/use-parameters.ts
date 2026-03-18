@@ -1,5 +1,5 @@
 import { createSignal, createMemo } from 'solid-js';
-import { useWorkerBridge } from '../services';
+import { useWorkerBridge, addDebugConsoleEntry } from '../services';
 import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
 import type { ParamMetadataFile, ParamDef } from '../models/parameter-metadata';
 import { parseMetadataFile, flattenToLookup } from '../services/param-metadata-service';
@@ -9,6 +9,7 @@ import {
   type ArrayParamGroup,
   type ParamGroup,
 } from '../services/parameter-grouping';
+import { appState } from '../store';
 
 export type { ParamWithMeta, ArrayParamGroup, ParamGroup } from '../services/parameter-grouping';
 
@@ -78,14 +79,35 @@ function downloadMetadataFromDevice(): void {
   if (!bridgeRef || metadataLoading()) return;
   setMetadataLoading(true);
 
+  const logProgress = (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, string | number | boolean | null>) => {
+    addDebugConsoleEntry({ source: 'metadata-ftp', level, message, details });
+    if (!appState.debugConsoleEnabled) return;
+    const prefix = '[Metadata FTP]';
+    if (level === 'error') console.error(prefix, message, details ?? '');
+    else if (level === 'warn') console.warn(prefix, message, details ?? '');
+    else if (level === 'info') console.info(prefix, message, details ?? '');
+    else console.debug(prefix, message, details ?? '');
+  };
+
+  logProgress('info', 'Metadata download requested from Parameters tab');
+
+  const unsubProgress = bridgeRef.onFtpMetadataProgress((progress) => {
+    logProgress(progress.level, `${progress.stage}: ${progress.message}`, progress.details);
+  });
+
   const unsubResult = bridgeRef.onFtpMetadataResult((json, crcValid) => {
     unsubResult();
     unsubError();
+    unsubProgress();
     try {
       const parsed = parseMetadataFile(json);
       setMetadata(parsed);
-      if (!crcValid) console.warn('Metadata CRC mismatch — file may be corrupted');
+      if (!crcValid) {
+        logProgress('warn', 'Metadata CRC mismatch — file may be corrupted');
+      }
+      logProgress('info', 'Metadata file parsed and loaded into the app');
     } catch (e) {
+      logProgress('error', `Failed to parse device metadata: ${e instanceof Error ? e.message : String(e)}`);
       console.error('Failed to parse device metadata:', e);
     } finally {
       setMetadataLoading(false);
@@ -95,6 +117,8 @@ function downloadMetadataFromDevice(): void {
   const unsubError = bridgeRef.onFtpMetadataError((error) => {
     unsubResult();
     unsubError();
+    unsubProgress();
+    logProgress('error', `Metadata download failed: ${error}`);
     console.error('FTP metadata download failed:', error);
     setMetadataLoading(false);
   });

@@ -6,6 +6,7 @@ import MapView from './components/MapView';
 import ParametersView from './components/ParametersView';
 import StatusBar from './components/StatusBar';
 import HelpOverlay from './components/HelpOverlay';
+import DebugConsole from './components/DebugConsole';
 import { appState, setAppState } from './store';
 import {
   useBootstrap,
@@ -61,6 +62,7 @@ function AppContent(props: AppContentProps) {
           <ParametersView />
         </Show>
       </main>
+      <DebugConsole />
       <StatusBar />
       <HelpOverlay />
     </div>

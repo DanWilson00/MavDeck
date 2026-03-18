@@ -40,6 +40,7 @@ describe('settings-service', () => {
     const saved: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: true,
       uiScale: 1.1,
       unitProfile: 'raw',
       baudRate: 57600,
@@ -93,6 +94,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: true,
       uiScale: 0.95,
       unitProfile: 'metric',
       baudRate: 230400,
@@ -125,6 +127,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: false,
       uiScale: 1.2,
       unitProfile: 'aviation',
       baudRate: 921600,
@@ -214,6 +217,7 @@ describe('settings-service', () => {
   it('DEFAULT_SETTINGS has expected default values', () => {
     expect(DEFAULT_SETTINGS.activeTab).toBe('telemetry');
     expect(DEFAULT_SETTINGS.theme).toBe('dark');
+    expect(DEFAULT_SETTINGS.debugConsoleEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.uiScale).toBe(1);
     expect(DEFAULT_SETTINGS.unitProfile).toBe('raw');
     expect(DEFAULT_SETTINGS.baudRate).toBe(500000);

@@ -202,6 +202,10 @@ function getVehicleTarget(): { systemId: number; componentId: number } {
   return { systemId: DEFAULT_VEHICLE_SYSTEM_ID, componentId: DEFAULT_VEHICLE_COMPONENT_ID };
 }
 
+function postFtpMetadataProgress(progress: import('./worker-protocol').FtpMetadataProgressEvent): void {
+  postEvent({ type: 'ftpMetadataProgress', progress });
+}
+
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
 const LOG_GRACE_PERIOD_MS = 30_000;
@@ -626,7 +630,9 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
     postEvent({ type: 'paramSetResult', result });
   });
 
-  metadataDownloader = new MetadataFtpDownloader(sendMavlinkMessage, getVehicleTarget);
+  metadataDownloader = new MetadataFtpDownloader(sendMavlinkMessage, getVehicleTarget, progress => {
+    postEvent({ type: 'ftpMetadataProgress', progress });
+  });
   pipeline.ftpMessageUnsub = pipeline.service.onMessage(msg => {
     if (msg.name === 'FILE_TRANSFER_PROTOCOL') {
       metadataDownloader?.handleMessage(msg);
@@ -959,12 +965,29 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
     case 'ftpDownloadMetadata': {
       if (!metadataDownloader) {
+        postFtpMetadataProgress({
+          level: 'error',
+          stage: 'download:not-connected',
+          message: 'Metadata download requested while no metadata downloader is available',
+        });
         postEvent({ type: 'ftpMetadataError', error: 'Not connected' });
         break;
       }
+      postFtpMetadataProgress({
+        level: 'info',
+        stage: 'download:requested',
+        message: 'Metadata download requested from main thread',
+      });
       metadataDownloader.download()
         .then(result => postEvent({ type: 'ftpMetadataResult', json: result.json, crcValid: result.crcValid }))
-        .catch(err => postEvent({ type: 'ftpMetadataError', error: err instanceof Error ? err.message : String(err) }));
+        .catch(err => {
+          postFtpMetadataProgress({
+            level: 'error',
+            stage: 'download:error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+          postEvent({ type: 'ftpMetadataError', error: err instanceof Error ? err.message : String(err) });
+        });
       break;
     }
   }

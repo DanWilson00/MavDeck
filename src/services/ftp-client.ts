@@ -7,6 +7,7 @@
  */
 
 import type { MavlinkMessage } from '../mavlink/decoder';
+import type { MetadataFtpProgressReporter } from './metadata-ftp-downloader';
 import {
   FTP_OPCODE_TERMINATE_SESSION,
   FTP_OPCODE_OPEN_FILE_RO,
@@ -47,6 +48,7 @@ export class FtpClient {
   constructor(
     private readonly sendFrame: (name: string, values: Record<string, number | string | number[]>) => void,
     private readonly getVehicleId: () => { systemId: number; componentId: number },
+    private readonly onProgress?: MetadataFtpProgressReporter,
   ) {}
 
   /** Download a file by path. Resolves with file bytes. */
@@ -54,6 +56,13 @@ export class FtpClient {
     if (this.pending) {
       return Promise.reject(new Error('Another download is already in progress'));
     }
+
+    this.report({
+      level: 'info',
+      stage: 'ftp:download:start',
+      message: `Starting FTP download for ${path}`,
+      details: { path },
+    });
 
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending = {
@@ -119,6 +128,12 @@ export class FtpClient {
   private sendOpenFileRO(path: string): void {
     if (!this.pending) return;
     this.pending.state = 'waitOpenAck';
+    this.report({
+      level: 'debug',
+      stage: 'ftp:open:request',
+      message: `Sending OPEN_FILE_RO for ${path}`,
+      details: { path, retry: this.pending.retries },
+    });
 
     const pathBytes = new TextEncoder().encode(path);
     const seq = this.nextSeq();
@@ -136,6 +151,12 @@ export class FtpClient {
   private sendReadFile(): void {
     if (!this.pending) return;
     this.pending.state = 'reading';
+    this.report({
+      level: 'debug',
+      stage: 'ftp:read:request',
+      message: `Requesting read at offset ${this.pending.offset}`,
+      details: { path: this.pending.path, offset: this.pending.offset, size: FTP_DATA_MAX_SIZE },
+    });
 
     const seq = this.nextSeq();
     const payload = encodeFtpPayload({
@@ -153,6 +174,12 @@ export class FtpClient {
   private sendTerminate(): void {
     if (!this.pending) return;
     this.pending.state = 'waitTermAck';
+    this.report({
+      level: 'debug',
+      stage: 'ftp:terminate:request',
+      message: 'Sending terminate session request',
+      details: { path: this.pending.path, session: this.pending.session },
+    });
 
     const seq = this.nextSeq();
     const payload = encodeFtpPayload({
@@ -182,6 +209,12 @@ export class FtpClient {
           this.pending.fileSize = view.getUint32(0, true);
           this.pending.session = ftp.session;
           this.pending.offset = 0;
+          this.report({
+            level: 'info',
+            stage: 'ftp:open:ack',
+            message: `Opened ${this.pending.path}`,
+            details: { path: this.pending.path, fileSize: this.pending.fileSize, session: this.pending.session },
+          });
           this.sendReadFile();
         }
         break;
@@ -192,6 +225,17 @@ export class FtpClient {
         if (ftp.reqOpcode === FTP_OPCODE_READ_FILE && ftp.data.length > 0) {
           this.pending.chunks.push(ftp.data.slice());
           this.pending.offset += ftp.data.length;
+          this.report({
+            level: 'debug',
+            stage: 'ftp:read:ack',
+            message: `Received ${ftp.data.length} bytes`,
+            details: {
+              path: this.pending.path,
+              bytesRead: ftp.data.length,
+              offset: this.pending.offset,
+              fileSize: this.pending.fileSize,
+            },
+          });
           this.sendReadFile();
         }
         break;
@@ -199,6 +243,12 @@ export class FtpClient {
 
       case 'waitTermAck': {
         // Session terminated — resolve with assembled file
+        this.report({
+          level: 'info',
+          stage: 'ftp:terminate:ack',
+          message: `FTP session closed for ${this.pending.path}`,
+          details: { path: this.pending.path, session: this.pending.session },
+        });
         this.resolveDownload();
         break;
       }
@@ -213,11 +263,23 @@ export class FtpClient {
 
     if (this.pending.state === 'reading' && errorCode === FTP_ERR_EOF) {
       // EOF — file download complete, terminate session
+      this.report({
+        level: 'info',
+        stage: 'ftp:read:eof',
+        message: `Reached EOF for ${this.pending.path}`,
+        details: { path: this.pending.path, bytes: this.pending.offset, fileSize: this.pending.fileSize },
+      });
       this.sendTerminate();
       return;
     }
 
     // Any other NAK is an error
+    this.report({
+      level: 'error',
+      stage: 'ftp:nak',
+      message: `FTP NAK ${errorCode} while ${this.pending.path} was in state ${this.pending.state}`,
+      details: { path: this.pending.path, errorCode, state: this.pending.state },
+    });
     const download = this.pending;
     this.pending = null;
     download.reject(new Error(`FTP NAK: error code ${errorCode} in state ${download.state}`));
@@ -246,6 +308,12 @@ export class FtpClient {
 
     this.pending.retries++;
     if (this.pending.retries >= MAX_RETRIES) {
+      this.report({
+        level: 'error',
+        stage: 'ftp:timeout:failed',
+        message: `FTP timed out after ${MAX_RETRIES} retries for ${this.pending.path}`,
+        details: { path: this.pending.path, state: this.pending.state, timeoutMs: REQUEST_TIMEOUT_MS },
+      });
       const download = this.pending;
       this.pending = null;
       download.reject(new Error(`FTP timeout after ${MAX_RETRIES} retries in state ${download.state}`));
@@ -253,6 +321,17 @@ export class FtpClient {
     }
 
     // Retry the current request
+    this.report({
+      level: 'warn',
+      stage: 'ftp:timeout:retry',
+      message: `FTP timeout while ${this.pending.path} was in state ${this.pending.state}; retrying`,
+      details: {
+        path: this.pending.path,
+        state: this.pending.state,
+        retry: this.pending.retries,
+        timeoutMs: REQUEST_TIMEOUT_MS,
+      },
+    });
     switch (this.pending.state) {
       case 'waitOpenAck':
         this.sendOpenFileRO(this.pending.path);
@@ -283,6 +362,16 @@ export class FtpClient {
 
     const download = this.pending;
     this.pending = null;
+    this.report({
+      level: 'info',
+      stage: 'ftp:download:complete',
+      message: `Completed FTP download for ${download.path}`,
+      details: { path: download.path, bytes: result.byteLength },
+    });
     download.resolve(result);
+  }
+
+  private report(progress: Parameters<MetadataFtpProgressReporter>[0]): void {
+    this.onProgress?.(progress);
   }
 }

@@ -22,6 +22,15 @@ export type ConnectionConfig =
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'no_data' | 'error' | 'probing';
 
+export type DebugLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface FtpMetadataProgressEvent {
+  level: DebugLogLevel;
+  stage: string;
+  message: string;
+  details?: Record<string, string | number | boolean | null>;
+}
+
 // ---------------------------------------------------------------------------
 // Main thread → Worker commands
 // ---------------------------------------------------------------------------
@@ -69,5 +78,6 @@ export type WorkerEvent =
   | { type: 'throughput'; bytesPerSec: number }
   | { type: 'paramState'; state: ParameterStateSnapshot }
   | { type: 'paramSetResult'; result: ParamSetResult }
+  | { type: 'ftpMetadataProgress'; progress: FtpMetadataProgressEvent }
   | { type: 'ftpMetadataResult'; json: string; crcValid: boolean }
   | { type: 'ftpMetadataError'; error: string };

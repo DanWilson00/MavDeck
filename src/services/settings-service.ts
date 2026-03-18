@@ -15,6 +15,7 @@ const SETTINGS_KEY = 'mavdeck-settings-v1';
 export interface MavDeckSettings {
   activeTab: string;
   theme: 'dark' | 'light';
+  debugConsoleEnabled: boolean;
   uiScale: number;
   unitProfile: UnitProfile;
   baudRate: BaudRate;
@@ -40,6 +41,7 @@ export interface MavDeckSettings {
 export const DEFAULT_SETTINGS: MavDeckSettings = {
   activeTab: 'telemetry',
   theme: 'dark',
+  debugConsoleEnabled: false,
   uiScale: 1,
   unitProfile: 'raw',
   baudRate: DEFAULT_BAUD_RATE,

@@ -430,6 +430,14 @@ export default function SettingsModal(props: SettingsModalProps) {
           <Show when={activeTab() === 'advanced'}>
             <div role="tabpanel" class="space-y-4">
               <SectionLabel>Data</SectionLabel>
+              <ToggleSwitch
+                id="debug-console-toggle"
+                label="Enable debug console"
+                description="Shows app-level diagnostics, including metadata FTP download progress, in a dedicated bottom console."
+                checked={appState.debugConsoleEnabled}
+                onChange={(v) => setAppState('debugConsoleEnabled', v)}
+              />
+              
               <div>
                 <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
                   Telemetry Buffer Capacity (samples per field)

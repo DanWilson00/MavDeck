@@ -8,13 +8,20 @@
 import { EventEmitter } from '../core';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
-import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
+import type {
+  WorkerCommand,
+  WorkerEvent,
+  ConnectionConfig,
+  ConnectionStatus,
+  FtpMetadataProgressEvent,
+} from '../workers/worker-protocol';
 import type { SerialPortIdentity } from './serial-probe-service';
 import type { BaudRate } from './baud-rates';
 import type { ParameterStateSnapshot, ParamSetResult } from './parameter-types';
 
 // Re-export protocol types so existing consumers don't need to change imports.
 export type { ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
+export type { FtpMetadataProgressEvent } from '../workers/worker-protocol';
 
 export interface StatusTextEntry {
   severity: number;
@@ -50,6 +57,7 @@ export class MavlinkWorkerBridge {
   private readonly paramSetResultEmitter = new EventEmitter<(result: ParamSetResult) => void>();
   private readonly ftpMetadataResultEmitter = new EventEmitter<(json: string, crcValid: boolean) => void>();
   private readonly ftpMetadataErrorEmitter = new EventEmitter<(error: string) => void>();
+  private readonly ftpMetadataProgressEmitter = new EventEmitter<(progress: FtpMetadataProgressEvent) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -243,6 +251,11 @@ export class MavlinkWorkerBridge {
     return this.ftpMetadataErrorEmitter.on(callback);
   }
 
+  /** Subscribe to FTP metadata download progress events. */
+  onFtpMetadataProgress(callback: (progress: FtpMetadataProgressEvent) => void): () => void {
+    return this.ftpMetadataProgressEmitter.on(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -358,6 +371,11 @@ export class MavlinkWorkerBridge {
 
       case 'ftpMetadataResult': {
         this.ftpMetadataResultEmitter.emit(msg.json, msg.crcValid);
+        break;
+      }
+
+      case 'ftpMetadataProgress': {
+        this.ftpMetadataProgressEmitter.emit(msg.progress);
         break;
       }
 

@@ -97,3 +97,13 @@ export {
   type ConnectionStatus,
   type StatusTextEntry,
 } from './worker-bridge';
+export {
+  addDebugConsoleEntry,
+  clearDebugConsoleEntries,
+  getDebugConsoleEntries,
+  onDebugConsoleEntry,
+  onDebugConsoleClear,
+  type DebugConsoleEntry,
+  type DebugConsoleLevel,
+  type DebugConsoleSource,
+} from './debug-console';
