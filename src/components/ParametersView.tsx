@@ -24,7 +24,7 @@ function toggleGroup(name: string) {
 
 export default function ParametersView() {
   const {
-    paramState, metadata, metadataLoading, lastSetResult,
+    paramState, metadata, metadataLoading, metadataStatus, lastSetResult,
     groupedParams, requestAll, setParam, loadMetadataFromFile, downloadMetadataFromDevice,
   } = useParameters();
 
@@ -282,6 +282,27 @@ export default function ParametersView() {
               }}
             />
           </div>
+
+          <Show when={metadataStatus().kind !== 'idle' && metadataStatus().message}>
+            <div
+              class="px-3 py-2 text-sm border-b flex-shrink-0"
+              style={{
+                'background-color': metadataStatus().kind === 'error'
+                  ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)'
+                  : metadataStatus().kind === 'success'
+                    ? 'color-mix(in srgb, var(--accent-green) 10%, transparent)'
+                    : 'var(--bg-hover)',
+                color: metadataStatus().kind === 'error'
+                  ? 'var(--accent-red)'
+                  : metadataStatus().kind === 'success'
+                    ? 'var(--accent-green)'
+                    : 'var(--text-secondary)',
+                'border-color': 'var(--border)',
+              }}
+            >
+              {metadataStatus().message}
+            </div>
+          </Show>
 
           {/* Progress bar */}
           <Show when={state().fetchStatus === 'fetching' && state().totalCount > 0}>

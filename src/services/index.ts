@@ -107,3 +107,9 @@ export {
   type DebugConsoleLevel,
   type DebugConsoleSource,
 } from './debug-console';
+export {
+  getCachedMetadataByCrc,
+  putCachedMetadata,
+  clearCachedMetadataByCrc,
+  clearMetadataCache,
+} from './metadata-cache';

@@ -6,6 +6,7 @@ import { MavlinkFrameBuilder } from '../../mavlink/frame-builder';
 import { MavlinkFrameParser } from '../../mavlink/frame-parser';
 import { MavlinkMessageDecoder } from '../../mavlink/decoder';
 import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
+import { clearMetadataCache } from '../metadata-cache';
 
 const commonJson = loadCommonDialectJson();
 
@@ -32,13 +33,16 @@ describe('MetadataFtpDownloader integration', () => {
   let downloader: MetadataFtpDownloader;
   let outboundParser: MavlinkFrameParser;
   let outboundDecoder: MavlinkMessageDecoder;
+  let outboundFrameCount: number;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
+    await clearMetadataCache();
     registry = new MavlinkMetadataRegistry();
     registry.loadFromJsonString(commonJson);
     frameBuilder = new MavlinkFrameBuilder(registry);
     responder = new SpoofFtpResponder(registry, testMetadata);
+    outboundFrameCount = 0;
 
     // Wire up the loopback: downloader sends → responder handles → response fed back
     outboundParser = new MavlinkFrameParser(registry);
@@ -46,6 +50,7 @@ describe('MetadataFtpDownloader integration', () => {
 
     downloader = new MetadataFtpDownloader(
       (name, values) => {
+        outboundFrameCount++;
         // Build a MAVLink frame from the downloader's send call
         const frame = frameBuilder.buildFrame({
           messageName: name,
@@ -83,8 +88,9 @@ describe('MetadataFtpDownloader integration', () => {
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     downloader.dispose();
+    await clearMetadataCache();
     vi.useRealTimers();
   });
 
@@ -106,5 +112,26 @@ describe('MetadataFtpDownloader integration', () => {
     expect(parsed.version).toBe(1);
     expect(parsed.groups[0].name).toBe('Test');
     expect(parsed.groups[0].parameters[0].mavlink_id).toBe('TEST_PARAM');
+  });
+
+  it('uses cached metadata on repeated download when CRC matches', async () => {
+    const firstDownloadPromise = downloader.download();
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    const firstResult = await firstDownloadPromise;
+    const firstFrameCount = outboundFrameCount;
+
+    outboundFrameCount = 0;
+
+    const secondDownloadPromise = downloader.download();
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    const secondResult = await secondDownloadPromise;
+
+    expect(secondResult.json).toBe(firstResult.json);
+    expect(secondResult.crcValid).toBe(true);
+    expect(outboundFrameCount).toBeLessThan(firstFrameCount);
   });
 });

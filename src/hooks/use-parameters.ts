@@ -14,6 +14,15 @@ import { summarizeMetadataShape } from '../services/param-metadata-service';
 
 export type { ParamWithMeta, ArrayParamGroup, ParamGroup } from '../services/parameter-grouping';
 
+type MetadataStatusKind = 'idle' | 'loading' | 'success' | 'error';
+type MetadataStatusSource = 'device' | 'cache' | 'file' | null;
+
+export interface MetadataStatus {
+  kind: MetadataStatusKind;
+  source: MetadataStatusSource;
+  message: string;
+}
+
 // Module-level state — persists across tab switches (component mount/unmount cycles)
 const [paramState, setParamState] = createSignal<ParameterStateSnapshot>({
   params: {}, totalCount: 0, receivedCount: 0, fetchStatus: 'idle', error: null,
@@ -21,6 +30,11 @@ const [paramState, setParamState] = createSignal<ParameterStateSnapshot>({
 const [metadata, setMetadata] = createSignal<ParamMetadataFile | null>(null);
 const [lastSetResult, setLastSetResult] = createSignal<ParamSetResult | null>(null);
 const [metadataLoading, setMetadataLoading] = createSignal(false);
+const [metadataStatus, setMetadataStatus] = createSignal<MetadataStatus>({
+  kind: 'idle',
+  source: null,
+  message: '',
+});
 
 let bridgeInitialized = false;
 let bridgeRef: ReturnType<typeof useWorkerBridge> | null = null;
@@ -64,13 +78,20 @@ function setParam(paramId: string, value: number) {
 
 async function loadMetadataFromUrl(url: string) {
   setMetadataLoading(true);
+  setMetadataStatus({ kind: 'loading', source: 'file', message: 'Loading metadata...' });
   try {
     const resp = await fetch(url);
     const json = await resp.text();
     const parsed = parseMetadataFile(json);
     setMetadata(parsed);
+    setMetadataStatus({ kind: 'success', source: 'file', message: 'Loaded metadata' });
   } catch (e) {
     console.error('Failed to load metadata:', e);
+    setMetadataStatus({
+      kind: 'error',
+      source: 'file',
+      message: `Metadata load failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
   } finally {
     setMetadataLoading(false);
   }
@@ -79,6 +100,8 @@ async function loadMetadataFromUrl(url: string) {
 function downloadMetadataFromDevice(): void {
   if (!bridgeRef || metadataLoading()) return;
   setMetadataLoading(true);
+  setMetadataStatus({ kind: 'loading', source: 'device', message: 'Loading metadata from device...' });
+  let loadedFromCache = false;
 
   const logProgress = (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, string | number | boolean | null>) => {
     addDebugConsoleEntry({ source: 'metadata-ftp', level, message, details });
@@ -93,6 +116,10 @@ function downloadMetadataFromDevice(): void {
   logProgress('info', 'Metadata download requested from Parameters tab');
 
   const unsubProgress = bridgeRef.onFtpMetadataProgress((progress) => {
+    if (progress.stage === 'metadata:cache:hit') {
+      loadedFromCache = true;
+      setMetadataStatus({ kind: 'success', source: 'cache', message: 'Loaded metadata from cache' });
+    }
     logProgress(progress.level, `${progress.stage}: ${progress.message}`, progress.details);
   });
 
@@ -121,8 +148,15 @@ function downloadMetadataFromDevice(): void {
       if (!crcValid) {
         logProgress('warn', 'Metadata CRC mismatch — file may be corrupted');
       }
+      setMetadataStatus({
+        kind: 'success',
+        source: loadedFromCache ? 'cache' : 'device',
+        message: loadedFromCache ? 'Loaded metadata from cache' : 'Downloaded metadata from device',
+      });
       logProgress('info', 'Metadata file parsed and loaded into the app');
     } catch (e) {
+      const errorMessage = `Metadata parse failed: ${e instanceof Error ? e.message : String(e)}`;
+      setMetadataStatus({ kind: 'error', source: 'device', message: errorMessage });
       logProgress('error', `Failed to parse device metadata: ${e instanceof Error ? e.message : String(e)}`);
       console.error('Failed to parse device metadata:', e);
     } finally {
@@ -134,6 +168,7 @@ function downloadMetadataFromDevice(): void {
     unsubResult();
     unsubError();
     unsubProgress();
+    setMetadataStatus({ kind: 'error', source: 'device', message: `Metadata download failed: ${error}` });
     logProgress('error', `Metadata download failed: ${error}`);
     console.error('FTP metadata download failed:', error);
     setMetadataLoading(false);
@@ -144,6 +179,7 @@ function downloadMetadataFromDevice(): void {
 
 async function loadMetadataFromFile(file: File) {
   setMetadataLoading(true);
+  setMetadataStatus({ kind: 'loading', source: 'file', message: `Loading metadata from ${file.name}...` });
   try {
     const json = await file.text();
     const parsedRaw = JSON.parse(json) as unknown;
@@ -166,8 +202,14 @@ async function loadMetadataFromFile(file: File) {
     });
     const parsed = parseMetadataFile(json);
     setMetadata(parsed);
+    setMetadataStatus({ kind: 'success', source: 'file', message: `Loaded metadata from ${file.name}` });
   } catch (e) {
     console.error('Failed to parse metadata file:', e);
+    setMetadataStatus({
+      kind: 'error',
+      source: 'file',
+      message: `Metadata parse failed: ${e instanceof Error ? e.message : String(e)}`,
+    });
   } finally {
     setMetadataLoading(false);
   }
@@ -182,6 +224,7 @@ export function useParameters() {
     paramState,
     metadata,
     metadataLoading,
+    metadataStatus,
     lastSetResult,
     groupedParams,
     requestAll,

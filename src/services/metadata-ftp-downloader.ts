@@ -9,6 +9,8 @@ import { crc32 } from '../core/crc32';
 import { XzReadableStream } from 'xz-decompress';
 import type { MavlinkMessage } from '../mavlink/decoder';
 import type { DebugLogLevel } from '../workers/worker-protocol';
+import { clearCachedMetadataByCrc, getCachedMetadataByCrc, putCachedMetadata } from './metadata-cache';
+import { parseMetadataFile } from './param-metadata-service';
 
 /** Result of a metadata download. */
 export interface MetadataDownloadResult {
@@ -90,8 +92,31 @@ export class MetadataFtpDownloader {
       level: 'info',
       stage: 'metadata:path',
       message: `Selected metadata path ${path}`,
-      details: { uri: paramEntry.uri },
+      details: { uri: paramEntry.uri, fileCrc: paramEntry.fileCrc >>> 0 },
     });
+
+    const cachedJson = await getCachedMetadataByCrc(paramEntry.fileCrc);
+    if (cachedJson) {
+      try {
+        parseMetadataFile(cachedJson);
+        this.report({
+          level: 'info',
+          stage: 'metadata:cache:hit',
+          message: 'Loaded metadata from cache',
+          details: { fileCrc: paramEntry.fileCrc >>> 0 },
+        });
+        this.report({ level: 'info', stage: 'download:success', message: 'Metadata download completed successfully (cache)' });
+        return { json: cachedJson, crcValid: true };
+      } catch {
+        await clearCachedMetadataByCrc(paramEntry.fileCrc);
+        this.report({
+          level: 'warn',
+          stage: 'metadata:cache:invalid',
+          message: 'Cached metadata was invalid and has been cleared',
+          details: { fileCrc: paramEntry.fileCrc >>> 0 },
+        });
+      }
+    }
 
     // Step 2: Download the metadata file
     this.report({ level: 'info', stage: 'metadata:request', message: `Requesting ${path}` });
@@ -145,8 +170,17 @@ export class MetadataFtpDownloader {
         details: { bytes: decompressed.byteLength },
       });
 
+      const json = new TextDecoder().decode(decompressed);
+      parseMetadataFile(json);
+      await putCachedMetadata(paramEntry.fileCrc, json);
+      this.report({
+        level: 'info',
+        stage: 'metadata:cache:store',
+        message: 'Stored metadata in cache',
+        details: { fileCrc: paramEntry.fileCrc >>> 0 },
+      });
       this.report({ level: 'info', stage: 'download:success', message: 'Metadata download completed successfully' });
-      return { json: new TextDecoder().decode(decompressed), crcValid };
+      return { json, crcValid };
     }
 
     // Uncompressed path (spoof mode): CRC check on raw bytes
@@ -158,8 +192,17 @@ export class MetadataFtpDownloader {
       message: crcValid ? 'Metadata CRC matched' : 'Metadata CRC mismatch',
       details: { expected: paramEntry.fileCrc >>> 0, actual: computedCrc >>> 0 },
     });
+    const json = new TextDecoder().decode(rawBytes);
+    parseMetadataFile(json);
+    await putCachedMetadata(paramEntry.fileCrc, json);
+    this.report({
+      level: 'info',
+      stage: 'metadata:cache:store',
+      message: 'Stored metadata in cache',
+      details: { fileCrc: paramEntry.fileCrc >>> 0 },
+    });
     this.report({ level: 'info', stage: 'download:success', message: 'Metadata download completed successfully' });
-    return { json: new TextDecoder().decode(rawBytes), crcValid };
+    return { json, crcValid };
   }
 
   /** Feed decoded messages to the internal FTP client. */

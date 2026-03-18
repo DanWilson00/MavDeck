@@ -207,16 +207,16 @@ describe('FtpClient', () => {
   it('retries on timeout and eventually rejects', async () => {
     const downloadPromise = client.downloadFile('/timeout.txt');
 
-    // Advance time past 3 timeouts (2s each)
-    vi.advanceTimersByTime(2000); // retry 1
-    vi.advanceTimersByTime(2000); // retry 2
-    vi.advanceTimersByTime(2000); // retry 3 → reject
+    // Advance time past 5 timeouts (4s each)
+    vi.advanceTimersByTime(4000); // retry 1
+    vi.advanceTimersByTime(4000); // retry 2
+    vi.advanceTimersByTime(4000); // retry 3
+    vi.advanceTimersByTime(4000); // retry 4
+    vi.advanceTimersByTime(4000); // retry 5 → reject
 
     await expect(downloadPromise).rejects.toThrow('timeout');
-    // Should have sent initial + 3 retries = 4 OPENFILERO
-    // But retries increment after each timeout, and at MAX_RETRIES it rejects.
-    // Initial send + 2 retries (retries 1 and 2 resend, retry 3 rejects)
-    expect(sentFrames.length).toBe(3);
+    // Initial send + 4 resend attempts; the 5th timeout rejects without another send.
+    expect(sentFrames.length).toBe(5);
   });
 
   it('rejects concurrent downloads', async () => {

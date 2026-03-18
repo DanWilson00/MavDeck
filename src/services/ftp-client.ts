@@ -21,10 +21,10 @@ import {
 } from './ftp-types';
 
 /** Timeout per FTP request in ms. */
-const REQUEST_TIMEOUT_MS = 2000;
+const REQUEST_TIMEOUT_MS = 4000;
 
 /** Maximum retries per request. */
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 
 type FtpState = 'idle' | 'waitOpenAck' | 'reading' | 'waitTermAck';
 
