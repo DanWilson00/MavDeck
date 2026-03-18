@@ -5,6 +5,7 @@ import type { ParamWithMeta, ArrayParamGroup } from '../hooks/use-parameters';
 import ParameterGroup from './ParameterGroup';
 import ParameterDetail from './ParameterDetail';
 import ParameterArrayDetail from './ParameterArrayDetail';
+import { getArrayDisplayName, getParameterDisplayName } from '../services/parameter-display';
 
 // Module-level state survives component unmount/remount (tab switches)
 const [expandedGroups, setExpandedGroups] = createSignal(new Set<string>());
@@ -94,19 +95,33 @@ export default function ParametersView() {
           const configKey = p.meta?.config_key ?? '';
           const desc = p.meta?.description ?? '';
           const longDesc = p.meta?.long_description ?? '';
-          return p.paramId.toLowerCase().includes(query)
+          const groupName = p.meta?.group_name ?? '';
+          const displayName = getParameterDisplayName(p.meta, p.paramId);
+          const idMatches = !p.meta && p.paramId.toLowerCase().includes(query);
+          return idMatches
+            || displayName.toLowerCase().includes(query)
             || configKey.toLowerCase().includes(query)
             || desc.toLowerCase().includes(query)
-            || longDesc.toLowerCase().includes(query);
+            || longDesc.toLowerCase().includes(query)
+            || groupName.toLowerCase().includes(query);
         }),
         arrays: g.arrays.filter(a => {
           // Include entire array if description or any element matches
           if (a.description.toLowerCase().includes(query)) return true;
-          if (a.prefix.toLowerCase().includes(query)) return true;
+          if (a.label.toLowerCase().includes(query)) return true;
           return a.elements.some(el => {
             const configKey = el.meta?.config_key ?? '';
-            return el.paramId.toLowerCase().includes(query)
-              || configKey.toLowerCase().includes(query);
+            const desc = el.meta?.description ?? '';
+            const longDesc = el.meta?.long_description ?? '';
+            const groupName = el.meta?.group_name ?? '';
+            const displayName = getParameterDisplayName(el.meta, el.paramId);
+            const idMatches = !el.meta && el.paramId.toLowerCase().includes(query);
+            return idMatches
+              || displayName.toLowerCase().includes(query)
+              || configKey.toLowerCase().includes(query)
+              || desc.toLowerCase().includes(query)
+              || longDesc.toLowerCase().includes(query)
+              || groupName.toLowerCase().includes(query);
           });
         }),
       }))

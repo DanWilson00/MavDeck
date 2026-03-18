@@ -2,6 +2,7 @@ import { createSignal, createEffect, Show, For } from 'solid-js';
 import type { ArrayParamGroup, ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
+import { getArrayDisplayName } from '../services/parameter-display';
 
 interface ParameterArrayDetailProps {
   array: ArrayParamGroup;
@@ -26,15 +27,11 @@ function formatArrayValues(elements: ParamWithMeta[], pendingEdits: Map<string, 
 
 export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
   const fieldName = () => {
-    const key = props.array.elements[0]?.meta?.config_key;
-    if (!key) return props.array.description;
-    const dotIdx = key.indexOf('.');
-    return dotIdx >= 0 ? key.substring(dotIdx + 1) : key;
+    return getArrayDisplayName(props.array.elements[0]?.meta ?? null, props.array.label);
   };
 
   const displayDescription = () => {
-    const meta = props.array.elements[0]?.meta;
-    return meta?.long_description || meta?.description || '';
+    return props.array.description;
   };
 
   const [flashMap, setFlashMap] = createSignal<Map<string, 'success' | 'error'>>(new Map());

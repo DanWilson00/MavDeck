@@ -11,6 +11,7 @@ export interface ParamWithMeta {
 
 export interface ArrayParamGroup {
   prefix: string;
+  label: string;
   description: string;
   unit: string;
   elements: ParamWithMeta[];
@@ -48,7 +49,9 @@ export function buildParamGroups(
   const groups = new Map<string, ParamWithMeta[]>();
   for (const [, pwm] of withMeta) {
     let groupName: string;
-    if (pwm.meta?.config_key) {
+    if (pwm.meta?.group_name) {
+      groupName = pwm.meta.group_name;
+    } else if (pwm.meta?.config_key) {
       const dotIdx = pwm.meta.config_key.indexOf('.');
       groupName = dotIdx >= 0 ? pwm.meta.config_key.substring(0, dotIdx) : pwm.meta.config_key;
     } else if (!hasMetadataFile) {
@@ -86,6 +89,7 @@ export function buildParamGroups(
       const first = elements[0].meta!;
       arrays.push({
         prefix,
+        label: first.arrayInfo?.prefix ?? first.config_key ?? first.description,
         description: first.description,
         unit: (first.type === 'Boolean' || first.type === 'Discrete') ? '' : (first.unit === 'norm' ? '' : first.unit ?? ''),
         elements,

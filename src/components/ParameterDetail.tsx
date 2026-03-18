@@ -2,6 +2,7 @@ import { createSignal, createEffect, Show, For } from 'solid-js';
 import type { ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
+import { getParameterDisplayName } from '../services/parameter-display';
 
 interface ParameterDetailProps {
   param: ParamWithMeta;
@@ -29,10 +30,7 @@ export default function ParameterDetail(props: ParameterDetailProps) {
   const [flashState, setFlashState] = createSignal<'none' | 'success' | 'warning' | 'error'>('none');
 
   const fieldName = () => {
-    const key = props.param.meta?.config_key;
-    if (!key) return props.param.paramId;
-    const dotIdx = key.indexOf('.');
-    return dotIdx >= 0 ? key.substring(dotIdx + 1) : key;
+    return getParameterDisplayName(props.param.meta, props.param.paramId);
   };
 
   const meta = () => props.param.meta;

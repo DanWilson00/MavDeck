@@ -14,6 +14,7 @@ export interface ParamGroupDef {
 export interface ParamDef {
   mavlink_id: string;
   config_key: string;
+  group_name?: string;
   type: 'Float' | 'Boolean' | 'Discrete' | 'Integer';
   default: number;
   min: number;
@@ -26,7 +27,7 @@ export interface ParamDef {
   reboot_required?: boolean;
   values?: Record<string, string>;
   arrayInfo?: {
-    prefix: string;   // mavlink_prefix, e.g. "SCL_PFF_V"
+    prefix: string;   // stable array key, usually the base config_key
     index: number;    // 0-based element index
     count: number;    // total elements in the array
   };

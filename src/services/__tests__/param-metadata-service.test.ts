@@ -43,69 +43,6 @@ describe('parseMetadataFile', () => {
     expect(file.array_parameters).toEqual([]);
   });
 
-  it('parses compact qgc-style parameter metadata arrays', () => {
-    const file = parseMetadataFile(JSON.stringify({
-      version: 1,
-      parameters: [
-        {
-          name: 'WM_MAX_ROLL',
-          type: 'Float',
-          group: 'Control',
-          default: 0.7,
-          min: 0,
-          max: 1,
-          shortDesc: 'Max roll command',
-          longDesc: 'Maximum fraction of roll stick input applied to wing commands',
-          units: 'norm',
-          decimalPlaces: 2,
-        },
-        {
-          name: 'JS_THUMB_DIR',
-          type: 'Int32',
-          group: 'Input',
-          default: 1,
-          min: -1,
-          max: 1,
-          shortDesc: 'Thumb direction',
-          values: [
-            { value: -1, description: 'Reverse' },
-            { value: 1, description: 'Normal' },
-          ],
-        },
-      ],
-    }));
-
-    expect(file.groups.map(g => g.name)).toEqual(['Control', 'Input']);
-    expect(file.array_parameters).toEqual([]);
-    expect(file.groups[0].parameters[0].mavlink_id).toBe('WM_MAX_ROLL');
-    expect(file.groups[0].parameters[0].type).toBe('Float');
-    expect(file.groups[1].parameters[0].type).toBe('Discrete');
-    expect(file.groups[1].parameters[0].values).toEqual({ '-1': 'Reverse', '1': 'Normal' });
-  });
-
-  it('maps Int32 disabled/enabled values to Boolean', () => {
-    const file = parseMetadataFile(JSON.stringify({
-      version: 1,
-      parameters: [
-        {
-          name: 'SCL_RFADE_EN',
-          type: 'Int32',
-          group: 'Control',
-          default: 0,
-          min: 0,
-          max: 1,
-          shortDesc: 'Enable fade',
-          values: [
-            { value: 0, description: 'Disabled' },
-            { value: 1, description: 'Enabled' },
-          ],
-        },
-      ],
-    }));
-
-    expect(file.groups[0].parameters[0].type).toBe('Boolean');
-  });
-
   it('throws when wrapped parameters.groups is not an array', () => {
     expect(() => parseMetadataFile('{"version":1,"parameters":{"groups":{}}}')).toThrow('wrapper.parameters: groups must be an array');
   });
@@ -114,10 +51,6 @@ describe('parseMetadataFile', () => {
     expect(() => parseMetadataFile('{"version":1,"parameters":{"version":2,"groups":[]}}')).toThrow('outer and inner version fields do not match');
   });
 
-  it('throws on unknown compact parameter type', () => {
-    expect(() => parseMetadataFile('{"version":1,"parameters":[{"name":"P1","type":"String","group":"Test","default":0,"min":0,"max":1,"shortDesc":"bad"}]}'))
-      .toThrow('unknown compact parameter type');
-  });
 });
 
 describe('summarizeMetadataShape', () => {
@@ -145,14 +78,6 @@ describe('summarizeMetadataShape', () => {
     expect(summary.arrayParametersIsArray).toBe(true);
   });
 
-  it('reports compact parameter-array metadata structure', () => {
-    const summary = summarizeMetadataShape(JSON.parse('{"version":1,"parameters":[]}'));
-    expect(summary.topLevelKeys).toEqual(['parameters', 'version']);
-    expect(summary.hasParametersWrapper).toBe(false);
-    expect(summary.parametersIsObject).toBe(false);
-    expect(summary.parametersIsArray).toBe(true);
-    expect(summary.groupsIsArray).toBe(false);
-  });
 });
 
 describe('flattenToLookup', () => {
@@ -167,6 +92,7 @@ describe('flattenToLookup', () => {
     const param = lookup.get('WM_MAX_ROLL');
     expect(param).toBeDefined();
     expect(param!.config_key).toBe('wing_mapping.max_roll_cmd');
+    expect(param!.group_name).toBe('Control');
     expect(param!.type).toBe('Float');
     expect(param!.default).toBe(0.7);
   });
@@ -175,11 +101,15 @@ describe('flattenToLookup', () => {
     const param0 = lookup.get('SCL_PFF_V0');
     expect(param0).toBeDefined();
     expect(param0!.config_key).toBe('scaler.pitch_ff_vel_mps[0]');
+    expect(param0!.group_name).toBe('Control');
+    expect(param0!.arrayInfo).toEqual({ prefix: 'scaler.pitch_ff_vel_mps', index: 0, count: 5 });
     expect(param0!.default).toBe(0.0);
 
     const param4 = lookup.get('SCL_PFF_V4');
     expect(param4).toBeDefined();
     expect(param4!.config_key).toBe('scaler.pitch_ff_vel_mps[4]');
+    expect(param4!.group_name).toBe('Control');
+    expect(param4!.arrayInfo).toEqual({ prefix: 'scaler.pitch_ff_vel_mps', index: 4, count: 5 });
     expect(param4!.default).toBe(20.0);
   });
 

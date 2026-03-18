@@ -1,5 +1,6 @@
 import { Show } from 'solid-js';
 import type { ParamWithMeta } from '../hooks/use-parameters';
+import { getParameterDisplayName } from '../services/parameter-display';
 
 interface ParameterRowProps {
   param: ParamWithMeta;
@@ -11,10 +12,7 @@ interface ParameterRowProps {
 
 export default function ParameterRow(props: ParameterRowProps) {
   const fieldName = () => {
-    const key = props.param.meta?.config_key;
-    if (!key) return props.param.paramId;
-    const dotIdx = key.indexOf('.');
-    return dotIdx >= 0 ? key.substring(dotIdx + 1) : key;
+    return getParameterDisplayName(props.param.meta, props.param.paramId);
   };
 
   const meta = () => props.param.meta;

@@ -79,13 +79,6 @@ export default function ParameterGroup(props: ParameterGroupProps) {
                 return formatElemVal(pv ?? e.value, i);
               }).join(', ') + ']';
 
-            const fieldName = () => {
-              const key = array.elements[0]?.meta?.config_key;
-              if (!key) return array.description;
-              const dotIdx = key.indexOf('.');
-              return dotIdx >= 0 ? key.substring(dotIdx + 1) : key;
-            };
-
             return (
               <div
                 onClick={() => props.onSelectArray(array.prefix)}
@@ -105,7 +98,7 @@ export default function ParameterGroup(props: ParameterGroupProps) {
 
                 {/* Name from config_key */}
                 <span class="flex-1 text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                  {fieldName()}
+                  {array.label}
                 </span>
 
                 {/* Value display */}
