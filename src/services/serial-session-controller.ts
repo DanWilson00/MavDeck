@@ -520,8 +520,11 @@ export class SerialSessionController {
       const found = await this.probeWebUsbAtBaud(port, rate, signal);
       if (found) {
         console.log(`[WebUSB probe] MAVLink detected at ${rate} baud`);
-        await this.connectWebUsbAtBaud(port, rate);
-        return true;
+        this.setProbeStatus(`Verifying live connection at ${rate} baud...`);
+        const connected = await this.connectWebUsbAtBaud(port, rate, { verifyBeforeConnect: true });
+        if (connected) {
+          return true;
+        }
       }
     }
 
@@ -612,16 +615,51 @@ export class SerialSessionController {
   }
 
   /** Open a WebUSB port at a known baud rate and wire up the full pipeline. */
-  private async connectWebUsbAtBaud(port: PortLike, baudRate: BaudRate): Promise<void> {
+  private async connectWebUsbAtBaud(
+    port: PortLike,
+    baudRate: BaudRate,
+    options?: { verifyBeforeConnect?: boolean },
+  ): Promise<boolean> {
+    let forwardingEnabled = options?.verifyBeforeConnect !== true;
+    const parser = new MavlinkFrameParser(this.registry);
+    const decoder = new MavlinkMessageDecoder(this.registry);
+    let verifyResolve: ((value: boolean) => void) | null = null;
+    let verifyTimeout: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = parser.onFrame((frame) => {
+      const decoded = decoder.decode(frame);
+      if (!decoded || forwardingEnabled) return;
+      forwardingEnabled = true;
+      if (verifyTimeout !== null) {
+        clearTimeout(verifyTimeout);
+        verifyTimeout = null;
+      }
+      verifyResolve?.(true);
+      verifyResolve = null;
+    });
+
     const source = new WebSerialByteSource(baudRate, (data) => {
-      this.workerBridge.sendBytes(data);
+      if (forwardingEnabled) {
+        this.workerBridge.sendBytes(data);
+      } else {
+        parser.parse(data);
+      }
     }, () => {
-      this.handleWebUsbTransportDisconnect();
+      if (forwardingEnabled) {
+        this.handleWebUsbTransportDisconnect();
+      } else {
+        if (verifyTimeout !== null) {
+          clearTimeout(verifyTimeout);
+          verifyTimeout = null;
+        }
+        verifyResolve?.(false);
+        verifyResolve = null;
+      }
     });
 
     try {
       await source.connect(port);
     } catch (error) {
+      unsubscribe();
       const needsRegrant = this.shouldRequireWebUsbRegrantOnError(error);
       if (needsRegrant) {
         this.emitWebUsbAvailabilityStatus('needs_regrant_android');
@@ -629,18 +667,38 @@ export class SerialSessionController {
         this.setWebUsbAvailability('granted');
       }
       this.setPhase('error');
-      return;
+      return false;
     }
 
+    if (options?.verifyBeforeConnect) {
+      const verified = await new Promise<boolean>((resolve) => {
+        verifyResolve = resolve;
+        verifyTimeout = setTimeout(() => {
+          verifyTimeout = null;
+          verifyResolve = null;
+          resolve(false);
+        }, PROBE_TIMEOUT_MS);
+      });
+
+      if (!verified) {
+        unsubscribe();
+        await source.disconnect();
+        return false;
+      }
+    }
+
+    unsubscribe();
     this.mainThreadSource = source;
     const portIdentity = getSerialPortIdentity(port);
     this.setWebUsbAvailability('granted');
+    this.setProbeStatus(null);
 
     // Tell the worker to create an ExternalByteSource and start processing
     this.connectionManager.connect({ type: 'webserial', baudRate });
     this.setSessionState({ sourceType: 'serial', connectedBaudRate: baudRate });
     this.setPhase('connected_serial');
     this.serialConnectedEmitter.emit({ baudRate, portIdentity });
+    return true;
   }
 
   /** Build prioritized baud rate list: last successful first, then probe order. */

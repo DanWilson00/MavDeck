@@ -109,6 +109,65 @@ describe('serial-session-controller', () => {
     };
   }
 
+  function createMockOpenSequencePort(sequence: Array<{ baudRate: number; chunks: Uint8Array[] }>) {
+    let pendingResolve: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+    const queue: ReadableStreamReadResult<Uint8Array>[] = [];
+    let openIndex = 0;
+
+    const push = (value: ReadableStreamReadResult<Uint8Array>) => {
+      if (pendingResolve) {
+        const resolve = pendingResolve;
+        pendingResolve = null;
+        resolve(value);
+        return;
+      }
+      queue.push(value);
+    };
+
+    const open = vi.fn(async ({ baudRate }: { baudRate: number }) => {
+      queue.length = 0;
+      pendingResolve = null;
+      const current = sequence[openIndex++];
+      expect(current?.baudRate).toBe(baudRate);
+      for (const chunk of current?.chunks ?? []) {
+        push({ done: false, value: chunk });
+      }
+    });
+    const close = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const cancel = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const releaseLock = vi.fn();
+
+    return {
+      port: {
+        open,
+        close,
+        getInfo: () => ({ usbVendorId: 11, usbProductId: 22 }),
+        forget: async () => {},
+        writable: null,
+        readable: {
+          getReader: () => ({
+            read: () => {
+              if (queue.length > 0) {
+                return Promise.resolve(queue.shift()!);
+              }
+              return new Promise<ReadableStreamReadResult<Uint8Array>>(resolve => {
+                pendingResolve = resolve;
+              });
+            },
+            cancel,
+            releaseLock,
+          }),
+        },
+      },
+      open,
+      close,
+    };
+  }
+
   beforeEach(() => {
     vi.useRealTimers();
     statusListener = null;
@@ -626,7 +685,7 @@ describe('serial-session-controller', () => {
       921600: [createStructuredGarbageFrame(), createStructuredGarbageFrame()],
       500000: [heartbeat],
     });
-    const connectSpy = vi.fn(async () => {});
+    const connectSpy = vi.fn(async () => true);
     (controller as unknown as {
       connectWebUsbAtBaud: (port: unknown, baudRate: number) => Promise<void>;
     }).connectWebUsbAtBaud = connectSpy;
@@ -638,9 +697,62 @@ describe('serial-session-controller', () => {
     await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 10);
 
     await expect(probePromise).resolves.toBe(true);
-    expect(connectSpy).toHaveBeenCalledWith(probePort, 500000);
+    expect(connectSpy).toHaveBeenCalledWith(probePort, 500000, { verifyBeforeConnect: true });
     expect(open).toHaveBeenNthCalledWith(1, { baudRate: 921600 });
     expect(open).toHaveBeenNthCalledWith(2, { baudRate: 500000 });
     expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('WebUSB probing retries later baud rates when live verification fails after a good probe', async () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const builder = new MavlinkFrameBuilder(registry);
+    const heartbeat = builder.buildFrame({
+      messageName: 'HEARTBEAT',
+      values: {
+        type: 2,
+        autopilot: 3,
+        base_mode: 0x81,
+        custom_mode: 0,
+        system_status: 4,
+        mavlink_version: 3,
+      },
+    });
+    const { port: probePort } = createMockProbePort({
+      500000: [heartbeat],
+      230400: [heartbeat],
+    });
+    const connectSpy = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    const probePromise = (controller as unknown as {
+      probeAndConnectWebUsb: (port: unknown, baudRates: number[], signal: AbortSignal) => Promise<boolean>;
+    }).probeAndConnectWebUsb(probePort, [500000, 230400], new AbortController().signal);
+
+    await expect(probePromise).resolves.toBe(true);
+    expect(connectSpy).toHaveBeenNthCalledWith(1, probePort, 500000, { verifyBeforeConnect: true });
+    expect(connectSpy).toHaveBeenNthCalledWith(2, probePort, 230400, { verifyBeforeConnect: true });
+  });
+
+  it('Android live verification failure does not connect the worker path', async () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const { port: probePort } = createMockProbePort({
+      500000: [],
+    });
+
+    const connectPromise = (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud(probePort, 500000, { verifyBeforeConnect: true });
+
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 10);
+
+    await expect(connectPromise).resolves.toBe(false);
+    expect(connectionManager.connect).not.toHaveBeenCalled();
+    expect((workerBridge.sendBytes as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 });
