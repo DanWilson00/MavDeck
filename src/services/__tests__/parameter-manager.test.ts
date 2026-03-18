@@ -27,8 +27,8 @@ function makeParamValue(
 }
 
 describe('ParameterManager', () => {
-  let sendFrame: ReturnType<typeof vi.fn>;
-  let getVehicleId: ReturnType<typeof vi.fn>;
+  let sendFrame: ReturnType<typeof vi.fn<(messageName: string, values: Record<string, number | string | number[]>) => void>>;
+  let getVehicleId: ReturnType<typeof vi.fn<() => { systemId: number; componentId: number }>>;
   let manager: ParameterManager;
 
   beforeEach(() => {
