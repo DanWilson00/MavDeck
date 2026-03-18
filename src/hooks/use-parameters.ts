@@ -10,6 +10,7 @@ import {
   type ParamGroup,
 } from '../services/parameter-grouping';
 import { appState } from '../store';
+import { summarizeMetadataShape } from '../services/param-metadata-service';
 
 export type { ParamWithMeta, ArrayParamGroup, ParamGroup } from '../services/parameter-grouping';
 
@@ -100,6 +101,21 @@ function downloadMetadataFromDevice(): void {
     unsubError();
     unsubProgress();
     try {
+      const parsedRaw = JSON.parse(json) as unknown;
+      const shape = summarizeMetadataShape(parsedRaw);
+      logProgress('info', 'Parsed metadata JSON top-level shape', {
+        topLevelKeys: shape.topLevelKeys.join(','),
+        hasParametersWrapper: shape.hasParametersWrapper,
+        parametersIsObject: shape.parametersIsObject,
+        parametersIsArray: shape.parametersIsArray,
+        innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
+        groupsIsArray: shape.groupsIsArray,
+        groupsLength: shape.groupsLength,
+        arrayParametersIsArray: shape.arrayParametersIsArray,
+        arrayParametersLength: shape.arrayParametersLength,
+        includesIsArray: shape.includesIsArray,
+        externsIsObject: shape.externsIsObject,
+      });
       const parsed = parseMetadataFile(json);
       setMetadata(parsed);
       if (!crcValid) {
@@ -130,6 +146,24 @@ async function loadMetadataFromFile(file: File) {
   setMetadataLoading(true);
   try {
     const json = await file.text();
+    const parsedRaw = JSON.parse(json) as unknown;
+    const shape = summarizeMetadataShape(parsedRaw);
+    addDebugConsoleEntry({
+      source: 'metadata-ftp',
+      level: 'info',
+      message: 'Loaded metadata file top-level shape',
+      details: {
+        topLevelKeys: shape.topLevelKeys.join(','),
+        hasParametersWrapper: shape.hasParametersWrapper,
+        parametersIsObject: shape.parametersIsObject,
+        parametersIsArray: shape.parametersIsArray,
+        innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
+        groupsIsArray: shape.groupsIsArray,
+        groupsLength: shape.groupsLength,
+        arrayParametersIsArray: shape.arrayParametersIsArray,
+        arrayParametersLength: shape.arrayParametersLength,
+      },
+    });
     const parsed = parseMetadataFile(json);
     setMetadata(parsed);
   } catch (e) {
