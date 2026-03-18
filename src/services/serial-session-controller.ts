@@ -189,7 +189,7 @@ export class SerialSessionController {
     this.setPhase('idle');
     this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
     this.suppressWebUsbReconnect = false;
   }
@@ -279,6 +279,8 @@ export class SerialSessionController {
       });
     } else {
       // Android polyfill: main-thread serial → forward bytes to worker's ExternalByteSource
+      await this.disconnectMainThreadSource();
+      this.connectionManager.disconnect();
       let port: PortLike;
       try {
         port = await requestPort(backend);
@@ -301,7 +303,12 @@ export class SerialSessionController {
         // Fixed baud: connect immediately
         this.pendingLiveSourceType = 'serial';
         this.setPhase('connecting_serial');
-        await this.connectWebUsbAtBaud(port, options.baudRate);
+        this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
+        const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
+        if (!connected) {
+          this.setPhase('error');
+          this.setProbeStatus(`No MAVLink traffic verified at ${options.baudRate} baud`);
+        }
       }
     }
   }
@@ -347,7 +354,7 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.setPhase('idle');
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
 
@@ -383,7 +390,7 @@ export class SerialSessionController {
 
   dispose(): void {
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSource();
     this.unsubBridgeStatus?.();
     this.unsubProbeStatus?.();
     this.unsubSerialConnected?.();
@@ -749,17 +756,24 @@ export class SerialSessionController {
     });
   }
 
-  private disconnectMainThreadSource(): void {
-    if (this.mainThreadSource) {
-      this.mainThreadSource.disconnect().catch(() => {});
-      this.mainThreadSource = null;
+  private async disconnectMainThreadSource(): Promise<void> {
+    if (!this.mainThreadSource) {
+      return;
+    }
+
+    const source = this.mainThreadSource;
+    this.mainThreadSource = null;
+    try {
+      await source.disconnect();
+    } catch {
+      // Ignore teardown errors while resetting transport state
     }
   }
 
   private handleWebUsbTransportDisconnect(): void {
     const shouldRestart = this.webusbAutoConnectOptions?.enabled === true && !this.suppressWebUsbReconnect;
 
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSource();
     this.pendingLiveSourceType = null;
     this.connectionManager.disconnect();
 

@@ -8,6 +8,7 @@ import { MavlinkMetadataRegistry } from '../../mavlink/registry';
 import { MavlinkFrameBuilder } from '../../mavlink/frame-builder';
 import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
 import { PROBE_TIMEOUT_MS } from '../baud-rates';
+import * as serialBackend from '../serial-backend';
 
 describe('serial-session-controller', () => {
   const commonJson = loadCommonDialectJson();
@@ -166,6 +167,14 @@ describe('serial-session-controller', () => {
       open,
       close,
     };
+  }
+
+  function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>(res => {
+      resolve = res;
+    });
+    return { promise, resolve };
   }
 
   beforeEach(() => {
@@ -687,7 +696,7 @@ describe('serial-session-controller', () => {
     });
     const connectSpy = vi.fn(async () => true);
     (controller as unknown as {
-      connectWebUsbAtBaud: (port: unknown, baudRate: number) => Promise<void>;
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
     }).connectWebUsbAtBaud = connectSpy;
 
     const probePromise = (controller as unknown as {
@@ -754,5 +763,72 @@ describe('serial-session-controller', () => {
     await expect(connectPromise).resolves.toBe(false);
     expect(connectionManager.connect).not.toHaveBeenCalled();
     expect((workerBridge.sendBytes as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('manual WebUSB fixed-baud connect verifies the newly selected baud', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    vi.spyOn(serialBackend, 'requestPort').mockResolvedValue(port as never);
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    await controller.connectManual({
+      baudRate: 500000,
+      autoDetectBaud: false,
+      lastBaudRate: 921600,
+      unloadLog: false,
+    });
+
+    expect(connectSpy).toHaveBeenCalledWith(port, 500000, { verifyBeforeConnect: true });
+  });
+
+  it('manual WebUSB connect waits for prior main-thread source teardown before reconnecting', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    vi.spyOn(serialBackend, 'requestPort').mockResolvedValue(port as never);
+    const deferred = createDeferred<void>();
+    (controller as unknown as { mainThreadSource: { disconnect: () => Promise<void> } }).mainThreadSource = {
+      disconnect: vi.fn(() => deferred.promise),
+    };
+
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    const connectPromise = controller.connectManual({
+      baudRate: 230400,
+      autoDetectBaud: false,
+      lastBaudRate: 921600,
+      unloadLog: false,
+    });
+
+    await Promise.resolve();
+    expect(connectSpy).not.toHaveBeenCalled();
+
+    deferred.resolve();
+    await connectPromise;
+
+    expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
   });
 });

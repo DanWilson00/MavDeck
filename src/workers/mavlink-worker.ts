@@ -23,6 +23,7 @@ import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from '../services/serial-port-identity';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
+import { PROBE_TIMEOUT_MS } from '../services/baud-rates';
 import {
   INITIAL_LOG_STATE,
   appendPacketToLog,
@@ -413,12 +414,33 @@ async function completeSerialConnect(
   setupService(serial.serialSource);
   await pipeline.service!.connect();
   startThroughputCounter(serial.serialSource);
+  await waitForFirstDecodedMessage();
   resetNoDataTimer();
   postEvent({ type: 'statusChange', status: 'connected' });
   postEvent({ type: 'serialConnected', baudRate, portIdentity: getSerialPortIdentity(port) });
   if (options?.clearProbeStatus) {
     postEvent({ type: 'probeStatus', status: null });
   }
+}
+
+function waitForFirstDecodedMessage(timeoutMs = PROBE_TIMEOUT_MS): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (!pipeline.service) {
+      reject(new Error('MAVLink service not initialized'));
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      unsub();
+      reject(new Error('No decoded MAVLink packet received on the live serial connection'));
+    }, timeoutMs);
+
+    const unsub = pipeline.service.onMessage(() => {
+      clearTimeout(timeout);
+      unsub();
+      resolve();
+    });
+  });
 }
 
 /** Start (or restart) auto-connect probing. */
