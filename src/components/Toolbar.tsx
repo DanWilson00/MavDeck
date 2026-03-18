@@ -24,7 +24,7 @@ export default function Toolbar(props: ToolbarProps) {
     }
     await serialSessionController.connectManual({
       baudRate: appState.baudRate,
-      autoDetectBaud: serialSessionController.backend === 'webusb' ? false : appState.autoDetectBaud,
+      autoDetectBaud: appState.autoDetectBaud,
       lastBaudRate: appState.lastSuccessfulBaudRate,
       unloadLog: appState.logViewerState.isActive,
     });
@@ -74,7 +74,7 @@ export default function Toolbar(props: ToolbarProps) {
 
         {/* Serial connection */}
         <Show when={isSerialSupported() && !appState.logViewerState.isActive}>
-          <Show when={!appState.autoConnect || serialSessionController.backend === 'webusb'} fallback={
+          <Show when={!appState.autoConnect} fallback={
             /* Auto-connect mode: only grant access + probe status */
             <>
               <Show when={!isConnected()}>
@@ -86,7 +86,7 @@ export default function Toolbar(props: ToolbarProps) {
                     color: 'var(--text-primary)',
                   }}
                 >
-                  Grant Serial Access
+                  {serialSessionController.backend === 'webusb' ? 'Grant USB Access' : 'Grant Serial Access'}
                 </button>
               </Show>
               <Show when={appState.probeStatus && !isConnected()}>

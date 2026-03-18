@@ -18,6 +18,7 @@ describe('serial-session-controller', () => {
   let logViewerService: Pick<LogViewerService, 'unload'>;
 
   beforeEach(() => {
+    vi.useRealTimers();
     statusListener = null;
     serialConnectedListener = null;
     connectionManager = {
@@ -55,6 +56,7 @@ describe('serial-session-controller', () => {
         requestPort: vi.fn(async () => port),
         getPorts: vi.fn(async () => [port]),
       },
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64)',
     });
   });
 
@@ -264,5 +266,145 @@ describe('serial-session-controller', () => {
       sourceType: null,
       connectedBaudRate: null,
     });
+  });
+
+  it('starts Android WebUSB auto-connect with the persisted settings', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    controller.syncAutoConnectWebUsb({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+
+    await Promise.resolve();
+
+    expect(controller.currentPhase).toBe('probing');
+    expect((controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number } | null;
+        lastBaudRate: number | null;
+      };
+    }).webusbAutoConnectOptions).toEqual({
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    });
+  });
+
+  it('restarts Android WebUSB auto-connect after an unexpected transport disconnect', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number } | null;
+        lastBaudRate: number | null;
+      };
+      mainThreadSource: { disconnect: () => Promise<void> };
+      phase: 'idle';
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    };
+    (controller as unknown as {
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).mainThreadSource = {
+      disconnect: vi.fn(async () => {}),
+    };
+
+    (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
+    vi.advanceTimersByTime(1000);
+
+    expect(connectionManager.disconnect).toHaveBeenCalledOnce();
+    expect(restartSpy).toHaveBeenCalledOnce();
+  });
+
+  it('does not restart Android WebUSB auto-connect after an intentional disconnect', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number } | null;
+        lastBaudRate: number | null;
+      };
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: true,
+      manualBaudRate: 115200,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 57600,
+    };
+    (controller as unknown as {
+      mainThreadSource: { disconnect: () => Promise<void> };
+    }).mainThreadSource = {
+      disconnect: vi.fn(async () => {}),
+    };
+
+    controller.disconnectLiveSession();
+    vi.advanceTimersByTime(1000);
+
+    expect(restartSpy).not.toHaveBeenCalled();
   });
 });

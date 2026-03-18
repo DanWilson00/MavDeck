@@ -353,7 +353,7 @@ describe('FtdiSerialPort readable', () => {
     expect(readable).not.toBeNull();
 
     let callCount = 0;
-    (device as Record<string, unknown>).transferIn = async () => {
+    (device as unknown as Record<string, unknown>).transferIn = async () => {
       callCount++;
       if (callCount === 1) {
         return { data: new DataView(statusAndData.buffer) };
@@ -376,7 +376,7 @@ describe('FtdiSerialPort readable', () => {
 
     const readable = port.readable;
     let callCount = 0;
-    (device as Record<string, unknown>).transferIn = async () => {
+    (device as unknown as Record<string, unknown>).transferIn = async () => {
       callCount++;
       if (callCount < 3) {
         return { data: new DataView(statusOnly.buffer) };
@@ -402,7 +402,7 @@ describe('FtdiSerialPort readable', () => {
 
     const readable = port.readable;
     let callCount = 0;
-    (device as Record<string, unknown>).transferIn = async () => {
+    (device as unknown as Record<string, unknown>).transferIn = async () => {
       callCount++;
       if (callCount === 1) {
         return { data: null }; // null data

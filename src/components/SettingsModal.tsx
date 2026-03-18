@@ -327,25 +327,21 @@ export default function SettingsModal(props: SettingsModalProps) {
                   id="auto-connect-toggle"
                   label="Auto-connect serial"
                   description={serialSessionController.backend === 'webusb'
-                    ? "Not available on Android. Use the connect button instead."
+                    ? "Automatically reconnect to a previously granted USB MAVLink device."
                     : "Automatically connect to a MAVLink device when one is detected."}
-                  checked={serialSessionController.backend === 'webusb' ? false : appState.autoConnect}
+                  checked={appState.autoConnect}
                   onChange={(v) => setAppState('autoConnect', v)}
-                  disabled={serialSessionController.backend === 'webusb'}
-                  disabledTooltip="Auto-connect is not yet supported over USB on Android. Use the connect button to connect manually."
                 />
                 <ToggleSwitch
                   id="auto-baud-toggle"
                   label="Auto-detect baud rate"
                   description={serialSessionController.backend === 'webusb'
-                    ? "Not available on Android. Set the baud rate manually below."
+                    ? "Try common baud rates when reconnecting to a granted USB device."
                     : "Try different baud rates to find the correct one."}
-                  checked={serialSessionController.backend === 'webusb' ? false : appState.autoDetectBaud}
+                  checked={appState.autoDetectBaud}
                   onChange={(v) => setAppState('autoDetectBaud', v)}
-                  disabled={serialSessionController.backend === 'webusb'}
-                  disabledTooltip="Auto-baud detection is not yet supported over USB on Android. Please select your baud rate manually."
                 />
-                <div style={{ opacity: appState.autoDetectBaud && serialSessionController.backend !== 'webusb' ? 0.5 : 1 }}>
+                <div style={{ opacity: appState.autoDetectBaud ? 0.5 : 1 }}>
                   <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="baud-rate-select">
                     Serial Baud Rate
                   </label>

@@ -1,9 +1,13 @@
 import { createRoot, createSignal } from 'solid-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+let backend: 'native' | 'webusb' = 'native';
+
 const serialController = {
   syncAutoConnect: vi.fn(),
   stopAutoConnect: vi.fn(),
+  syncAutoConnectWebUsb: vi.fn(),
+  stopAutoConnectWebUsb: vi.fn(),
   onProbeStatus: vi.fn(() => () => {}),
   onSerialConnected: vi.fn(() => () => {}),
   persistSerialSettings: vi.fn(),
@@ -15,7 +19,7 @@ vi.mock('../../services', async () => {
   return {
     ...actual,
     useSerialSessionController: () => serialController,
-    getSerialBackend: () => 'native' as const,
+    getSerialBackend: () => backend,
   };
 });
 
@@ -27,10 +31,13 @@ describe('useAutoConnect', () => {
   beforeEach(() => {
     serialController.syncAutoConnect.mockClear();
     serialController.stopAutoConnect.mockClear();
+    serialController.syncAutoConnectWebUsb.mockClear();
+    serialController.stopAutoConnectWebUsb.mockClear();
     serialController.onProbeStatus.mockClear();
     serialController.onSerialConnected.mockClear();
     serialController.persistSerialSettings.mockClear();
     serialController.hasSuspendedLiveSession = false;
+    backend = 'native';
 
     setAppState('isReady', true);
     setAppState('autoConnect', true);
@@ -109,6 +116,45 @@ describe('useAutoConnect', () => {
         lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
         lastBaudRate: 57600,
       });
+
+      dispose();
+    });
+  });
+
+  it('uses the WebUSB controller path on Android while preserving auto-connect settings', async () => {
+    backend = 'webusb';
+
+    await createRoot(async dispose => {
+      const [settingsReady] = createSignal(true);
+      const [loadedSettings, setLoadedSettings] = createSignal<MavDeckSettings>({
+        ...DEFAULT_SETTINGS,
+        autoConnect: true,
+        autoDetectBaud: true,
+        lastPortVendorId: 11,
+        lastPortProductId: 22,
+        lastSuccessfulBaudRate: 57600 as const,
+      });
+
+      useAutoConnect(settingsReady, loadedSettings, setLoadedSettings);
+      await Promise.resolve();
+
+      expect(serialController.syncAutoConnectWebUsb).toHaveBeenCalledWith({
+        enabled: true,
+        autoBaud: true,
+        manualBaudRate: 115200,
+        lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+        lastBaudRate: 57600,
+      });
+
+      setAppState('logViewerState', {
+        isActive: true,
+        sourceName: 'flight.tlog',
+        durationSec: 10,
+        recordCount: 20,
+      });
+      await Promise.resolve();
+
+      expect(serialController.stopAutoConnectWebUsb).toHaveBeenCalled();
 
       dispose();
     });

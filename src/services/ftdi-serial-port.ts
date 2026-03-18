@@ -225,7 +225,7 @@ export class FtdiSerialPort implements PortLike {
       this._writable = new WritableStream<Uint8Array>({
         write: async (chunk) => {
           try {
-            await device.transferOut(epOut, chunk);
+            await device.transferOut(epOut, chunk as BufferSource);
           } catch {
             this._writable = null;
             throw new Error('FTDI: USB write error');

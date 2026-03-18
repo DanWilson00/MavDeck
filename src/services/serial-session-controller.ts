@@ -58,6 +58,10 @@ type SerialConnectedCallback = Parameters<MavlinkWorkerBridge['onSerialConnected
 type SessionStateCallback = (state: SessionStateSnapshot) => void;
 type PhaseCallback = (phase: SessionPhase) => void;
 
+const WEBUSB_WAITING_FOR_ACCESS_STATUS = 'Waiting for USB access...';
+const WEBUSB_WAITING_FOR_DEVICE_STATUS = 'Waiting for USB device...';
+const WEBUSB_RECONNECT_DELAY_MS = 1000;
+
 export class SerialSessionController {
   private readonly connectionManager: ConnectionManager;
   private readonly workerBridge: MavlinkWorkerBridge;
@@ -84,6 +88,10 @@ export class SerialSessionController {
   private webusbAbort: AbortController | null = null;
   /** Cleanup function for USB connect event listener. */
   private usbConnectCleanup: (() => void) | null = null;
+  /** Last enabled Android WebUSB auto-connect config. */
+  private webusbAutoConnectOptions: AutoConnectOptions | null = null;
+  /** True while a disconnect is an intentional teardown and should not restart probing. */
+  private suppressWebUsbReconnect = false;
 
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
@@ -162,9 +170,11 @@ export class SerialSessionController {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
+    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
     this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
+    this.suppressWebUsbReconnect = false;
   }
 
   enterLogMode(): void {
@@ -172,9 +182,11 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.pendingLiveSourceType = null;
     this.setPhase('idle');
+    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
+    this.suppressWebUsbReconnect = false;
   }
 
   suspendForLogPlayback(): boolean {
@@ -371,20 +383,18 @@ export class SerialSessionController {
    */
   syncAutoConnectWebUsb(options: AutoConnectOptions): void {
     if (!options.enabled) {
+      this.webusbAutoConnectOptions = null;
       this.stopAutoConnectWebUsb();
       return;
     }
+
+    this.webusbAutoConnectOptions = { ...options };
 
     if (this.phase !== 'idle' && this.phase !== 'error') {
       return;
     }
 
-    this.setPhase('probing');
-    const abort = new AbortController();
-    this.webusbAbort = abort;
-    const baudList = this.buildBaudList(options.lastBaudRate);
-
-    this.autoConnectWebUsbLoop(options, baudList, abort.signal);
+    this.startAutoConnectWebUsbLoop();
   }
 
   /** Stop WebUSB auto-connect probing. */
@@ -398,11 +408,30 @@ export class SerialSessionController {
     }
   }
 
+  private startAutoConnectWebUsbLoop(): void {
+    const options = this.webusbAutoConnectOptions;
+    if (!options || this.phase !== 'idle' && this.phase !== 'error') {
+      return;
+    }
+
+    this.stopAutoConnectWebUsb();
+    this.setPhase('probing');
+    const abort = new AbortController();
+    this.webusbAbort = abort;
+    const baudList = options.autoBaud
+      ? this.buildBaudList(options.lastBaudRate)
+      : [options.manualBaudRate];
+
+    void this.autoConnectWebUsbLoop(options, baudList, abort.signal);
+  }
+
   private async autoConnectWebUsbLoop(
     options: AutoConnectOptions,
     baudList: BaudRate[],
     signal: AbortSignal,
   ): Promise<void> {
+    let hasSeenGrantedPort = false;
+
     while (!signal.aborted) {
       let ports: PortLike[];
       try {
@@ -414,6 +443,7 @@ export class SerialSessionController {
       if (signal.aborted) return;
 
       if (ports.length > 0) {
+        hasSeenGrantedPort = true;
         // Sort so last-working port is tried first
         if (options.lastPortIdentity) {
           const identity = options.lastPortIdentity;
@@ -430,7 +460,7 @@ export class SerialSessionController {
           if (success) return; // Connected!
         }
       } else {
-        this.probeStatusEmitter.emit('Waiting for USB device...');
+        this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_ACCESS_STATUS);
       }
 
       if (signal.aborted) return;
@@ -440,6 +470,8 @@ export class SerialSessionController {
       if (signal.aborted) return;
       if (usbConnected) {
         this.probeStatusEmitter.emit('USB device connected, probing...');
+      } else if (!this.mainThreadSource) {
+        this.probeStatusEmitter.emit(hasSeenGrantedPort ? WEBUSB_WAITING_FOR_DEVICE_STATUS : WEBUSB_WAITING_FOR_ACCESS_STATUS);
       }
     }
   }
@@ -554,9 +586,10 @@ export class SerialSessionController {
     // Stop reading
     readingDone = true;
     try {
-      if (reader) {
-        await reader.cancel();
-        reader.releaseLock();
+      const currentReader = reader as ReadableStreamDefaultReader<Uint8Array> | null;
+      if (currentReader) {
+        await currentReader.cancel();
+        currentReader.releaseLock();
       }
     } catch { /* */ }
 
@@ -581,8 +614,7 @@ export class SerialSessionController {
     const source = new WebSerialByteSource(baudRate, (data) => {
       this.workerBridge.sendBytes(data);
     }, () => {
-      this.disconnectMainThreadSource();
-      this.connectionManager.disconnect();
+      this.handleWebUsbTransportDisconnect();
     });
 
     try {
@@ -657,10 +689,33 @@ export class SerialSessionController {
     }
   }
 
+  private handleWebUsbTransportDisconnect(): void {
+    const shouldRestart = this.webusbAutoConnectOptions?.enabled === true && !this.suppressWebUsbReconnect;
+
+    this.disconnectMainThreadSource();
+    this.pendingLiveSourceType = null;
+    this.connectionManager.disconnect();
+
+    if (!shouldRestart) {
+      return;
+    }
+
+    this.setPhase('idle');
+    this.setSessionState({ sourceType: null, connectedBaudRate: null });
+
+    setTimeout(() => {
+      if (this.mainThreadSource || this.phase !== 'idle') {
+        return;
+      }
+      this.startAutoConnectWebUsbLoop();
+    }, WEBUSB_RECONNECT_DELAY_MS);
+  }
+
   private prepareForLiveConnection(unloadLog: boolean): void {
     if (unloadLog) {
       this.logViewerService?.unload();
     }
+    this.stopAutoConnectWebUsb();
     this.connectionManager.stopAutoConnect();
     this.setSessionState({ sourceType: null, connectedBaudRate: null });
   }
