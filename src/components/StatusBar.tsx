@@ -74,6 +74,7 @@ export default function StatusBar() {
         height: '24px',
         'background-color': 'var(--bg-panel)',
         'border-top': '1px solid var(--border)',
+        'box-shadow': 'var(--shadow-statusbar)',
         'font-size': '11px',
         'font-family': 'monospace',
         color: 'var(--text-secondary)',

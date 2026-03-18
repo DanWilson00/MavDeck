@@ -76,9 +76,12 @@ function cursorTooltipPlugin(
 
   function init(u: uPlot) {
     tooltip = document.createElement('div');
+    const style = getComputedStyle(document.documentElement);
+    const tooltipBg = style.getPropertyValue('--tooltip-bg').trim() || 'rgba(0,0,0,0.82)';
+    const tooltipText = style.getPropertyValue('--tooltip-text').trim() || '#e4e4e7';
     tooltip.style.cssText =
       'display:none;position:absolute;pointer-events:none;z-index:10;' +
-      'background:rgba(0,0,0,0.78);color:#e4e4e7;font:11px/1.4 ui-monospace,monospace;' +
+      `background:${tooltipBg};color:${tooltipText};font:11px/1.4 ui-monospace,monospace;` +
       'padding:4px 8px;border-radius:4px;white-space:nowrap;';
     u.over.appendChild(tooltip);
   }

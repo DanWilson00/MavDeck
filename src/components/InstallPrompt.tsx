@@ -45,7 +45,7 @@ export default function InstallPrompt() {
       <Show when={!isStandalone() && installEvent()}>
         <button
           class="px-3 py-1 rounded text-sm font-medium transition-colors interactive-hover"
-          style={{ 'background-color': 'var(--bg-hover)', color: 'var(--accent)' }}
+          style={{ 'background-color': 'var(--bg-button)', color: 'var(--accent)' }}
           onClick={handleInstall}
         >
           Install App

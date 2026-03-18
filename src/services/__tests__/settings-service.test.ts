@@ -59,6 +59,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: '',
     };
     mockStore.set('mavdeck-settings-v1', saved);
 
@@ -111,6 +112,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: '',
     };
 
     await saveSettings(settings);
@@ -142,6 +144,7 @@ describe('settings-service', () => {
       lastPortProductId: null,
       lastPortSerialNumber: null,
       lastSuccessfulBaudRate: null,
+      dialectUrl: 'https://example.com/test.xml',
     };
 
     await saveSettings(settings);
@@ -213,10 +216,12 @@ describe('settings-service', () => {
     expect(DEFAULT_SETTINGS.theme).toBe('dark');
     expect(DEFAULT_SETTINGS.uiScale).toBe(1);
     expect(DEFAULT_SETTINGS.unitProfile).toBe('raw');
-    expect(DEFAULT_SETTINGS.baudRate).toBe(115200);
+    expect(DEFAULT_SETTINGS.baudRate).toBe(500000);
     expect(DEFAULT_SETTINGS.bufferCapacity).toBe(2000);
     expect(DEFAULT_SETTINGS.dataRetentionMinutes).toBe(10);
     expect(DEFAULT_SETTINGS.updateIntervalMs).toBe(16);
+    expect(DEFAULT_SETTINGS.autoConnect).toBe(true);
+    expect(DEFAULT_SETTINGS.autoDetectBaud).toBe(true);
   });
 
   describe('dialect persistence', () => {

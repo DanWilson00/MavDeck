@@ -4,8 +4,14 @@ import type { ConnectionManager } from '../connection-manager';
 import type { LogViewerService } from '../log-viewer-service';
 import type { MavlinkWorkerBridge } from '../worker-bridge';
 import type { ConnectionStatus } from '../worker-bridge';
+import { MavlinkMetadataRegistry } from '../../mavlink/registry';
+import { MavlinkFrameBuilder } from '../../mavlink/frame-builder';
+import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
+import { PROBE_TIMEOUT_MS } from '../baud-rates';
+import * as serialBackend from '../serial-backend';
 
 describe('serial-session-controller', () => {
+  const commonJson = loadCommonDialectJson();
   const port = {
     getInfo: () => ({ usbVendorId: 11, usbProductId: 22 }),
     forget: vi.fn(async () => {}),
@@ -18,8 +24,158 @@ describe('serial-session-controller', () => {
     portIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
   }) => void) | null;
   let connectionManager: Pick<ConnectionManager, 'connect' | 'disconnect' | 'startAutoConnect' | 'stopAutoConnect' | 'onStatusChange' | 'status' | 'pause' | 'resume'>;
-  let workerBridge: Pick<MavlinkWorkerBridge, 'notifyPortsChanged' | 'onProbeStatus' | 'onSerialConnected' | 'suspendLiveForLog' | 'resumeSuspendedLive'>;
+  let workerBridge: Pick<MavlinkWorkerBridge, 'notifyPortsChanged' | 'onProbeStatus' | 'onSerialConnected' | 'suspendLiveForLog' | 'resumeSuspendedLive' | 'sendBytes'>;
   let logViewerService: Pick<LogViewerService, 'unload'>;
+  let registry: MavlinkMetadataRegistry;
+
+  function createController(): SerialSessionController {
+    return new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      registry,
+      logViewerService: logViewerService as LogViewerService,
+    });
+  }
+
+  function createStructuredGarbageFrame(payloadLength = 9): Uint8Array {
+    return new Uint8Array(12 + payloadLength);
+  }
+
+  function createMockProbePort(chunksByBaud: Record<number, Uint8Array[]>) {
+    let pendingResolve: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+    const queue: ReadableStreamReadResult<Uint8Array>[] = [];
+    const offsets = new Map<number, number>();
+
+    const push = (value: ReadableStreamReadResult<Uint8Array>) => {
+      if (pendingResolve) {
+        const resolve = pendingResolve;
+        pendingResolve = null;
+        resolve(value);
+        return;
+      }
+      queue.push(value);
+    };
+
+    const emitForBaud = (baudRate: number) => {
+      const chunks = chunksByBaud[baudRate] ?? [];
+      const offset = offsets.get(baudRate) ?? 0;
+      for (let i = offset; i < chunks.length; i += 1) {
+        push({ done: false, value: chunks[i] });
+      }
+      offsets.set(baudRate, chunks.length);
+    };
+
+    const open = vi.fn(async ({ baudRate }: { baudRate: number }) => {
+      queue.length = 0;
+      pendingResolve = null;
+      emitForBaud(baudRate);
+    });
+    const setBaudRate = vi.fn(async (baudRate: number) => {
+      emitForBaud(baudRate);
+    });
+    const close = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const cancel = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const releaseLock = vi.fn();
+
+    return {
+      port: {
+        open,
+        close,
+        setBaudRate,
+        getInfo: () => ({ usbVendorId: 11, usbProductId: 22 }),
+        forget: async () => {},
+        writable: null,
+        readable: {
+          getReader: () => ({
+            read: () => {
+              if (queue.length > 0) {
+                return Promise.resolve(queue.shift()!);
+              }
+              return new Promise<ReadableStreamReadResult<Uint8Array>>(resolve => {
+                pendingResolve = resolve;
+              });
+            },
+            cancel,
+            releaseLock,
+          }),
+        },
+      },
+      open,
+      close,
+      setBaudRate,
+    };
+  }
+
+  function createMockOpenSequencePort(sequence: Array<{ baudRate: number; chunks: Uint8Array[] }>) {
+    let pendingResolve: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+    const queue: ReadableStreamReadResult<Uint8Array>[] = [];
+    let openIndex = 0;
+
+    const push = (value: ReadableStreamReadResult<Uint8Array>) => {
+      if (pendingResolve) {
+        const resolve = pendingResolve;
+        pendingResolve = null;
+        resolve(value);
+        return;
+      }
+      queue.push(value);
+    };
+
+    const open = vi.fn(async ({ baudRate }: { baudRate: number }) => {
+      queue.length = 0;
+      pendingResolve = null;
+      const current = sequence[openIndex++];
+      expect(current?.baudRate).toBe(baudRate);
+      for (const chunk of current?.chunks ?? []) {
+        push({ done: false, value: chunk });
+      }
+    });
+    const close = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const cancel = vi.fn(async () => {
+      push({ done: true, value: undefined });
+    });
+    const releaseLock = vi.fn();
+
+    return {
+      port: {
+        open,
+        close,
+        getInfo: () => ({ usbVendorId: 11, usbProductId: 22 }),
+        forget: async () => {},
+        writable: null,
+        readable: {
+          getReader: () => ({
+            read: () => {
+              if (queue.length > 0) {
+                return Promise.resolve(queue.shift()!);
+              }
+              return new Promise<ReadableStreamReadResult<Uint8Array>>(resolve => {
+                pendingResolve = resolve;
+              });
+            },
+            cancel,
+            releaseLock,
+          }),
+        },
+      },
+      open,
+      close,
+    };
+  }
+
+  function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>(res => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
 
   beforeEach(() => {
     vi.useRealTimers();
@@ -57,10 +213,13 @@ describe('serial-session-controller', () => {
       }),
       suspendLiveForLog: vi.fn(),
       resumeSuspendedLive: vi.fn(),
+      sendBytes: vi.fn(),
     };
     logViewerService = {
       unload: vi.fn(),
     };
+    registry = new MavlinkMetadataRegistry();
+    registry.loadFromJsonString(commonJson);
     vi.stubGlobal('navigator', {
       serial: {
         requestPort: vi.fn(async () => port),
@@ -71,11 +230,7 @@ describe('serial-session-controller', () => {
   });
 
   it('connectManual unloads logs, stops auto-connect, and connects with selected port identity', async () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     await controller.connectManual({
       baudRate: 115200,
@@ -96,11 +251,7 @@ describe('serial-session-controller', () => {
   });
 
   it('syncAutoConnect starts probing only when enabled and disconnected', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     controller.syncAutoConnect({
       enabled: true,
@@ -131,11 +282,7 @@ describe('serial-session-controller', () => {
   });
 
   it('enterLogMode disconnects live transport and stops probing', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     controller.enterLogMode();
 
@@ -144,11 +291,7 @@ describe('serial-session-controller', () => {
   });
 
   it('suspendForLogPlayback preserves live serial and skips disconnect', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
 
@@ -158,11 +301,7 @@ describe('serial-session-controller', () => {
   });
 
   it('keeps the suspended live snapshot until serial status is restored after log playback', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
     expect(controller.suspendForLogPlayback()).toBe(true);
@@ -183,11 +322,7 @@ describe('serial-session-controller', () => {
   });
 
   it('connectSpoof unloads logs and starts spoof through the connection manager', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     controller.connectSpoof({ unloadLog: true });
 
@@ -197,11 +332,7 @@ describe('serial-session-controller', () => {
   });
 
   it('tracks session state from spoof and serial connection events', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const states: Array<{ sourceType: 'serial' | 'spoof' | null; connectedBaudRate: number | null }> = [];
     controller.onSessionStateChange(state => {
       states.push(state);
@@ -221,11 +352,7 @@ describe('serial-session-controller', () => {
   });
 
   it('keeps serial phase stable when connected arrives before serialConnected', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     controller.syncAutoConnect({
       enabled: true,
@@ -242,11 +369,7 @@ describe('serial-session-controller', () => {
   });
 
   it('treats no_data as an idle live serial phase without clearing session state', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
     statusListener?.('no_data');
@@ -259,11 +382,7 @@ describe('serial-session-controller', () => {
   });
 
   it('clears a suspended live snapshot on a real disconnect', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     serialConnectedListener?.({ baudRate: 57600, portIdentity: { usbVendorId: 11, usbProductId: 22 } });
     expect(controller.suspendForLogPlayback()).toBe(true);
@@ -288,11 +407,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     controller.syncAutoConnectWebUsb({
       enabled: true,
@@ -332,11 +447,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const states: string[] = [];
     controller.onWebUsbAvailabilityChange(state => {
       states.push(state);
@@ -365,11 +476,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const states: string[] = [];
     controller.onWebUsbAvailabilityChange(state => {
       states.push(state);
@@ -398,11 +505,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const states: string[] = [];
     controller.onWebUsbAvailabilityChange(state => {
       states.push(state);
@@ -432,11 +535,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     const restartSpy = vi.fn();
     (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
@@ -481,11 +580,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const states: string[] = [];
     controller.onWebUsbAvailabilityChange(state => {
       states.push(state);
@@ -533,11 +628,7 @@ describe('serial-session-controller', () => {
       userAgent: 'Mozilla/5.0 (Linux; Android 15)',
     });
 
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
 
     const restartSpy = vi.fn();
     (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
@@ -570,11 +661,7 @@ describe('serial-session-controller', () => {
   });
 
   it('dedupes probe status emitted from the worker path', () => {
-    const controller = new SerialSessionController({
-      connectionManager: connectionManager as ConnectionManager,
-      workerBridge: workerBridge as MavlinkWorkerBridge,
-      logViewerService: logViewerService as LogViewerService,
-    });
+    const controller = createController();
     const statuses: Array<string | null> = [];
     controller.onProbeStatus(status => {
       statuses.push(status);
@@ -586,5 +673,233 @@ describe('serial-session-controller', () => {
     probeStatusListener?.(null);
 
     expect(statuses).toEqual(['Trying 115200 baud...', null]);
+  });
+
+  it('WebUSB probing ignores structured garbage at 921600 and waits for a decoded packet at 500000', async () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const builder = new MavlinkFrameBuilder(registry);
+    const heartbeat = builder.buildFrame({
+      messageName: 'HEARTBEAT',
+      values: {
+        type: 2,
+        autopilot: 3,
+        base_mode: 0x81,
+        custom_mode: 0,
+        system_status: 4,
+        mavlink_version: 3,
+      },
+    });
+    const { port: probePort, open, close } = createMockProbePort({
+      921600: [createStructuredGarbageFrame(), createStructuredGarbageFrame()],
+      500000: [heartbeat],
+    });
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    const probePromise = (controller as unknown as {
+      probeAndConnectWebUsb: (port: unknown, baudRates: number[], signal: AbortSignal) => Promise<boolean>;
+    }).probeAndConnectWebUsb(probePort, [921600, 500000], new AbortController().signal);
+
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 10);
+
+    await expect(probePromise).resolves.toBe(true);
+    expect(connectSpy).toHaveBeenCalledWith(probePort, 500000, { verifyBeforeConnect: true });
+    expect(open).toHaveBeenNthCalledWith(1, { baudRate: 921600 });
+    expect(open).toHaveBeenNthCalledWith(2, { baudRate: 500000 });
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('WebUSB probing retries later baud rates when live verification fails after a good probe', async () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const builder = new MavlinkFrameBuilder(registry);
+    const heartbeat = builder.buildFrame({
+      messageName: 'HEARTBEAT',
+      values: {
+        type: 2,
+        autopilot: 3,
+        base_mode: 0x81,
+        custom_mode: 0,
+        system_status: 4,
+        mavlink_version: 3,
+      },
+    });
+    const { port: probePort } = createMockProbePort({
+      500000: [heartbeat],
+      230400: [heartbeat],
+    });
+    const connectSpy = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    const probePromise = (controller as unknown as {
+      probeAndConnectWebUsb: (port: unknown, baudRates: number[], signal: AbortSignal) => Promise<boolean>;
+    }).probeAndConnectWebUsb(probePort, [500000, 230400], new AbortController().signal);
+
+    await expect(probePromise).resolves.toBe(true);
+    expect(connectSpy).toHaveBeenNthCalledWith(1, probePort, 500000, { verifyBeforeConnect: true });
+    expect(connectSpy).toHaveBeenNthCalledWith(2, probePort, 230400, { verifyBeforeConnect: true });
+  });
+
+  it('Android live verification failure does not connect the worker path', async () => {
+    vi.useFakeTimers();
+    const controller = createController();
+    const { port: probePort } = createMockProbePort({
+      500000: [],
+    });
+
+    const connectPromise = (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud(probePort, 500000, { verifyBeforeConnect: true });
+
+    await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS + 10);
+
+    await expect(connectPromise).resolves.toBe(false);
+    expect(connectionManager.connect).not.toHaveBeenCalled();
+    expect((workerBridge.sendBytes as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('manual WebUSB fixed-baud connect verifies the newly selected baud', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    vi.spyOn(serialBackend, 'requestPort').mockResolvedValue(port as never);
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    await controller.connectManual({
+      baudRate: 500000,
+      autoDetectBaud: false,
+      lastBaudRate: 921600,
+      unloadLog: false,
+    });
+
+    expect(connectSpy).toHaveBeenCalledWith(port, 500000, { verifyBeforeConnect: true });
+  });
+
+  it('manual WebUSB connect waits for prior main-thread source teardown before reconnecting', async () => {
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    vi.spyOn(serialBackend, 'requestPort').mockResolvedValue(port as never);
+    const deferred = createDeferred<void>();
+    (controller as unknown as { mainThreadSource: { disconnect: () => Promise<void> } }).mainThreadSource = {
+      disconnect: vi.fn(() => deferred.promise),
+    };
+
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    const connectPromise = controller.connectManual({
+      baudRate: 230400,
+      autoDetectBaud: false,
+      lastBaudRate: 921600,
+      unloadLog: false,
+    });
+
+    await Promise.resolve();
+    expect(connectSpy).not.toHaveBeenCalled();
+
+    deferred.resolve();
+    await connectPromise;
+
+    expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
+  });
+
+  it('Android live baud reconnect suppresses old-session auto-restart and reconnects at the new baud', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('navigator', {
+      usb: {
+        requestDevice: vi.fn(),
+        getDevices: vi.fn(async () => []),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      userAgent: 'Mozilla/5.0 (Linux; Android 15)',
+    });
+
+    const controller = createController();
+    const restartSpy = vi.fn();
+    (controller as unknown as { startAutoConnectWebUsbLoop: () => void }).startAutoConnectWebUsbLoop = restartSpy;
+    (controller as unknown as {
+      webusbAutoConnectOptions: {
+        enabled: boolean;
+        autoBaud: boolean;
+        manualBaudRate: number;
+        lastPortIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
+        lastBaudRate: number | null;
+      };
+    }).webusbAutoConnectOptions = {
+      enabled: true,
+      autoBaud: false,
+      manualBaudRate: 500000,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+      lastBaudRate: 500000,
+    };
+    (controller as unknown as { sessionState: { sourceType: 'serial'; connectedBaudRate: number | null } }).sessionState = {
+      sourceType: 'serial',
+      connectedBaudRate: 500000,
+    };
+    (controller as unknown as { phase: string }).phase = 'connected_serial';
+
+    const oldSource = {
+      disconnect: vi.fn(async () => {
+        statusListener?.('disconnected');
+        (controller as unknown as { handleWebUsbTransportDisconnect: () => void }).handleWebUsbTransportDisconnect();
+      }),
+    };
+    (controller as unknown as { mainThreadSource: { disconnect: () => Promise<void> } }).mainThreadSource = oldSource;
+
+    vi.spyOn(serialBackend, 'getGrantedPorts').mockResolvedValue([port as never]);
+    const connectSpy = vi.fn(async () => true);
+    (controller as unknown as {
+      connectWebUsbAtBaud: (port: unknown, baudRate: number, options?: { verifyBeforeConnect?: boolean }) => Promise<boolean>;
+    }).connectWebUsbAtBaud = connectSpy;
+
+    await controller.reconnectLiveSerial({
+      baudRate: 230400,
+      autoDetectBaud: false,
+      lastBaudRate: 500000,
+      lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
+    });
+
+    vi.advanceTimersByTime(1000);
+
+    expect(oldSource.disconnect).toHaveBeenCalledOnce();
+    expect(connectSpy).toHaveBeenCalledWith(port, 230400, { verifyBeforeConnect: true });
+    expect(restartSpy).not.toHaveBeenCalled();
+    expect(controller.currentPhase).toBe('connecting_serial');
+    expect((controller as unknown as {
+      webusbAutoConnectOptions: { manualBaudRate: number; autoBaud: boolean };
+    }).webusbAutoConnectOptions).toMatchObject({
+      manualBaudRate: 230400,
+      autoBaud: false,
+    });
   });
 });

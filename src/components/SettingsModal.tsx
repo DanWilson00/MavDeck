@@ -3,8 +3,10 @@ import { appState, setAppState } from '../store';
 import packageJson from '../../package.json';
 import {
   BAUD_RATES, UNIT_PROFILES, saveDialect, clearDialect, loadBundledDialect,
-  initDialect, detectMissingIncludes, detectMainDialect, useRegistry,
+  initDialect, resolveIncludes, detectMainDialect, useRegistry,
   useSerialSessionController, useWorkerBridge, isSerialSupported,
+  loadRemoteDialect, validateDialectUrl, normalizeGithubUrl,
+  saveSettings, loadSettings,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -39,7 +41,14 @@ export default function SettingsModal(props: SettingsModalProps) {
   const [activeTab, setActiveTab] = createSignal<SettingsTab>('general');
   const [importError, setImportError] = createSignal<string | null>(null);
   const [refreshing, setRefreshing] = createSignal(false);
+  const [dialectUrl, setDialectUrl] = createSignal('');
+  const [urlSaving, setUrlSaving] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
+
+  // Load current dialectUrl from persisted settings
+  onMount(() => {
+    void loadSettings().then(s => setDialectUrl(s.dialectUrl));
+  });
 
   onMount(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -70,20 +79,11 @@ export default function SettingsModal(props: SettingsModalProps) {
     setAppState('mapTrailLength', clamped);
   }
 
-  function disconnectIfActive() {
-    if (appState.connectionStatus === 'connected' || appState.connectionStatus === 'connecting' || appState.connectionStatus === 'no_data') {
-      serialSessionController.disconnectLiveSession();
-    }
-  }
-
   async function handleFileSelected(e: Event) {
     const input = e.target as HTMLInputElement;
     const files = input.files;
     if (!files || files.length === 0) return;
     setImportError(null);
-
-    // Auto-disconnect before re-initializing with a new dialect
-    disconnectIfActive();
 
     try {
       // Read all files into a map
@@ -95,17 +95,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       input.value = '';
 
       // Transitively resolve all missing includes from bundled dialects
-      let missing = detectMissingIncludes(fileMap);
-      while (missing.length > 0) {
-        for (const name of missing) {
-          const resp = await fetch(`${import.meta.env.BASE_URL}dialects/${name}`);
-          if (!resp.ok) {
-            throw new Error(`Missing dialect file: ${name}. Select all required XML files together.`);
-          }
-          fileMap.set(name, await resp.text());
-        }
-        missing = detectMissingIncludes(fileMap);
-      }
+      await resolveIncludes(fileMap);
 
       // Auto-detect main file: the one not included by any other file
       const mainFile = detectMainDialect(fileMap);
@@ -120,11 +110,70 @@ export default function SettingsModal(props: SettingsModalProps) {
     }
   }
 
+  async function handleSaveDialectUrl() {
+    setImportError(null);
+    setUrlSaving(true);
+
+    try {
+      const raw = dialectUrl().trim();
+      if (!raw) {
+        // Treat empty as "clear"
+        await handleClearDialectUrl();
+        return;
+      }
+
+      const normalized = normalizeGithubUrl(raw);
+
+      const error = validateDialectUrl(normalized);
+      if (error) {
+        setImportError(error);
+        return;
+      }
+
+      const remote = await loadRemoteDialect(normalized);
+      await initDialect(workerBridge, registry, remote.json);
+      setAppState('dialectName', remote.name);
+      await saveDialect(remote.name, remote.json);
+
+      // Persist the URL to settings
+      const settings = await loadSettings();
+      settings.dialectUrl = raw;
+      await saveSettings(settings);
+    } catch (err) {
+      console.error('[SettingsModal] Dialect URL save failed:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to load dialect from URL.');
+    } finally {
+      setUrlSaving(false);
+    }
+  }
+
+  async function handleClearDialectUrl() {
+    setImportError(null);
+    setUrlSaving(true);
+
+    try {
+      // Clear URL from settings
+      const settings = await loadSettings();
+      settings.dialectUrl = '';
+      await saveSettings(settings);
+      setDialectUrl('');
+
+      // Clear custom dialect and reload bundled
+      await clearDialect();
+      const jsonString = await loadBundledDialect();
+      await initDialect(workerBridge, registry, jsonString);
+      setAppState('dialectName', 'common');
+    } catch (err) {
+      console.error('[SettingsModal] Dialect URL clear failed:', err);
+      setImportError(err instanceof Error ? err.message : 'Failed to clear dialect URL.');
+    } finally {
+      setUrlSaving(false);
+    }
+  }
+
   async function handleRefreshDialect() {
     setImportError(null);
     setRefreshing(true);
-
-    disconnectIfActive();
 
     try {
       // Clear any custom dialect, re-parse bundled XML (no caching)
@@ -155,10 +204,11 @@ export default function SettingsModal(props: SettingsModalProps) {
       aria-label="Settings"
     >
       <div
-        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border shadow-xl"
+        class="w-[440px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-lg border"
         style={{
           'background-color': 'var(--bg-panel)',
           'border-color': 'var(--border)',
+          'box-shadow': 'var(--shadow-modal)',
         }}
       >
         {/* Header */}
@@ -434,6 +484,50 @@ export default function SettingsModal(props: SettingsModalProps) {
                 class="hidden"
                 onChange={handleFileSelected}
               />
+
+              <Divider />
+
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="dialect-url-input">
+                  Dialect URL
+                </label>
+                <p class="text-xs mt-0.5 mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                  Auto-fetches the latest dialect XML on every app load.
+                </p>
+                <input
+                  id="dialect-url-input"
+                  type="url"
+                  placeholder="https://example.com/dialect.xml"
+                  value={dialectUrl()}
+                  onInput={(e) => setDialectUrl(e.currentTarget.value)}
+                  class="w-full rounded px-2 py-1.5 text-xs"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                    'text-overflow': 'ellipsis',
+                  }}
+                />
+                <div class="flex items-center gap-2 mt-2">
+                  <button
+                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    onClick={handleSaveDialectUrl}
+                    disabled={!appState.isReady || urlSaving()}
+                  >
+                    {urlSaving() ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    class="px-3 py-1.5 text-sm rounded border interactive-hover"
+                    style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                    onClick={handleClearDialectUrl}
+                    disabled={!appState.isReady || urlSaving()}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
               {importError() && (
                 <p class="text-xs" style={{ color: '#ef4444' }}>
                   {importError()}

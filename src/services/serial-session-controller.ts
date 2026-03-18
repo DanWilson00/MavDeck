@@ -9,11 +9,13 @@ import type { SerialPortIdentity } from './serial-probe-service';
 import { getSerialPortIdentity, matchesSerialPortIdentity } from './serial-port-identity';
 import { getSerialBackend, getGrantedPorts, requestPort, type PortLike, type SerialBackend } from './serial-backend';
 import { WebSerialByteSource } from './webserial-byte-source';
-import { MavlinkFrameDetector } from './mavlink-frame-detector';
+import type { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { MavlinkDecodeVerifier } from './mavlink-decode-verifier';
 
 export interface SerialSessionControllerConfig {
   connectionManager: ConnectionManager;
   workerBridge: MavlinkWorkerBridge;
+  registry: MavlinkMetadataRegistry;
   logViewerService?: LogViewerService;
 }
 
@@ -22,6 +24,13 @@ export interface ManualConnectOptions {
   autoDetectBaud: boolean;
   lastBaudRate: BaudRate | null;
   unloadLog?: boolean;
+}
+
+export interface LiveReconnectOptions {
+  baudRate: BaudRate;
+  autoDetectBaud: boolean;
+  lastBaudRate: BaudRate | null;
+  lastPortIdentity: SerialPortIdentity | null;
 }
 
 export interface AutoConnectOptions {
@@ -70,6 +79,7 @@ export type WebUsbAvailability = 'unknown' | 'needs_grant' | 'needs_regrant_andr
 export class SerialSessionController {
   private readonly connectionManager: ConnectionManager;
   private readonly workerBridge: MavlinkWorkerBridge;
+  private readonly registry: MavlinkMetadataRegistry;
   private logViewerService: LogViewerService | null;
   private readonly statusEmitter = new EventEmitter<StatusCallback>();
   private readonly probeStatusEmitter = new EventEmitter<ProbeStatusCallback>();
@@ -96,12 +106,15 @@ export class SerialSessionController {
   private webusbAutoConnectOptions: AutoConnectOptions | null = null;
   /** True while a disconnect is an intentional teardown and should not restart probing. */
   private suppressWebUsbReconnect = false;
+  /** True while a user-initiated serial reconnect/retune is actively replacing the live session. */
+  private manualSerialReconnectInProgress = false;
   private webusbAvailability: WebUsbAvailability = 'unknown';
   private lastProbeStatus: string | null = null;
 
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
     this.workerBridge = config.workerBridge;
+    this.registry = config.registry;
     this.logViewerService = config.logViewerService ?? null;
 
     this.unsubBridgeStatus = this.connectionManager.onStatusChange(status => {
@@ -147,6 +160,10 @@ export class SerialSessionController {
     return this.suspendedLiveSession !== null;
   }
 
+  get isManualSerialReconnectInProgress(): boolean {
+    return this.manualSerialReconnectInProgress;
+  }
+
   onStatusChange(callback: StatusCallback): () => void {
     return this.statusEmitter.on(callback);
   }
@@ -182,11 +199,9 @@ export class SerialSessionController {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
-    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
-    this.suppressWebUsbReconnect = false;
+    void this.disconnectMainThreadSourceSuppressed();
   }
 
   enterLogMode(): void {
@@ -194,11 +209,10 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.pendingLiveSourceType = null;
     this.setPhase('idle');
-    this.suppressWebUsbReconnect = true;
     this.stopAutoConnectWebUsb();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
-    this.suppressWebUsbReconnect = false;
+    void this.disconnectMainThreadSourceSuppressed();
   }
 
   suspendForLogPlayback(): boolean {
@@ -274,6 +288,8 @@ export class SerialSessionController {
       });
     } else {
       // Android polyfill: main-thread serial → forward bytes to worker's ExternalByteSource
+      this.connectionManager.disconnect();
+      await this.disconnectMainThreadSourceSuppressed();
       let port: PortLike;
       try {
         port = await requestPort(backend);
@@ -296,8 +312,87 @@ export class SerialSessionController {
         // Fixed baud: connect immediately
         this.pendingLiveSourceType = 'serial';
         this.setPhase('connecting_serial');
-        await this.connectWebUsbAtBaud(port, options.baudRate);
+        this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
+        const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
+        if (!connected) {
+          this.setPhase('error');
+          this.setProbeStatus(`No MAVLink traffic verified at ${options.baudRate} baud`);
+        }
       }
+    }
+  }
+
+  async reconnectLiveSerial(options: LiveReconnectOptions): Promise<void> {
+    if (this.sessionState.sourceType !== 'serial') {
+      return;
+    }
+
+    const backend = this.backend;
+    if (!backend) return;
+
+    this.prepareForLiveConnection(false);
+    this.pendingLiveSourceType = 'serial';
+    this.manualSerialReconnectInProgress = true;
+
+    try {
+      if (backend === 'native') {
+        if (!options.lastPortIdentity) {
+          this.setPhase('error');
+          return;
+        }
+
+        this.setPhase(options.autoDetectBaud ? 'probing' : 'connecting_serial');
+        this.connectionManager.disconnect();
+        this.connectionManager.connect({
+          type: 'webserial',
+          baudRate: options.baudRate,
+          autoDetectBaud: options.autoDetectBaud,
+          portIdentity: options.lastPortIdentity,
+          lastBaudRate: options.lastBaudRate,
+        });
+        return;
+      }
+
+      if (this.webusbAutoConnectOptions) {
+        this.webusbAutoConnectOptions = {
+          ...this.webusbAutoConnectOptions,
+          autoBaud: options.autoDetectBaud,
+          manualBaudRate: options.baudRate,
+          lastPortIdentity: options.lastPortIdentity,
+          lastBaudRate: options.lastBaudRate,
+        };
+      }
+
+      this.connectionManager.disconnect();
+      await this.disconnectMainThreadSourceSuppressed();
+
+      const ports = await getGrantedPorts('webusb');
+      const port = options.lastPortIdentity
+        ? ports.find(candidate => matchesSerialPortIdentity(candidate, options.lastPortIdentity!))
+        : ports[0];
+
+      if (!port) {
+        this.setPhase('error');
+        return;
+      }
+
+      if (options.autoDetectBaud) {
+        this.setPhase('probing');
+        const abort = new AbortController();
+        this.webusbAbort = abort;
+        await this.probeAndConnectWebUsb(port, this.buildBaudList(options.lastBaudRate), abort.signal);
+        return;
+      }
+
+      this.setPhase('connecting_serial');
+      this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
+      const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
+      if (!connected) {
+        this.setPhase('error');
+        this.setProbeStatus(`No MAVLink traffic verified at ${options.baudRate} baud`);
+      }
+    } finally {
+      this.manualSerialReconnectInProgress = false;
     }
   }
 
@@ -342,9 +437,9 @@ export class SerialSessionController {
     this.suspendedLiveSession = null;
     this.setPhase('idle');
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
     this.connectionManager.disconnect();
     this.connectionManager.stopAutoConnect();
+    await this.disconnectMainThreadSourceSuppressed();
 
     const backend = this.backend;
     if (backend === 'native') {
@@ -378,7 +473,7 @@ export class SerialSessionController {
 
   dispose(): void {
     this.stopAutoConnectWebUsb();
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSourceSuppressed();
     this.unsubBridgeStatus?.();
     this.unsubProbeStatus?.();
     this.unsubSerialConnected?.();
@@ -496,7 +591,7 @@ export class SerialSessionController {
   }
 
   /**
-   * Probe a WebUSB port across baud rates using MavlinkFrameDetector.
+   * Probe a WebUSB port across baud rates using full MAVLink CRC validation plus decode.
    * On success, establishes the full connection pipeline. Returns true if connected.
    */
   private async probeAndConnectWebUsb(
@@ -506,140 +601,124 @@ export class SerialSessionController {
   ): Promise<boolean> {
     if (baudRates.length === 0) return false;
 
-    const detector = new MavlinkFrameDetector();
-    let detected = false;
-    let detectedBaud: BaudRate = baudRates[0];
-
-    // Open port at first baud rate
-    try {
-      await port.open({ baudRate: baudRates[0] });
-    } catch (e) {
-      console.warn(`[WebUSB probe] Port open failed: ${e instanceof Error ? e.message : e}`);
-      return false;
-    }
-
-    if (!port.readable) {
-      try { await port.close(); } catch { /* */ }
-      return false;
-    }
-
-    // Read loop — feed bytes to detector
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-    let readingDone = false;
-
-    let resolveDetected: (() => void) | null = null;
-    let readLoopDone: Promise<void> = Promise.resolve();
-    const startReading = () => {
-      reader = port.readable!.getReader();
-      readLoopDone = (async () => {
-        try {
-          while (!readingDone) {
-            const { value, done } = await reader!.read();
-            if (done || readingDone) break;
-            if (value && detector.feed(value)) {
-              detected = true;
-              readingDone = true;
-              resolveDetected?.();
-            }
-          }
-        } catch {
-          // Read error — port disconnected or closed
-        }
-      })().catch(() => {});
-    };
-
-    startReading();
-
-    // Try each baud rate
-    for (let i = 0; i < baudRates.length; i++) {
-      if (signal.aborted || detected) break;
-      const rate = baudRates[i];
-
-      if (i > 0) {
-        // Change baud rate without close/reopen
-        if (port.setBaudRate) {
-          try {
-            await port.setBaudRate(rate);
-          } catch (e) {
-            console.warn(`[WebUSB probe] setBaudRate failed: ${e instanceof Error ? e.message : e}`);
-            continue;
-          }
-        } else {
-          // Fallback: close and reopen (shouldn't happen for FTDI)
-          break;
-        }
-        detector.reset();
-      }
-
+    for (const rate of baudRates) {
+      if (signal.aborted) break;
       const label = `Trying ${rate} baud...`;
       console.log(`[WebUSB probe] ${label}`);
       this.setProbeStatus(label);
 
-      // Wait for detection or timeout
-      const found = await new Promise<boolean>((resolve) => {
-        if (detected) { resolve(true); return; }
+      const found = await this.probeWebUsbAtBaud(port, rate, signal);
+      if (found) {
+        console.log(`[WebUSB probe] MAVLink detected at ${rate} baud`);
+        this.setProbeStatus(`Verifying live connection at ${rate} baud...`);
+        const connected = await this.connectWebUsbAtBaud(port, rate, { verifyBeforeConnect: true });
+        if (connected) {
+          return true;
+        }
+      }
+    }
 
-        resolveDetected = () => {
-          clearTimeout(timer);
-          resolve(true);
+    if (!signal.aborted) {
+      this.setProbeStatus('No MAVLink device detected');
+    }
+    return false;
+  }
+
+  private async probeWebUsbAtBaud(
+    port: PortLike,
+    baudRate: BaudRate,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const verifier = new MavlinkDecodeVerifier(this.registry);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let settled = false;
+    let openSucceeded = false;
+
+    try {
+      await port.open({ baudRate });
+      openSucceeded = true;
+      if (!port.readable) {
+        return false;
+      }
+
+      reader = port.readable.getReader();
+
+      return await new Promise<boolean>((resolve) => {
+        const finish = (value: boolean) => {
+          if (settled) return;
+          settled = true;
+          verifier.dispose();
+          resolve(value);
         };
 
-        const timer = setTimeout(() => {
-          resolveDetected = null;
-          resolve(false);
-        }, PROBE_TIMEOUT_MS);
+        void (async () => {
+          try {
+            const verified = verifier.waitForDecodedPacket({
+              signal,
+              timeoutMs: PROBE_TIMEOUT_MS,
+            }).then(finish);
 
-        signal.addEventListener('abort', () => {
-          clearTimeout(timer);
-          resolveDetected = null;
-          resolve(false);
-        }, { once: true });
+            while (!settled) {
+              const { value, done } = await reader!.read();
+              if (done || settled) break;
+              if (value) {
+                verifier.parse(value);
+              }
+            }
+            await verified;
+          } catch {
+            // Read error — treat as probe failure for this baud
+            finish(false);
+          }
+        })();
       });
-
-      if (found) {
-        detectedBaud = rate;
-        break;
-      }
-    }
-
-    // Stop reading
-    readingDone = true;
-    try {
-      const currentReader = reader as ReadableStreamDefaultReader<Uint8Array> | null;
-      if (currentReader) {
-        await currentReader.cancel();
-        currentReader.releaseLock();
-      }
-      await readLoopDone;
-    } catch { /* */ }
-
-    if (!detected || signal.aborted) {
-      try { await port.close(); } catch { /* */ }
-      if (!signal.aborted) {
-        this.setProbeStatus('No MAVLink device detected');
-      }
+    } catch (e) {
+      console.warn(`[WebUSB probe] Port open failed at ${baudRate}: ${e instanceof Error ? e.message : e}`);
       return false;
+    } finally {
+      try {
+        if (reader) {
+          await reader.cancel();
+          reader.releaseLock();
+        }
+      } catch {
+        // Reader may already be closed
+      }
+      if (openSucceeded) {
+        try { await port.close(); } catch { /* */ }
+      }
     }
-
-    // Close and reconnect properly through the standard pipeline
-    try { await port.close(); } catch { /* */ }
-
-    console.log(`[WebUSB probe] MAVLink detected at ${detectedBaud} baud`);
-    await this.connectWebUsbAtBaud(port, detectedBaud);
-    return true;
   }
 
   /** Open a WebUSB port at a known baud rate and wire up the full pipeline. */
-  private async connectWebUsbAtBaud(port: PortLike, baudRate: BaudRate): Promise<void> {
+  private async connectWebUsbAtBaud(
+    port: PortLike,
+    baudRate: BaudRate,
+    options?: { verifyBeforeConnect?: boolean },
+  ): Promise<boolean> {
+    let forwardingEnabled = options?.verifyBeforeConnect !== true;
+    const verifier = new MavlinkDecodeVerifier(this.registry);
+    let verifyResolve: ((value: boolean) => void) | null = null;
+
     const source = new WebSerialByteSource(baudRate, (data) => {
-      this.workerBridge.sendBytes(data);
+      if (forwardingEnabled) {
+        this.workerBridge.sendBytes(data);
+      } else {
+        verifier.parse(data);
+      }
     }, () => {
-      this.handleWebUsbTransportDisconnect();
+      if (forwardingEnabled) {
+        this.handleWebUsbTransportDisconnect();
+      } else {
+        verifyResolve?.(false);
+        verifyResolve = null;
+      }
     });
 
     try {
       await source.connect(port);
     } catch (error) {
+      verifier.dispose();
       const needsRegrant = this.shouldRequireWebUsbRegrantOnError(error);
       if (needsRegrant) {
         this.emitWebUsbAvailabilityStatus('needs_regrant_android');
@@ -647,18 +726,42 @@ export class SerialSessionController {
         this.setWebUsbAvailability('granted');
       }
       this.setPhase('error');
-      return;
+      return false;
     }
 
+    if (options?.verifyBeforeConnect) {
+      const verified = await Promise.race([
+        verifier.waitForDecodedPacket({ timeoutMs: PROBE_TIMEOUT_MS }).then((matched) => {
+          if (matched) {
+            forwardingEnabled = true;
+          }
+          return matched;
+        }),
+        new Promise<boolean>((resolve) => {
+          verifyResolve = resolve;
+        }),
+      ]);
+      verifyResolve = null;
+
+      if (!verified) {
+        verifier.dispose();
+        await source.disconnect();
+        return false;
+      }
+    }
+
+    verifier.dispose();
     this.mainThreadSource = source;
     const portIdentity = getSerialPortIdentity(port);
     this.setWebUsbAvailability('granted');
+    this.setProbeStatus(null);
 
     // Tell the worker to create an ExternalByteSource and start processing
     this.connectionManager.connect({ type: 'webserial', baudRate });
     this.setSessionState({ sourceType: 'serial', connectedBaudRate: baudRate });
     this.setPhase('connected_serial');
     this.serialConnectedEmitter.emit({ baudRate, portIdentity });
+    return true;
   }
 
   /** Build prioritized baud rate list: last successful first, then probe order. */
@@ -709,17 +812,33 @@ export class SerialSessionController {
     });
   }
 
-  private disconnectMainThreadSource(): void {
-    if (this.mainThreadSource) {
-      this.mainThreadSource.disconnect().catch(() => {});
-      this.mainThreadSource = null;
+  private async disconnectMainThreadSource(): Promise<void> {
+    if (!this.mainThreadSource) {
+      return;
+    }
+
+    const source = this.mainThreadSource;
+    this.mainThreadSource = null;
+    try {
+      await source.disconnect();
+    } catch {
+      // Ignore teardown errors while resetting transport state
+    }
+  }
+
+  private async disconnectMainThreadSourceSuppressed(): Promise<void> {
+    this.suppressWebUsbReconnect = true;
+    try {
+      await this.disconnectMainThreadSource();
+    } finally {
+      this.suppressWebUsbReconnect = false;
     }
   }
 
   private handleWebUsbTransportDisconnect(): void {
     const shouldRestart = this.webusbAutoConnectOptions?.enabled === true && !this.suppressWebUsbReconnect;
 
-    this.disconnectMainThreadSource();
+    void this.disconnectMainThreadSource();
     this.pendingLiveSourceType = null;
     this.connectionManager.disconnect();
 
@@ -873,6 +992,9 @@ export class SerialSessionController {
     }
 
     if (status === 'disconnected') {
+      if (this.manualSerialReconnectInProgress) {
+        return;
+      }
       this.isSuspendedForLogPlayback = false;
       this.suspendedLiveSession = null;
       this.pendingLiveSourceType = null;
