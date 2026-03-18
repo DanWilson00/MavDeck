@@ -12,6 +12,7 @@ describe('serial-session-controller', () => {
   } as unknown as SerialPort;
 
   let statusListener: ((status: ConnectionStatus) => void) | null;
+  let probeStatusListener: ((status: string | null) => void) | null;
   let serialConnectedListener: ((info: {
     baudRate: number;
     portIdentity: { usbVendorId: number; usbProductId: number; usbSerialNumber?: string } | null;
@@ -23,6 +24,7 @@ describe('serial-session-controller', () => {
   beforeEach(() => {
     vi.useRealTimers();
     statusListener = null;
+    probeStatusListener = null;
     serialConnectedListener = null;
     connectionManager = {
       connect: vi.fn(),
@@ -41,7 +43,12 @@ describe('serial-session-controller', () => {
     };
     workerBridge = {
       notifyPortsChanged: vi.fn(),
-      onProbeStatus: vi.fn(() => () => {}),
+      onProbeStatus: vi.fn((callback) => {
+        probeStatusListener = callback;
+        return () => {
+          probeStatusListener = null;
+        };
+      }),
       onSerialConnected: vi.fn((callback) => {
         serialConnectedListener = callback;
         return () => {
@@ -560,5 +567,24 @@ describe('serial-session-controller', () => {
     vi.advanceTimersByTime(1000);
 
     expect(restartSpy).not.toHaveBeenCalled();
+  });
+
+  it('dedupes probe status emitted from the worker path', () => {
+    const controller = new SerialSessionController({
+      connectionManager: connectionManager as ConnectionManager,
+      workerBridge: workerBridge as MavlinkWorkerBridge,
+      logViewerService: logViewerService as LogViewerService,
+    });
+    const statuses: Array<string | null> = [];
+    controller.onProbeStatus(status => {
+      statuses.push(status);
+    });
+
+    probeStatusListener?.('Trying 115200 baud...');
+    probeStatusListener?.('Trying 115200 baud...');
+    probeStatusListener?.(null);
+    probeStatusListener?.(null);
+
+    expect(statuses).toEqual(['Trying 115200 baud...', null]);
   });
 });

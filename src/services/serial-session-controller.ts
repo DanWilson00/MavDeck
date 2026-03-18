@@ -92,13 +92,12 @@ export class SerialSessionController {
   private mainThreadSource: WebSerialByteSource | null = null;
   /** Abort controller for WebUSB auto-connect probing. */
   private webusbAbort: AbortController | null = null;
-  /** Cleanup function for USB connect event listener. */
-  private usbConnectCleanup: (() => void) | null = null;
   /** Last enabled Android WebUSB auto-connect config. */
   private webusbAutoConnectOptions: AutoConnectOptions | null = null;
   /** True while a disconnect is an intentional teardown and should not restart probing. */
   private suppressWebUsbReconnect = false;
   private webusbAvailability: WebUsbAvailability = 'unknown';
+  private lastProbeStatus: string | null = null;
 
   constructor(config: SerialSessionControllerConfig) {
     this.connectionManager = config.connectionManager;
@@ -112,7 +111,7 @@ export class SerialSessionController {
     });
 
     this.unsubProbeStatus = this.workerBridge.onProbeStatus(status => {
-      this.probeStatusEmitter.emit(status);
+      this.setProbeStatus(status);
     });
 
     this.unsubSerialConnected = this.workerBridge.onSerialConnected(info => {
@@ -237,7 +236,7 @@ export class SerialSessionController {
       await requestPort(backend);
       if (backend === 'webusb') {
         this.setWebUsbAvailability('granted');
-        this.probeStatusEmitter.emit(null);
+        this.setProbeStatus(null);
       }
       if (backend === 'native') {
         this.workerBridge.notifyPortsChanged();
@@ -403,7 +402,7 @@ export class SerialSessionController {
     if (!options.enabled) {
       this.webusbAutoConnectOptions = null;
       this.setWebUsbAvailability('unknown');
-      this.probeStatusEmitter.emit(null);
+      this.setProbeStatus(null);
       this.stopAutoConnectWebUsb();
       return;
     }
@@ -421,8 +420,6 @@ export class SerialSessionController {
   stopAutoConnectWebUsb(): void {
     this.webusbAbort?.abort();
     this.webusbAbort = null;
-    this.usbConnectCleanup?.();
-    this.usbConnectCleanup = null;
     if (this.phase === 'probing') {
       this.setPhase('idle');
     }
@@ -430,7 +427,7 @@ export class SerialSessionController {
 
   private startAutoConnectWebUsbLoop(): void {
     const options = this.webusbAutoConnectOptions;
-    if (!options || this.phase !== 'idle' && this.phase !== 'error') {
+    if (!options || (this.phase !== 'idle' && this.phase !== 'error')) {
       return;
     }
 
@@ -450,7 +447,6 @@ export class SerialSessionController {
     baudList: BaudRate[],
     signal: AbortSignal,
   ): Promise<void> {
-    let hasSeenGrantedPort = false;
     let emptyPolls = 0;
 
     while (!signal.aborted) {
@@ -464,7 +460,6 @@ export class SerialSessionController {
       if (signal.aborted) return;
 
       if (ports.length > 0) {
-        hasSeenGrantedPort = true;
         emptyPolls = 0;
         this.setWebUsbAvailability('granted');
         // Sort so last-working port is tried first
@@ -484,7 +479,7 @@ export class SerialSessionController {
         }
       } else {
         emptyPolls++;
-        const availability = this.getMissingWebUsbAvailability(options, hasSeenGrantedPort, emptyPolls);
+        const availability = this.getMissingWebUsbAvailability(options, emptyPolls);
         this.emitWebUsbAvailabilityStatus(availability);
       }
 
@@ -493,11 +488,8 @@ export class SerialSessionController {
       // Wait for USB reconnect or retry after delay
       const usbConnected = await this.waitForUsbOrTimeout(3000, signal);
       if (signal.aborted) return;
-      if (usbConnected) {
-        this.setWebUsbAvailability('granted');
-        this.probeStatusEmitter.emit('USB device connected, probing...');
-      } else if (!this.mainThreadSource) {
-        const availability = this.getMissingWebUsbAvailability(options, hasSeenGrantedPort, emptyPolls);
+      if (!usbConnected && !this.mainThreadSource) {
+        const availability = this.getMissingWebUsbAvailability(options, emptyPolls);
         this.emitWebUsbAvailabilityStatus(availability);
       }
     }
@@ -535,9 +527,11 @@ export class SerialSessionController {
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
     let readingDone = false;
 
+    let resolveDetected: (() => void) | null = null;
+    let readLoopDone: Promise<void> = Promise.resolve();
     const startReading = () => {
       reader = port.readable!.getReader();
-      const loop = async () => {
+      readLoopDone = (async () => {
         try {
           while (!readingDone) {
             const { value, done } = await reader!.read();
@@ -545,13 +539,13 @@ export class SerialSessionController {
             if (value && detector.feed(value)) {
               detected = true;
               readingDone = true;
+              resolveDetected?.();
             }
           }
         } catch {
           // Read error — port disconnected or closed
         }
-      };
-      loop();
+      })().catch(() => {});
     };
 
     startReading();
@@ -579,27 +573,25 @@ export class SerialSessionController {
 
       const label = `Trying ${rate} baud...`;
       console.log(`[WebUSB probe] ${label}`);
-      this.probeStatusEmitter.emit(label);
+      this.setProbeStatus(label);
 
       // Wait for detection or timeout
       const found = await new Promise<boolean>((resolve) => {
         if (detected) { resolve(true); return; }
 
+        resolveDetected = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+
         const timer = setTimeout(() => {
+          resolveDetected = null;
           resolve(false);
         }, PROBE_TIMEOUT_MS);
 
-        const checkInterval = setInterval(() => {
-          if (detected || signal.aborted) {
-            clearTimeout(timer);
-            clearInterval(checkInterval);
-            resolve(detected);
-          }
-        }, 50);
-
         signal.addEventListener('abort', () => {
           clearTimeout(timer);
-          clearInterval(checkInterval);
+          resolveDetected = null;
           resolve(false);
         }, { once: true });
       });
@@ -618,12 +610,13 @@ export class SerialSessionController {
         await currentReader.cancel();
         currentReader.releaseLock();
       }
+      await readLoopDone;
     } catch { /* */ }
 
     if (!detected || signal.aborted) {
       try { await port.close(); } catch { /* */ }
       if (!signal.aborted) {
-        this.probeStatusEmitter.emit('No MAVLink device detected');
+        this.setProbeStatus('No MAVLink device detected');
       }
       return false;
     }
@@ -797,7 +790,6 @@ export class SerialSessionController {
 
   private getMissingWebUsbAvailability(
     options: AutoConnectOptions,
-    hasSeenGrantedPort: boolean,
     emptyPolls: number,
   ): WebUsbAvailability {
     if (!options.lastPortIdentity) {
@@ -808,7 +800,7 @@ export class SerialSessionController {
       return 'needs_regrant_android';
     }
 
-    if ((hasSeenGrantedPort || options.lastPortIdentity) && emptyPolls >= WEBUSB_EMPTY_POLLS_BEFORE_REGRANT) {
+    if (emptyPolls >= WEBUSB_EMPTY_POLLS_BEFORE_REGRANT) {
       return 'needs_regrant_android';
     }
 
@@ -819,18 +811,26 @@ export class SerialSessionController {
     this.setWebUsbAvailability(availability);
 
     if (availability === 'needs_grant') {
-      this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_ACCESS_STATUS);
+      this.setProbeStatus(WEBUSB_WAITING_FOR_ACCESS_STATUS);
       return;
     }
 
     if (availability === 'needs_regrant_android') {
-      this.probeStatusEmitter.emit(WEBUSB_REGRANT_ANDROID_STATUS);
+      this.setProbeStatus(WEBUSB_REGRANT_ANDROID_STATUS);
       return;
     }
 
     if (availability === 'waiting_for_device') {
-      this.probeStatusEmitter.emit(WEBUSB_WAITING_FOR_DEVICE_STATUS);
+      this.setProbeStatus(WEBUSB_WAITING_FOR_DEVICE_STATUS);
     }
+  }
+
+  private setProbeStatus(status: string | null): void {
+    if (this.lastProbeStatus === status) {
+      return;
+    }
+    this.lastProbeStatus = status;
+    this.probeStatusEmitter.emit(status);
   }
 
   private handleStatusChange(status: ConnectionManager['status']): void {

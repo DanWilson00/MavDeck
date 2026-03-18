@@ -21,7 +21,7 @@ import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
-import { getSerialPortIdentity } from '../services/serial-port-identity';
+import { getSerialPortIdentity, matchesSerialPortIdentity } from '../services/serial-port-identity';
 import type { WorkerCommand, WorkerEvent } from './worker-protocol';
 import {
   INITIAL_LOG_STATE,
@@ -255,8 +255,7 @@ function findPortByIdentity(ports: SerialPort[], identity: SerialPortIdentity | 
   if (ports.length === 0) return null;
   if (!identity) return ports[0];
   for (const port of ports) {
-    const info = port.getInfo();
-    if (info.usbVendorId === identity.usbVendorId && info.usbProductId === identity.usbProductId) {
+    if (matchesSerialPortIdentity(port, identity)) {
       return port;
     }
   }
@@ -718,7 +717,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
       navigator.serial.getPorts().then(async (ports) => {
         const port = findPortByIdentity(ports, portIdentity);
         if (!port) {
-          postEvent({ type: 'needPermission' });
+          postEvent({ type: 'statusChange', status: 'disconnected' });
           return;
         }
 

@@ -61,5 +61,4 @@ export type WorkerEvent =
   | { type: 'error'; message: string }
   | { type: 'probeStatus'; status: string | null }
   | { type: 'serialConnected'; baudRate: BaudRate; portIdentity: SerialPortIdentity | null }
-  | { type: 'needPermission' }
   | { type: 'throughput'; bytesPerSec: number };
