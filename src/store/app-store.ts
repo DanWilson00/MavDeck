@@ -31,6 +31,8 @@ export interface AppState {
   mapTrailLength: number;
   mapLayer: 'street' | 'satellite';
   mapZoom: number;
+  mapCenterLat: number;
+  mapCenterLon: number;
   mapAutoCenter: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -77,6 +79,8 @@ export function createInitialAppState(): AppState {
     mapTrailLength: DEFAULT_SETTINGS.mapTrailLength,
     mapLayer: DEFAULT_SETTINGS.mapLayer,
     mapZoom: DEFAULT_SETTINGS.mapZoom,
+    mapCenterLat: DEFAULT_SETTINGS.mapCenterLat,
+    mapCenterLon: DEFAULT_SETTINGS.mapCenterLon,
     mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
     sidebarCollapsed: DEFAULT_SETTINGS.sidebarCollapsed,
     sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
@@ -113,7 +117,7 @@ type PersistedSettingsState = Pick<
   AppState,
   'activeTab' | 'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
   'debugConsoleEnabled' |
-  'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapAutoCenter' | 'sidebarCollapsed' |
+  'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapCenterLat' | 'mapCenterLon' | 'mapAutoCenter' | 'sidebarCollapsed' |
   'sidebarWidth' | 'autoConnect' | 'autoDetectBaud' | 'lastSuccessfulBaudRate'
   | 'lastPortVendorId' | 'lastPortProductId' | 'lastPortSerialNumber'
 >;
@@ -131,6 +135,8 @@ export function applySettingsToAppState(settings: PersistedSettingsState): void 
     setAppState('mapTrailLength', settings.mapTrailLength);
     setAppState('mapLayer', settings.mapLayer);
     setAppState('mapZoom', settings.mapZoom);
+    setAppState('mapCenterLat', settings.mapCenterLat);
+    setAppState('mapCenterLon', settings.mapCenterLon);
     setAppState('mapAutoCenter', settings.mapAutoCenter);
     setAppState('sidebarCollapsed', settings.sidebarCollapsed);
     setAppState('sidebarWidth', settings.sidebarWidth);
@@ -157,6 +163,8 @@ export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): ty
     mapTrailLength: appState.mapTrailLength,
     mapLayer: appState.mapLayer,
     mapZoom: appState.mapZoom,
+    mapCenterLat: appState.mapCenterLat,
+    mapCenterLon: appState.mapCenterLon,
     mapAutoCenter: appState.mapAutoCenter,
     sidebarCollapsed: appState.sidebarCollapsed,
     sidebarWidth: appState.sidebarWidth,

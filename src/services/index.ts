@@ -119,3 +119,11 @@ export {
   clearCachedMetadataByCrc,
   clearMetadataCache,
 } from './metadata-cache';
+export {
+  addStatusTextEntry,
+  clearStatusTextEntries,
+  getStatusTextEntries,
+  onStatusTextEntry,
+  onStatusTextClear,
+  type StatusTextLogEntry,
+} from './status-text-log';

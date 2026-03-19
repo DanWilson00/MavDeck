@@ -38,9 +38,11 @@ import {
 import {
   batchProcessPackets,
   clearMainThreadTelemetryState,
+  clearStatusTextAssembly,
   forwardStatusText,
   postUpdateFromManager,
   serializeStats,
+  type StatusTextAssemblyState,
 } from './mavlink-worker-pipeline-helpers';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -85,6 +87,7 @@ interface PipelineState {
   vehicleTrackUnsub: (() => void) | null;
   paramMessageUnsub: (() => void) | null;
   ftpMessageUnsub: (() => void) | null;
+  statusTextAssembly: StatusTextAssemblyState;
 }
 
 interface ResetPipelineOptions {
@@ -113,6 +116,7 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   vehicleTrackUnsub: null,
   paramMessageUnsub: null,
   ftpMessageUnsub: null,
+  statusTextAssembly: { partials: new Map() },
 };
 
 // ---------------------------------------------------------------------------
@@ -588,6 +592,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   pipeline.tracker = new GenericMessageTracker();
   pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
   pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
+  clearStatusTextAssembly(pipeline.statusTextAssembly);
 
   pipeline.statsUnsub = pipeline.tracker.onStats(stats => {
     postEvent({
@@ -601,7 +606,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 
   pipeline.statustextUnsub = pipeline.service.onMessage(msg => {
-    forwardStatusText(msg, Date.now(), postEvent);
+    forwardStatusText(pipeline.statusTextAssembly, msg, Date.now(), postEvent);
   });
 
   pipeline.vehicleTrackUnsub = pipeline.service.onMessage(msg => {

@@ -318,148 +318,141 @@ export default function TelemetryView() {
 
   return (
     <div class="flex h-full">
-      {/* Left pane: collapsible sidebar */}
-      <Show
-        when={!appState.sidebarCollapsed}
-        fallback={
-          <div
-            class="flex flex-col items-center py-2"
-            style={{
+        {/* Left pane: collapsible sidebar */}
+        <Show
+          when={!appState.sidebarCollapsed}
+          fallback={
+            <div
+              class="flex flex-col items-center py-2"
+              style={{
               width: '32px',
               'min-width': '32px',
-              'background-color': 'var(--bg-panel)',
-              'border-right': '1px solid var(--border)',
+              'background-color': 'var(--bg-panel-2)',
+              'border-right': '1px solid var(--border-subtle)',
             }}
           >
-            <button
-              onClick={() => setAppState('sidebarCollapsed', false)}
-              class="p-1 rounded transition-colors interactive-hover"
-              style={{ color: 'var(--text-secondary)' }}
-              title="Expand sidebar"
-              aria-label="Expand sidebar"
-            >
-              <ChevronRightIcon />
-            </button>
-          </div>
-        }
-      >
-        <div
-          class="flex flex-col h-full relative"
-          style={{
-            'background-color': 'var(--bg-panel)',
-            'border-right': '1px solid var(--border)',
-            width: `${appState.sidebarWidth}px`,
-            'min-width': '200px',
-            'max-width': '600px',
-          }}
+              <button
+                onClick={() => setAppState('sidebarCollapsed', false)}
+                class="p-1 rounded transition-colors interactive-hover"
+                style={{ color: 'var(--text-secondary)' }}
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+              >
+                <ChevronRightIcon />
+              </button>
+            </div>
+          }
         >
-          {/* Compact header with collapse button */}
           <div
-            class="flex items-center justify-end px-2 py-1 border-b"
-            style={{ 'border-color': 'var(--border)' }}
-          >
-            <button
-              onClick={() => setAppState('sidebarCollapsed', true)}
-              class="p-1 rounded transition-colors interactive-hover"
-              style={{ color: 'var(--text-secondary)' }}
-              title="Collapse sidebar"
-              aria-label="Collapse sidebar"
-            >
-              <ChevronLeftIcon />
-            </button>
-          </div>
-
-          {/* Message monitor */}
-          <div class="min-h-0 flex-1">
-            <MessageMonitor
-              onFieldSelected={handleFieldSelected}
-              activeSignals={activeSignals()}
-            />
-          </div>
-
-          {/* Log library pane */}
-          <Show when={!appState.isLogPaneCollapsed}>
-            <div style={{ height: '1px', 'background-color': 'var(--border)' }} />
-          </Show>
-          <LogLibraryPane />
-
-          {/* Resize handle */}
-          <div
+            class="flex flex-col h-full relative"
             style={{
-              position: 'absolute',
-              top: '0',
-              right: '0',
-              width: '4px',
-              height: '100%',
-              cursor: 'col-resize',
+              'background-color': 'var(--bg-panel-2)',
+              'border-right': '1px solid var(--border-subtle)',
+              width: `${appState.sidebarWidth}px`,
+              'min-width': '200px',
+              'max-width': '600px',
             }}
-            onMouseDown={handleResizeStart}
-          />
-        </div>
-      </Show>
-
-      {/* Right: Plot area */}
-      <div class="flex-1 flex flex-col min-w-0">
-        <PlotTabBar onLayoutDirty={scheduleLayoutSave} />
-        <div class="flex-1 min-h-0 relative">
-          <For each={appState.plotTabs}>
-            {(tab) => {
-              const isActive = () => appState.activeSubTab === tab.id;
-              const tabPlots = () => tab.plots;
-              return (
+          >
+            <div
+              class="flex items-center justify-between px-3 py-2 border-b"
+              style={{ 'border-color': 'var(--border-subtle)' }}
+            >
+              <div>
                 <div
-                  class="absolute inset-0"
+                  class="text-[10px] uppercase tracking-[0.14em]"
                   style={{
-                    visibility: isActive() ? 'visible' : 'hidden',
-                    'z-index': isActive() ? 1 : 0,
-                    'overflow-y': 'auto',
+                    color: 'var(--text-quiet)',
+                    'font-family': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
                   }}
                 >
-                  <Show
-                    when={tabPlots().length > 0}
-                    fallback={
-                      <div class="flex h-full items-center justify-center px-6">
-                        <div
-                          class="max-w-md rounded-xl border px-6 py-5 text-center"
-                          style={{
-                            'background-color': 'var(--bg-panel)',
-                            'border-color': 'var(--border)',
-                          }}
-                        >
-                          <div class="flex items-center justify-center gap-3">
-                            <button
-                              class="rounded px-3 py-1.5 text-sm font-medium interactive-hover"
-                              style={{
-                                'background-color': 'var(--bg-hover)',
-                                color: 'var(--text-primary)',
-                              }}
-                              onClick={() => handleAddPlot()}
-                            >
-                              Add first plot
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    }
-                  >
-                    <GridLayout
-                      plots={tabPlots()}
-                      onClose={(plotId) => handleClosePlot(plotId, tab.id)}
-                      onOpenSignalSelector={handleOpenSignalSelector}
-                      onGridChange={(positions) => handleGridChange(positions, tab.id)}
-                      selectedPlotId={selectedPlotId()}
-                      onSelectPlot={handleSelectPlot}
-                      onClearSignals={(plotId) => handleClearSignals(plotId, tab.id)}
-                      interactionGroupId={interactionGroupId}
-                      interactionController={interactionController}
-                    />
-                  </Show>
+                  Signals
                 </div>
-              );
-            }}
-          </For>
+              </div>
+              <button
+                onClick={() => setAppState('sidebarCollapsed', true)}
+                class="p-1 rounded transition-colors interactive-hover"
+                style={{ color: 'var(--text-secondary)' }}
+                title="Collapse sidebar"
+                aria-label="Collapse sidebar"
+              >
+                <ChevronLeftIcon />
+              </button>
+            </div>
+
+            <div class="min-h-0 flex-1">
+              <MessageMonitor
+                onFieldSelected={handleFieldSelected}
+                activeSignals={activeSignals()}
+              />
+            </div>
+
+            <Show when={!appState.isLogPaneCollapsed}>
+              <div style={{ height: '1px', 'background-color': 'var(--border-subtle)' }} />
+            </Show>
+            <LogLibraryPane />
+
+            <div
+              style={{
+                position: 'absolute',
+                top: '0',
+                right: '0',
+                width: '4px',
+                height: '100%',
+                cursor: 'col-resize',
+              }}
+              onMouseDown={handleResizeStart}
+            />
+          </div>
+        </Show>
+
+        {/* Right: Plot area */}
+        <div class="flex-1 flex flex-col min-w-0">
+          <PlotTabBar onLayoutDirty={scheduleLayoutSave} />
+          <div class="flex-1 min-h-0 relative">
+            <For each={appState.plotTabs}>
+              {(tab) => {
+                const isActive = () => appState.activeSubTab === tab.id;
+                const tabPlots = () => tab.plots;
+                return (
+                  <div
+                    class="absolute inset-0"
+                    style={{
+                      visibility: isActive() ? 'visible' : 'hidden',
+                      'z-index': isActive() ? 1 : 0,
+                      'overflow-y': 'auto',
+                    }}
+                  >
+                    <Show
+                      when={tabPlots().length > 0}
+                      fallback={
+                        <div class="flex h-full items-center justify-center px-6">
+                          <button
+                            class="console-button rounded px-3 py-1.5 text-sm font-medium"
+                            onClick={() => handleAddPlot()}
+                          >
+                            Add plot
+                          </button>
+                        </div>
+                      }
+                    >
+                      <GridLayout
+                        plots={tabPlots()}
+                        onClose={(plotId) => handleClosePlot(plotId, tab.id)}
+                        onOpenSignalSelector={handleOpenSignalSelector}
+                        onGridChange={(positions) => handleGridChange(positions, tab.id)}
+                        selectedPlotId={selectedPlotId()}
+                        onSelectPlot={handleSelectPlot}
+                        onClearSignals={(plotId) => handleClearSignals(plotId, tab.id)}
+                        interactionGroupId={interactionGroupId}
+                        interactionController={interactionController}
+                      />
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
         </div>
-      </div>
 
       {/* Signal selector modal */}
       <Show when={selectorPlotId() !== null && selectorPlot()}>

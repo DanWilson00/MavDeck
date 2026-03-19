@@ -189,20 +189,18 @@ export default function ParametersView() {
         {/* Left panel: list */}
         <div
           class="flex flex-col overflow-hidden"
-          style={{ width: `${leftPanelWidth()}px`, 'min-width': '250px', 'border-right': '1px solid var(--border)' }}
+          style={{ width: `${leftPanelWidth()}px`, 'min-width': '250px', 'border-right': '1px solid var(--border-subtle)', 'background-color': 'var(--bg-panel-2)' }}
         >
           {/* Header bar */}
           <div
             class="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0"
-            style={{ 'background-color': 'var(--bg-panel)', 'border-color': 'var(--border)' }}
+            style={{ 'background-color': 'var(--bg-panel-2)', 'border-color': 'var(--border-subtle)' }}
           >
             <button
               onClick={() => { setPendingEdits(new Map()); requestAll(); }}
               disabled={!isConnected()}
-              class="px-3 py-1 rounded text-sm font-medium transition-colors"
+              class="console-button px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
-                'background-color': isConnected() ? 'var(--accent)' : 'var(--bg-hover)',
-                color: isConnected() ? '#000' : 'var(--text-secondary)',
                 opacity: isConnected() ? '1' : '0.5',
                 cursor: isConnected() ? 'pointer' : 'not-allowed',
               }}
@@ -214,12 +212,11 @@ export default function ParametersView() {
               <button
                 onClick={() => void saveAllPending()}
                 disabled={isSavingAll()}
-                class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                class="console-button px-3 py-1 rounded text-sm font-medium transition-colors"
                 style={{
-                  'background-color': isSavingAll() ? 'var(--bg-hover)' : 'var(--accent)',
-                  color: isSavingAll() ? 'var(--text-secondary)' : '#000',
                   opacity: isSavingAll() ? '0.5' : '1',
                   cursor: isSavingAll() ? 'not-allowed' : 'pointer',
+                  color: pendingCount() > 0 ? 'var(--accent)' : 'var(--text-secondary)',
                 }}
               >
                 {isSavingAll() ? 'Saving...' : `Save All (${pendingCount()})`}
@@ -230,10 +227,8 @@ export default function ParametersView() {
               <button
                 onClick={() => downloadMetadataFromDevice()}
                 disabled={!isConnected() || metadataLoading()}
-                class="px-2 py-1 rounded text-sm transition-colors"
+                class="console-button px-2 py-1 rounded text-sm transition-colors"
                 style={{
-                  'background-color': 'var(--bg-hover)',
-                  color: 'var(--text-secondary)',
                   opacity: isConnected() && !metadataLoading() ? '1' : '0.5',
                   cursor: isConnected() && !metadataLoading() ? 'pointer' : 'not-allowed',
                 }}
@@ -250,12 +245,7 @@ export default function ParametersView() {
               placeholder="Search..."
               value={searchQuery()}
               onInput={(e) => setSearchQuery(e.currentTarget.value)}
-              class="px-2 py-1 rounded text-sm w-36"
-              style={{
-                'background-color': 'var(--bg-hover)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border)',
-              }}
+              class="console-input px-2 py-1 rounded text-sm w-40"
             />
           </div>
 
@@ -317,7 +307,7 @@ export default function ParametersView() {
           style={{
             width: '4px',
             cursor: 'col-resize',
-            'background-color': 'var(--border)',
+            'background-color': 'var(--border-subtle)',
           }}
         />
 

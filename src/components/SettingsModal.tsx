@@ -22,11 +22,12 @@ const TRAIL_LENGTH_MIN = 50;
 const TRAIL_LENGTH_MAX = 5000;
 const TRAIL_LENGTH_STEP = 50;
 
-type SettingsTab = 'general' | 'serial' | 'advanced';
+type SettingsTab = 'general' | 'serial' | 'mavlink' | 'advanced';
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'serial', label: 'Serial' },
+  { id: 'mavlink', label: 'MAVLink' },
   { id: 'advanced', label: 'Advanced' },
 ];
 
@@ -432,42 +433,9 @@ export default function SettingsModal(props: SettingsModalProps) {
             </div>
           </Show>
 
-          {/* Advanced tab */}
-          <Show when={activeTab() === 'advanced'}>
+          {/* MAVLink tab */}
+          <Show when={activeTab() === 'mavlink'}>
             <div role="tabpanel" class="space-y-4">
-              <SectionLabel>Data</SectionLabel>
-              <ToggleSwitch
-                id="debug-console-toggle"
-                label="Enable debug console"
-                description="Shows app-level diagnostics, including metadata FTP download progress, in a dedicated bottom console."
-                checked={appState.debugConsoleEnabled}
-                onChange={(v) => setAppState('debugConsoleEnabled', v)}
-              />
-              
-              <div>
-                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
-                  Telemetry Buffer Capacity (samples per field)
-                </label>
-                <input
-                  id="buffer-capacity-input"
-                  type="number"
-                  min={BUFFER_CAPACITY_MIN}
-                  max={BUFFER_CAPACITY_MAX}
-                  step={BUFFER_CAPACITY_STEP}
-                  value={appState.bufferCapacity}
-                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                  style={{
-                    'background-color': 'var(--bg-hover)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border)',
-                  }}
-                  onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-                  onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-                />
-              </div>
-
-              <Divider />
-
               <SectionLabel>Dialect</SectionLabel>
               <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Current: {appState.dialectName}
@@ -547,6 +515,45 @@ export default function SettingsModal(props: SettingsModalProps) {
                   {importError()}
                 </p>
               )}
+
+              <Divider />
+
+              <SectionLabel>Telemetry</SectionLabel>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
+                  Buffer Capacity (samples per field)
+                </label>
+                <input
+                  id="buffer-capacity-input"
+                  type="number"
+                  min={BUFFER_CAPACITY_MIN}
+                  max={BUFFER_CAPACITY_MAX}
+                  step={BUFFER_CAPACITY_STEP}
+                  value={appState.bufferCapacity}
+                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                  onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                />
+              </div>
+
+            </div>
+          </Show>
+
+          {/* Advanced tab */}
+          <Show when={activeTab() === 'advanced'}>
+            <div role="tabpanel" class="space-y-4">
+              <ToggleSwitch
+                id="debug-console-toggle"
+                label="Enable debug console"
+                description="Shows app-level diagnostics, including metadata FTP download progress, in a dedicated bottom console."
+                checked={appState.debugConsoleEnabled}
+                onChange={(v) => setAppState('debugConsoleEnabled', v)}
+              />
 
               <Divider />
 

@@ -6,3 +6,4 @@ export { useLogSession } from './use-log-session';
 export { useLogLibrary } from './use-log-library';
 export { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 export { useParameters } from './use-parameters';
+export { useStatusTextCapture } from './use-status-text-capture';

@@ -26,6 +26,8 @@ export interface MavDeckSettings {
   mapTrailLength: number;
   mapLayer: 'street' | 'satellite';
   mapZoom: number;
+  mapCenterLat: number;
+  mapCenterLon: number;
   mapAutoCenter: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -52,6 +54,8 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   mapTrailLength: 500,
   mapLayer: 'street',
   mapZoom: 15,
+  mapCenterLat: 34.0522,
+  mapCenterLon: -118.2437,
   mapAutoCenter: true,
   sidebarCollapsed: false,
   sidebarWidth: 350,

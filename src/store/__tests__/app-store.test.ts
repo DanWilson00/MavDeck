@@ -20,6 +20,8 @@ describe('appStore', () => {
     expect(appState.mapTrailLength).toBe(500);
     expect(appState.mapLayer).toBe('street');
     expect(appState.mapZoom).toBe(15);
+    expect(appState.mapCenterLat).toBe(34.0522);
+    expect(appState.mapCenterLon).toBe(-118.2437);
     expect(appState.mapAutoCenter).toBe(true);
     expect(appState.sidebarCollapsed).toBe(false);
     expect(appState.sidebarWidth).toBe(350);

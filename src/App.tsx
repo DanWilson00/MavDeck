@@ -15,6 +15,7 @@ import {
   useInterestedFields,
   useLogSession,
   useKeyboardShortcuts,
+  useStatusTextCapture,
 } from './hooks';
 import { RuntimeServicesProvider, saveSettings } from './services';
 import type { MavDeckSettings } from './services';
@@ -31,6 +32,7 @@ function AppContent(props: AppContentProps) {
   useInterestedFields();
   useLogSession();
   useKeyboardShortcuts();
+  useStatusTextCapture();
 
   function handleSelectTab(tabId: 'telemetry' | 'map' | 'parameters') {
     if (appState.activeTab === tabId) return;

@@ -31,6 +31,8 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
   };
 
   const [flashMap, setFlashMap] = createSignal<Map<string, 'success' | 'error'>>(new Map());
+  const [flashKeyMap, setFlashKeyMap] = createSignal<Map<string, number>>(new Map());
+  const elemRefs = new Map<string, HTMLDivElement>();
 
   // Watch for set results matching elements in this array
   createEffect(() => {
@@ -39,11 +41,26 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
     const isElement = props.array.elements.some(e => e.paramId === result.paramId);
     if (!isElement) return;
 
+    const state = result.success ? 'success' : 'error';
     setFlashMap((prev: Map<string, 'success' | 'error'>) => {
       const next = new Map(prev);
-      next.set(result.paramId, result.success ? 'success' : 'error');
+      next.set(result.paramId, state);
       return next;
     });
+    setFlashKeyMap((prev: Map<string, number>) => {
+      const next = new Map(prev);
+      next.set(result.paramId, (prev.get(result.paramId) ?? 0) + 1);
+      return next;
+    });
+
+    // Apply glow animation to element ref
+    const ref = elemRefs.get(result.paramId);
+    if (ref) {
+      ref.classList.remove('param-glow-success', 'param-glow-error');
+      void ref.offsetWidth;
+      ref.classList.add(`param-glow-${state}`);
+    }
+
     const paramId = result.paramId;
     setTimeout(() => {
       setFlashMap((prev: Map<string, 'success' | 'error'>) => {
@@ -132,18 +149,12 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
             };
             const flash = () => flashMap().get(elem.paramId);
 
-            const flashBg = () => {
-              const f = flash();
-              if (f === 'success') return 'color-mix(in srgb, var(--accent-green) 15%, transparent)';
-              if (f === 'error') return 'color-mix(in srgb, var(--accent-red) 15%, transparent)';
-              return 'transparent';
-            };
-
             return (
               <div
-                class="rounded-lg p-3 transition-colors"
+                ref={(el) => { elemRefs.set(elem.paramId, el); }}
+                class="rounded-lg p-3"
                 style={{
-                  'background-color': flashBg() !== 'transparent' ? flashBg() : 'var(--bg-hover)',
+                  'background-color': 'var(--bg-hover)',
                   border: isModified() ? '1px solid var(--accent)' : '1px solid var(--border)',
                 }}
               >
@@ -191,6 +202,18 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
                         {formatValue(currentValue(), elem.meta?.decimalPlaces)}
                       </span>
                     </div>
+                  </Show>
+
+                  {/* Status icon */}
+                  <Show when={flash()}>
+                    {(f) => (
+                      <span
+                        class="text-xs font-semibold flex-shrink-0 param-status-toast"
+                        style={{ color: f() === 'success' ? 'var(--accent-green)' : 'var(--accent-red)' }}
+                      >
+                        {f() === 'success' ? '\u2713' : '\u2717'}
+                      </span>
+                    )}
                   </Show>
                 </div>
               </div>

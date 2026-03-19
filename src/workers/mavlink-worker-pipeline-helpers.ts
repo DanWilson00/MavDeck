@@ -8,9 +8,20 @@ import type { WorkerEvent } from './worker-protocol';
 
 type PostEvent = (event: WorkerEvent, transfer?: Transferable[]) => void;
 
+interface PartialStatusText {
+  text: string;
+  severity: number;
+  timestamp: number;
+  nextChunkSeq: number;
+}
+
 export interface PipelineFieldState {
   interestedFields: Set<string>;
   lastAvailableFieldsSignature: string;
+}
+
+export interface StatusTextAssemblyState {
+  partials: Map<string, PartialStatusText>;
 }
 
 export function serializeStats(stats: Map<string, MessageStats>): Record<string, MessageStats> {
@@ -70,18 +81,76 @@ export function clearMainThreadTelemetryState(
   postEvent({ type: 'stats', stats: {} });
 }
 
+export function clearStatusTextAssembly(state: StatusTextAssemblyState): void {
+  state.partials.clear();
+}
+
 export function forwardStatusText(
+  state: StatusTextAssemblyState,
   msg: MavlinkMessage,
   timestampMs: number,
   postEvent: PostEvent,
 ): void {
   if (msg.name !== 'STATUSTEXT') return;
-  postEvent({
-    type: 'statustext',
-    severity: msg.values['severity'] as number,
-    text: msg.values['text'] as string,
-    timestamp: timestampMs,
-  });
+  const severity = msg.values['severity'] as number;
+  const text = msg.values['text'] as string;
+  const messageId = typeof msg.values['id'] === 'number' ? msg.values['id'] as number : 0;
+  const chunkSeq = typeof msg.values['chunk_seq'] === 'number' ? msg.values['chunk_seq'] as number : 0;
+
+  if (!text) return;
+
+  if (messageId === 0) {
+    postEvent({
+      type: 'statustext',
+      severity,
+      text,
+      timestamp: timestampMs,
+    });
+    return;
+  }
+
+  const key = `${msg.systemId}:${msg.componentId}:${messageId}`;
+  const isFinalChunk = text.length < 50;
+
+  if (chunkSeq === 0) {
+    if (isFinalChunk) {
+      postEvent({
+        type: 'statustext',
+        severity,
+        text,
+        timestamp: timestampMs,
+      });
+      state.partials.delete(key);
+      return;
+    }
+
+    state.partials.set(key, {
+      text,
+      severity,
+      timestamp: timestampMs,
+      nextChunkSeq: 1,
+    });
+    return;
+  }
+
+  const partial = state.partials.get(key);
+  if (!partial || partial.nextChunkSeq !== chunkSeq) {
+    return;
+  }
+
+  partial.text += text;
+  partial.timestamp = timestampMs;
+  partial.nextChunkSeq += 1;
+
+  if (isFinalChunk) {
+    postEvent({
+      type: 'statustext',
+      severity: partial.severity,
+      text: partial.text,
+      timestamp: partial.timestamp,
+    });
+    state.partials.delete(key);
+  }
 }
 
 export function batchProcessPackets(
@@ -92,6 +161,7 @@ export function batchProcessPackets(
   timestamps: number[],
   postEvent: PostEvent,
 ): void {
+  const statusTextState: StatusTextAssemblyState = { partials: new Map() };
   const parser = new MavlinkFrameParser(registry);
   const decoder = new MavlinkMessageDecoder(registry);
   let currentTimestampMs = 0;
@@ -101,7 +171,7 @@ export function batchProcessPackets(
     if (!decoded) return;
     tracker.trackMessage(decoded);
     tsManager.processMessageWithTimestamp(decoded, currentTimestampMs);
-    forwardStatusText(decoded, currentTimestampMs, postEvent);
+    forwardStatusText(statusTextState, decoded, currentTimestampMs, postEvent);
   });
 
   for (let i = 0; i < packets.length; i += 1) {

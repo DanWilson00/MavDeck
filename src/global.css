@@ -5,12 +5,17 @@
   --ui-scale: 1;
   --bg-primary: #0c0d11;
   --bg-panel: #1a1d24;
+  --bg-panel-2: #14171d;
   --bg-hover: #1e2128;
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
+  --text-quiet: #7f8793;
   --accent: #00d4ff;
   --accent-green: #00ff88;
+  --accent-red: #ff4466;
+  --accent-yellow: #f59e0b;
   --border: #2e323c;
+  --border-subtle: rgba(148, 163, 184, 0.14);
   --chart-grid: rgba(255, 255, 255, 0.10);
   --chart-axis: #888;
   --map-overlay-bg: rgba(0, 0, 0, 0.72);
@@ -34,12 +39,17 @@ html {
 .light {
   --bg-primary: #f0f2f5;
   --bg-panel: #ffffff;
+  --bg-panel-2: #f7f8fa;
   --bg-hover: #e8eaed;
   --text-primary: #18181b;
   --text-secondary: #6b7280;
+  --text-quiet: #8b95a3;
   --accent: #0077cc;
   --accent-green: #059669;
+  --accent-red: #dc2626;
+  --accent-yellow: #d97706;
   --border: #d1d5db;
+  --border-subtle: rgba(15, 23, 42, 0.1);
   --chart-grid: rgba(0, 0, 0, 0.10);
   --chart-axis: #666;
   --map-overlay-bg: rgba(255, 255, 255, 0.88);
@@ -152,3 +162,61 @@ input:focus-visible {
 /* uPlot drag-select box */
 .uplot .u-select { background: rgba(0, 212, 255, 0.1); }
 .light .uplot .u-select { background: rgba(0, 102, 204, 0.1); }
+
+.console-button {
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+.console-button:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border-subtle));
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+}
+
+.console-input {
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-panel) 70%, transparent);
+  color: var(--text-primary);
+}
+
+.console-overlay {
+  border: 1px solid var(--map-overlay-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--map-overlay-bg) 92%, transparent), color-mix(in srgb, var(--map-overlay-bg) 72%, transparent));
+  color: var(--map-overlay-text);
+  backdrop-filter: blur(8px);
+}
+
+/* Parameter write confirmation animations */
+@keyframes param-glow-success {
+  0%   { border-color: var(--accent-green); box-shadow: 0 0 0 0 transparent; }
+  15%  { border-color: var(--accent-green); box-shadow: 0 0 12px color-mix(in srgb, var(--accent-green) 40%, transparent); }
+  100% { border-color: var(--border); box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes param-glow-error {
+  0%   { border-color: var(--accent-red); box-shadow: 0 0 0 0 transparent; }
+  15%  { border-color: var(--accent-red); box-shadow: 0 0 12px color-mix(in srgb, var(--accent-red) 40%, transparent); }
+  100% { border-color: var(--border); box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes param-glow-warning {
+  0%   { border-color: var(--accent-yellow); box-shadow: 0 0 0 0 transparent; }
+  15%  { border-color: var(--accent-yellow); box-shadow: 0 0 12px color-mix(in srgb, var(--accent-yellow) 40%, transparent); }
+  100% { border-color: var(--border); box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes param-status-in {
+  0%   { opacity: 0; transform: translateX(-8px); }
+  10%  { opacity: 1; transform: translateX(0); }
+  80%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(0); }
+}
+
+.param-glow-success { animation: param-glow-success 2s ease-out forwards; }
+.param-glow-error   { animation: param-glow-error 2s ease-out forwards; }
+.param-glow-warning { animation: param-glow-warning 2s ease-out forwards; }
+.param-status-toast { animation: param-status-in 2s ease-out forwards; }

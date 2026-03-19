@@ -28,6 +28,8 @@ function formatDisplayValue(value: number, meta: ParamDef | null): string {
 
 export default function ParameterDetail(props: ParameterDetailProps) {
   const [flashState, setFlashState] = createSignal<'none' | 'success' | 'warning' | 'error'>('none');
+  const [flashKey, setFlashKey] = createSignal(0);
+  let editBoxRef: HTMLDivElement | undefined;
 
   const fieldName = () => {
     return getParameterDisplayName(props.param.meta, props.param.paramId);
@@ -52,7 +54,21 @@ export default function ParameterDetail(props: ParameterDetailProps) {
     } else {
       setFlashState('warning');
     }
+    setFlashKey(k => k + 1);
     setTimeout(() => setFlashState('none'), 2000);
+  });
+
+  // Apply glow animation class to the edit control box
+  createEffect(() => {
+    const state = flashState();
+    // Track flashKey to restart animation on consecutive writes
+    flashKey();
+    if (!editBoxRef) return;
+    editBoxRef.classList.remove('param-glow-success', 'param-glow-error', 'param-glow-warning');
+    if (state === 'none') return;
+    // Force reflow to restart animation
+    void editBoxRef.offsetWidth;
+    editBoxRef.classList.add(`param-glow-${state}`);
   });
 
   function handleSave() {
@@ -69,20 +85,17 @@ export default function ParameterDetail(props: ParameterDetailProps) {
     props.onLocalChange(v);
   }
 
-  const flashBg = () => {
+  const statusToast = () => {
     switch (flashState()) {
-      case 'success': return 'color-mix(in srgb, var(--accent-green) 10%, transparent)';
-      case 'warning': return 'color-mix(in srgb, var(--accent-yellow, #f59e0b) 10%, transparent)';
-      case 'error': return 'color-mix(in srgb, var(--accent-red) 10%, transparent)';
-      default: return 'transparent';
+      case 'success': return { icon: '\u2713', text: 'Confirmed', color: 'var(--accent-green)' };
+      case 'error': return { icon: '\u2717', text: 'Write failed', color: 'var(--accent-red)' };
+      case 'warning': return { icon: '\u26A0', text: 'Timeout \u2014 verify value', color: 'var(--accent-yellow)' };
+      default: return null;
     }
   };
 
   return (
-    <div
-      class="h-full overflow-y-auto p-6 transition-colors"
-      style={{ 'background-color': flashBg() }}
-    >
+    <div class="h-full overflow-y-auto p-6">
       {/* Header */}
       <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
         {fieldName()}
@@ -109,6 +122,7 @@ export default function ParameterDetail(props: ParameterDetailProps) {
 
       {/* Edit control with value comparison header */}
       <div
+        ref={editBoxRef}
         class="mt-5 p-4 rounded-lg transition-all"
         style={{
           'background-color': 'var(--bg-hover)',
@@ -148,6 +162,19 @@ export default function ParameterDetail(props: ParameterDetailProps) {
 
         <EditControl param={props.param} value={currentValue()} onChange={handleLocalChange} />
       </div>
+
+      {/* Status toast — keyed by flashKey to restart animation on consecutive writes */}
+      <Show when={statusToast()} keyed>
+        {(toast) => (
+          <div
+            class="mt-2 flex items-center gap-1.5 text-sm font-medium param-status-toast"
+            style={{ color: toast.color }}
+          >
+            <span>{toast.icon}</span>
+            <span>{toast.text}</span>
+          </div>
+        )}
+      </Show>
 
       {/* Actions */}
       <div class="mt-6 flex items-center gap-3">
