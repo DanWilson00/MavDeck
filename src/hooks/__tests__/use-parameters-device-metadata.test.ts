@@ -40,12 +40,12 @@ const mockBridge = {
     };
   }),
   downloadFtpMetadata: vi.fn(() => {
-    const json = '{"version":1,"groups":[{"name":"Test","parameters":[]}]}';
+    const json = '{"version":1,"parameters":[]}';
     progressCallback?.({
       level: 'debug',
       stage: 'metadata:json',
       message: 'Decoded metadata payload from /param/parameters.json.xz',
-      body: '{\n  "version": 1,\n  "groups": [\n    {\n      "name": "Test",\n      "parameters": []\n    }\n  ]\n}',
+      body: '{\n  "version": 1,\n  "parameters": []\n}',
       details: { path: '/param/parameters.json.xz', compressed: true },
     });
     resultCallback?.(json, true);
@@ -88,7 +88,7 @@ describe('useParameters device metadata logging', () => {
       const entry = getDebugConsoleEntries().find(item => item.message === 'metadata:json: Decoded metadata payload from /param/parameters.json.xz');
       expect(entry).toBeDefined();
       expect(entry?.level).toBe('debug');
-      expect(entry?.body).toBe('{\n  "version": 1,\n  "groups": [\n    {\n      "name": "Test",\n      "parameters": []\n    }\n  ]\n}');
+      expect(entry?.body).toBe('{\n  "version": 1,\n  "parameters": []\n}');
 
       dispose();
     });

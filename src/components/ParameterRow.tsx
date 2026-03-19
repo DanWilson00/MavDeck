@@ -1,6 +1,6 @@
 import { Show } from 'solid-js';
 import type { ParamWithMeta } from '../hooks/use-parameters';
-import { getParameterDisplayName } from '../services/parameter-display';
+import { getParameterDisplayName, isAtDefault } from '../services/parameter-display';
 
 interface ParameterRowProps {
   param: ParamWithMeta;
@@ -21,8 +21,8 @@ export default function ParameterRow(props: ParameterRowProps) {
     const m = meta();
     if (!m) return String(val);
     if (m.type === 'Boolean') return val === 0 ? 'OFF' : 'ON';
-    if (m.type === 'Discrete' && m.values) return m.values[String(val)] ?? String(val);
-    if (m.decimal !== undefined) return val.toFixed(m.decimal);
+    if (m.type === 'Discrete' && m.values) return m.values?.find(v => v.value === val)?.description ?? String(val);
+    if (m.decimalPlaces !== undefined) return val.toFixed(m.decimalPlaces);
     return String(val);
   };
 
@@ -30,8 +30,8 @@ export default function ParameterRow(props: ParameterRowProps) {
     const m = meta();
     if (!m) return '';
     if (m.type === 'Boolean' || m.type === 'Discrete') return '';
-    if (m.unit === 'norm') return '';
-    return m.unit ?? '';
+    if (m.units === 'norm') return '';
+    return m.units ?? '';
   };
 
   const hasPending = () => props.pendingValue !== null && props.pendingValue !== props.param.value;
@@ -46,7 +46,16 @@ export default function ParameterRow(props: ParameterRowProps) {
       }}
     >
       {/* Modified dot */}
-      <Show when={props.modified} fallback={<div class="w-1.5 mr-2" />}>
+      <Show when={props.modified} fallback={
+        <Show when={meta() && !isAtDefault(props.param.value, meta()!)} fallback={
+          <div class="w-1.5 mr-2" />
+        }>
+          <div
+            class="w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0"
+            style={{ 'background-color': 'var(--text-secondary)', opacity: '0.5' }}
+          />
+        </Show>
+      }>
         <div
           class="w-1.5 h-1.5 rounded-full mr-2 flex-shrink-0"
           style={{ 'background-color': 'var(--accent)' }}
@@ -81,7 +90,7 @@ export default function ParameterRow(props: ParameterRowProps) {
       </Show>
 
       {/* Reboot badge */}
-      <Show when={meta()?.reboot_required}>
+      <Show when={meta()?.rebootRequired}>
         <span class="text-xs ml-1 flex-shrink-0" style={{ color: 'var(--accent-yellow, #f59e0b)' }}>
           {'\u26A0'}
         </span>

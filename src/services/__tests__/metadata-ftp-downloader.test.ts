@@ -12,17 +12,18 @@ const commonJson = loadCommonDialectJson();
 
 const testMetadata = JSON.stringify({
   version: 1,
-  groups: [{
-    name: 'Test',
-    parameters: [{
-      mavlink_id: 'TEST_PARAM',
-      config_key: 'test.param',
-      type: 'Float',
-      default: 1.0,
-      min: 0.0,
-      max: 10.0,
-      description: 'Test parameter',
-    }],
+  parameters: [{
+    name: 'TEST_PARAM',
+    type: 'Float',
+    group: 'Test',
+    default: 1.0,
+    min: 0.0,
+    max: 10.0,
+    shortDesc: 'test.param',
+    longDesc: 'Test parameter',
+    units: '',
+    decimalPlaces: 1,
+    rebootRequired: false,
   }],
 });
 
@@ -110,8 +111,8 @@ describe('MetadataFtpDownloader integration', () => {
 
     const parsed = JSON.parse(result.json);
     expect(parsed.version).toBe(1);
-    expect(parsed.groups[0].name).toBe('Test');
-    expect(parsed.groups[0].parameters[0].mavlink_id).toBe('TEST_PARAM');
+    expect(parsed.parameters[0].name).toBe('TEST_PARAM');
+    expect(parsed.parameters[0].group).toBe('Test');
   });
 
   it('uses cached metadata on repeated download when CRC matches', async () => {

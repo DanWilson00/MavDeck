@@ -2,7 +2,7 @@ import { createSignal, createEffect, Show, For } from 'solid-js';
 import type { ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
-import { getParameterDisplayName } from '../services/parameter-display';
+import { getParameterDisplayName, formatDefaultValue, isAtDefault, formatValue } from '../services/parameter-display';
 
 interface ParameterDetailProps {
   param: ParamWithMeta;
@@ -21,8 +21,8 @@ function isDiscreteLike(meta: ParamDef | null): boolean {
 function formatDisplayValue(value: number, meta: ParamDef | null): string {
   if (!meta) return String(value);
   if (meta.type === 'Boolean') return value === 0 ? 'OFF' : 'ON';
-  if (meta.type === 'Discrete' && meta.values) return meta.values[String(value)] ?? String(value);
-  if (meta.decimal !== undefined) return value.toFixed(meta.decimal);
+  if (meta.type === 'Discrete' && meta.values) return meta.values?.find(v => v.value === value)?.description ?? String(value);
+  if (meta.decimalPlaces !== undefined) return value.toFixed(meta.decimalPlaces);
   return String(value);
 }
 
@@ -35,8 +35,8 @@ export default function ParameterDetail(props: ParameterDetailProps) {
 
   const meta = () => props.param.meta;
   const displayDescription = () => {
-    const long = meta()?.long_description ?? '';
-    return long || (meta()?.description ?? '');
+    const long = meta()?.longDesc ?? '';
+    return long || '';
   };
   const currentValue = () => props.pendingValue ?? props.param.value;
   const isModified = () => props.pendingValue !== null && props.pendingValue !== props.param.value;
@@ -93,6 +93,20 @@ export default function ParameterDetail(props: ParameterDetailProps) {
         </p>
       </Show>
 
+      {/* Metadata pills */}
+      <div class="flex flex-wrap gap-2 mt-2">
+        <Show when={meta() && meta()!.type !== 'Boolean' && meta()!.type !== 'Discrete'}>
+          <span class="px-2 py-0.5 rounded text-xs" style={{ 'background-color': 'var(--chip-bg)', color: 'var(--text-secondary)' }}>
+            {meta()!.min} — {meta()!.max}{meta()!.units && meta()!.units !== 'norm' ? ` ${meta()!.units}` : ''}
+          </span>
+        </Show>
+        <Show when={meta()}>
+          <span class="px-2 py-0.5 rounded text-xs" style={{ 'background-color': 'var(--chip-bg)', color: 'var(--text-secondary)' }}>
+            default: {formatDefaultValue(meta()!)}
+          </span>
+        </Show>
+      </div>
+
       {/* Edit control with value comparison header */}
       <div
         class="mt-5 p-4 rounded-lg transition-all"
@@ -110,8 +124,11 @@ export default function ParameterDetail(props: ParameterDetailProps) {
               <span class="text-lg font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {formatDisplayValue(props.param.value, meta())}
               </span>
-              <Show when={!isDiscreteLike(meta()) && meta()?.unit && meta()!.unit !== 'norm'}>
-                <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{meta()!.unit}</span>
+              <Show when={!isDiscreteLike(meta()) && meta()?.units && meta()!.units !== 'norm'}>
+                <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{meta()!.units}</span>
+              </Show>
+              <Show when={meta() && isAtDefault(props.param.value, meta()!)}>
+                <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>(default)</span>
               </Show>
             </>
           }>
@@ -123,23 +140,14 @@ export default function ParameterDetail(props: ParameterDetailProps) {
             <span class="text-lg font-mono font-semibold" style={{ color: 'var(--accent)' }}>
               {formatDisplayValue(currentValue(), meta())}
             </span>
-            <Show when={!isDiscreteLike(meta()) && meta()?.unit && meta()!.unit !== 'norm'}>
-              <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{meta()!.unit}</span>
+            <Show when={!isDiscreteLike(meta()) && meta()?.units && meta()!.units !== 'norm'}>
+              <span class="text-xs" style={{ color: 'var(--text-secondary)' }}>{meta()!.units}</span>
             </Show>
           </Show>
         </div>
 
         <EditControl param={props.param} value={currentValue()} onChange={handleLocalChange} />
       </div>
-
-      {/* Metadata info */}
-      <Show when={meta()}>
-        <div class="mt-6 space-y-2">
-          <Show when={meta()!.type !== 'Boolean' && meta()!.type !== 'Discrete'}>
-            <MetaRow label="Range" value={`${meta()!.min} — ${meta()!.max}`} />
-          </Show>
-        </div>
-      </Show>
 
       {/* Actions */}
       <div class="mt-6 flex items-center gap-3">
@@ -170,10 +178,24 @@ export default function ParameterDetail(props: ParameterDetailProps) {
             Revert
           </button>
         </Show>
+        <Show when={meta() && !isAtDefault(currentValue(), meta()!)}>
+          <button
+            onClick={() => handleLocalChange(meta()!.default)}
+            class="px-4 py-2 rounded text-sm font-medium transition-colors"
+            style={{
+              'background-color': 'var(--bg-hover)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+              cursor: 'pointer',
+            }}
+          >
+            Reset to Default
+          </button>
+        </Show>
       </div>
 
       {/* Badges */}
-      <Show when={meta()?.reboot_required}>
+      <Show when={meta()?.rebootRequired}>
         <div
           class="mt-4 flex items-center gap-2 px-3 py-2 rounded text-sm"
           style={{
@@ -185,28 +207,10 @@ export default function ParameterDetail(props: ParameterDetailProps) {
           <span>Changing this parameter requires a reboot to take effect</span>
         </div>
       </Show>
-      <Show when={meta()?.volatile}>
-        <div class="mt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
-          This parameter is volatile and may change without being set.
-        </div>
-      </Show>
     </div>
   );
 }
 
-function MetaRow(props: { label: string; value: string }) {
-  return (
-    <div class="flex items-center gap-4 text-sm">
-      <span class="w-16 text-right" style={{ color: 'var(--text-secondary)' }}>{props.label}</span>
-      <span class="font-mono" style={{ color: 'var(--text-primary)' }}>{props.value}</span>
-    </div>
-  );
-}
-
-function formatValue(value: number, decimal?: number): string {
-  if (decimal !== undefined) return value.toFixed(decimal);
-  return String(value);
-}
 
 interface EditControlProps {
   param: ParamWithMeta;
@@ -281,22 +285,22 @@ function BooleanControl(props: { value: number; onChange: (v: number) => void })
 }
 
 function DiscreteControl(props: { meta: ParamDef; value: number; onChange: (v: number) => void }) {
-  const entries = () => Object.entries(props.meta.values ?? {});
+  const entries = () => props.meta.values ?? [];
   return (
     <div class="flex flex-wrap items-center gap-3">
       <For each={entries()}>
-        {([val, label]) => (
+        {(opt) => (
           <button
-            onClick={() => props.onChange(Number(val))}
+            onClick={() => props.onChange(opt.value)}
             class="px-5 py-4 rounded-lg text-sm font-medium transition-colors"
             style={{
               'min-height': '48px',
-              'background-color': props.value === Number(val) ? 'var(--accent)' : 'var(--bg-panel)',
-              color: props.value === Number(val) ? '#000' : 'var(--text-secondary)',
-              border: `2px solid ${props.value === Number(val) ? 'var(--accent)' : 'var(--border)'}`,
+              'background-color': props.value === opt.value ? 'var(--accent)' : 'var(--bg-panel)',
+              color: props.value === opt.value ? '#000' : 'var(--text-secondary)',
+              border: `2px solid ${props.value === opt.value ? 'var(--accent)' : 'var(--border)'}`,
             }}
           >
-            {label}
+            {opt.description}
           </button>
         )}
       </For>
@@ -305,8 +309,8 @@ function DiscreteControl(props: { meta: ParamDef; value: number; onChange: (v: n
 }
 
 function SliderControl(props: { meta: ParamDef; value: number; onChange: (v: number) => void }) {
-  const step = () => props.meta.type === 'Integer' ? 1 : (props.meta.decimal !== undefined ? Math.pow(10, -props.meta.decimal) : 0.01);
-  const unitLabel = () => props.meta.unit && props.meta.unit !== 'norm' ? props.meta.unit : '';
+  const step = () => props.meta.type === 'Integer' ? 1 : (props.meta.decimalPlaces !== undefined ? Math.pow(10, -props.meta.decimalPlaces) : 0.01);
+  const unitLabel = () => props.meta.units && props.meta.units !== 'norm' ? props.meta.units : '';
 
   return (
     <div class="flex items-center gap-3">
@@ -326,7 +330,7 @@ function SliderControl(props: { meta: ParamDef; value: number; onChange: (v: num
         min={props.meta.min}
         max={props.meta.max}
         step={step()}
-        prop:value={formatValue(props.value, props.meta.decimal)}
+        prop:value={formatValue(props.value, props.meta.decimalPlaces)}
         onChange={(e) => {
           const v = Number(e.currentTarget.value);
           if (!isNaN(v)) props.onChange(v);

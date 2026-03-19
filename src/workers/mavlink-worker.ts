@@ -710,7 +710,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         // Load bundled metadata for spoof FTP responder (best-effort)
         let metadataJson = '';
         try {
-          const resp = await fetch('/parameters.json');
+          const resp = await fetch('/params.json');
           if (resp.ok) metadataJson = await resp.text();
         } catch { /* spoof FTP will serve empty metadata */ }
         source = pipeline.spoofSource = new SpoofByteSource(registry, 1, 1, metadataJson);

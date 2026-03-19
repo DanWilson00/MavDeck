@@ -10,7 +10,7 @@ import { XzReadableStream } from 'xz-decompress';
 import type { MavlinkMessage } from '../mavlink/decoder';
 import type { DebugLogLevel } from '../workers/worker-protocol';
 import { clearCachedMetadataByCrc, getCachedMetadataByCrc, putCachedMetadata } from './metadata-cache';
-import { parseMetadataFile } from './param-metadata-service';
+import { parseMetadata } from './param-metadata-service';
 
 /** Result of a metadata download. */
 export interface MetadataDownloadResult {
@@ -99,7 +99,7 @@ export class MetadataFtpDownloader {
     const cachedJson = await getCachedMetadataByCrc(paramEntry.fileCrc);
     if (cachedJson) {
       try {
-        parseMetadataFile(cachedJson);
+        parseMetadata(cachedJson);
         this.report({
           level: 'info',
           stage: 'metadata:cache:hit',
@@ -179,7 +179,7 @@ export class MetadataFtpDownloader {
         body: formatJsonForDebug(json),
         details: { path, compressed: true },
       });
-      parseMetadataFile(json);
+      parseMetadata(json);
       await putCachedMetadata(paramEntry.fileCrc, json);
       this.report({
         level: 'info',
@@ -208,7 +208,7 @@ export class MetadataFtpDownloader {
       body: formatJsonForDebug(json),
       details: { path, compressed: false },
     });
-    parseMetadataFile(json);
+    parseMetadata(json);
     await putCachedMetadata(paramEntry.fileCrc, json);
     this.report({
       level: 'info',

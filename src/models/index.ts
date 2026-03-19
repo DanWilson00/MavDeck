@@ -21,8 +21,6 @@ export {
 } from './plot-config';
 
 export type {
-  ParamMetadataFile,
-  ParamGroupDef,
   ParamDef,
-  ArrayParamDef,
+  ParamValueOption,
 } from './parameter-metadata';

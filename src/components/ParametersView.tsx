@@ -92,36 +92,32 @@ export default function ParametersView() {
       .map(g => ({
         name: g.name,
         params: g.params.filter(p => {
-          const configKey = p.meta?.config_key ?? '';
-          const desc = p.meta?.description ?? '';
-          const longDesc = p.meta?.long_description ?? '';
-          const groupName = p.meta?.group_name ?? '';
+          const shortDesc = p.meta?.shortDesc ?? '';
+          const longDesc = p.meta?.longDesc ?? '';
+          const group = p.meta?.group ?? '';
           const displayName = getParameterDisplayName(p.meta, p.paramId);
           const idMatches = !p.meta && p.paramId.toLowerCase().includes(query);
           return idMatches
             || displayName.toLowerCase().includes(query)
-            || configKey.toLowerCase().includes(query)
-            || desc.toLowerCase().includes(query)
+            || shortDesc.toLowerCase().includes(query)
             || longDesc.toLowerCase().includes(query)
-            || groupName.toLowerCase().includes(query);
+            || group.toLowerCase().includes(query);
         }),
         arrays: g.arrays.filter(a => {
           // Include entire array if description or any element matches
           if (a.description.toLowerCase().includes(query)) return true;
           if (a.label.toLowerCase().includes(query)) return true;
           return a.elements.some(el => {
-            const configKey = el.meta?.config_key ?? '';
-            const desc = el.meta?.description ?? '';
-            const longDesc = el.meta?.long_description ?? '';
-            const groupName = el.meta?.group_name ?? '';
+            const shortDesc = el.meta?.shortDesc ?? '';
+            const longDesc = el.meta?.longDesc ?? '';
+            const group = el.meta?.group ?? '';
             const displayName = getParameterDisplayName(el.meta, el.paramId);
             const idMatches = !el.meta && el.paramId.toLowerCase().includes(query);
             return idMatches
               || displayName.toLowerCase().includes(query)
-              || configKey.toLowerCase().includes(query)
-              || desc.toLowerCase().includes(query)
+              || shortDesc.toLowerCase().includes(query)
               || longDesc.toLowerCase().includes(query)
-              || groupName.toLowerCase().includes(query);
+              || group.toLowerCase().includes(query);
           });
         }),
       }))

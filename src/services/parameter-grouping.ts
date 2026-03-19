@@ -49,11 +49,11 @@ export function buildParamGroups(
   const groups = new Map<string, ParamWithMeta[]>();
   for (const [, pwm] of withMeta) {
     let groupName: string;
-    if (pwm.meta?.group_name) {
-      groupName = pwm.meta.group_name;
-    } else if (pwm.meta?.config_key) {
-      const dotIdx = pwm.meta.config_key.indexOf('.');
-      groupName = dotIdx >= 0 ? pwm.meta.config_key.substring(0, dotIdx) : pwm.meta.config_key;
+    if (pwm.meta?.group) {
+      groupName = pwm.meta.group;
+    } else if (pwm.meta?.shortDesc) {
+      const dotIdx = pwm.meta.shortDesc.indexOf('.');
+      groupName = dotIdx >= 0 ? pwm.meta.shortDesc.substring(0, dotIdx) : pwm.meta.shortDesc;
     } else if (!hasMetadataFile) {
       groupName = deriveFallbackParamGroupName(pwm.paramId);
     } else {
@@ -78,8 +78,8 @@ export function buildParamGroups(
     }
 
     scalars.sort((a, b) => {
-      const aKey = a.meta?.config_key ?? a.paramId;
-      const bKey = b.meta?.config_key ?? b.paramId;
+      const aKey = a.meta?.shortDesc ?? a.paramId;
+      const bKey = b.meta?.shortDesc ?? b.paramId;
       return aKey.localeCompare(bKey);
     });
 
@@ -89,9 +89,9 @@ export function buildParamGroups(
       const first = elements[0].meta!;
       arrays.push({
         prefix,
-        label: first.arrayInfo?.prefix ?? first.config_key ?? first.description,
-        description: first.description,
-        unit: (first.type === 'Boolean' || first.type === 'Discrete') ? '' : (first.unit === 'norm' ? '' : first.unit ?? ''),
+        label: first.arrayInfo?.prefix ?? first.shortDesc ?? first.longDesc,
+        description: first.longDesc,
+        unit: (first.type === 'Boolean' || first.type === 'Discrete') ? '' : (first.units === 'norm' ? '' : first.units ?? ''),
         elements,
       });
     }

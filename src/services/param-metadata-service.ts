@@ -1,145 +1,111 @@
-import type { ParamMetadataFile, ParamDef } from '../models/parameter-metadata';
+import type { ParamDef, ParamValueOption } from '../models/parameter-metadata';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/** Raw parameter entry as it appears in the flat JSON file. */
+interface RawParam {
+  name: string;
+  type: string;
+  group: string;
+  default: number;
+  min: number;
+  max: number;
+  shortDesc: string;
+  longDesc: string;
+  units: string;
+  decimalPlaces: number;
+  rebootRequired: boolean;
+  values?: ParamValueOption[];
 }
 
-export interface MetadataShapeSummary {
-  topLevelKeys: string[];
-  hasParametersWrapper: boolean;
-  parametersIsObject: boolean;
-  parametersIsArray: boolean;
-  innerTopLevelKeys: string[];
-  groupsIsArray: boolean;
-  groupsLength: number | null;
-  arrayParametersIsArray: boolean;
-  arrayParametersLength: number | null;
-  includesIsArray: boolean;
-  externsIsObject: boolean;
-}
-
-export function summarizeMetadataShape(value: unknown): MetadataShapeSummary {
-  const record = isRecord(value) ? value : null;
-  const parametersRecord = isRecord(record?.parameters) ? record.parameters : null;
-  const target = parametersRecord ?? record;
-  return {
-    topLevelKeys: record ? Object.keys(record).sort() : [],
-    hasParametersWrapper: Boolean(parametersRecord),
-    parametersIsObject: isRecord(record?.parameters),
-    parametersIsArray: Array.isArray(record?.parameters),
-    innerTopLevelKeys: parametersRecord ? Object.keys(parametersRecord).sort() : [],
-    groupsIsArray: Array.isArray(target?.groups),
-    groupsLength: Array.isArray(target?.groups) ? target.groups.length : null,
-    arrayParametersIsArray: Array.isArray(target?.array_parameters),
-    arrayParametersLength: Array.isArray(target?.array_parameters) ? target.array_parameters.length : null,
-    includesIsArray: Array.isArray(target?.includes),
-    externsIsObject: isRecord(target?.externs),
-  };
-}
-
-function normalizeMetadataBody(parsed: Record<string, unknown>): ParamMetadataFile {
-  const body = isRecord(parsed.parameters) ? parsed.parameters : parsed;
-
-  if (!Array.isArray(body.groups)) {
-    const prefix = body === parsed ? 'Invalid metadata file' : 'Invalid metadata file: wrapper.parameters';
-    throw new Error(`${prefix}: groups must be an array`);
-  }
-
-  const outerVersion = parsed.version;
-  const innerVersion = body.version;
-  if (outerVersion !== undefined && innerVersion !== undefined && Number(outerVersion) !== Number(innerVersion)) {
-    throw new Error('Invalid metadata file: outer and inner version fields do not match');
-  }
-
-  return {
-    version: Number(innerVersion ?? outerVersion),
-    includes: Array.isArray(body.includes) ? body.includes.filter((v): v is string => typeof v === 'string') : [],
-    externs: isRecord(body.externs)
-      ? Object.fromEntries(Object.entries(body.externs).filter(([, v]) => typeof v === 'string')) as Record<string, string>
-      : {},
-    groups: body.groups as ParamMetadataFile['groups'],
-    array_parameters: Array.isArray(body.array_parameters)
-      ? body.array_parameters as ParamMetadataFile['array_parameters']
-      : [],
-  };
+interface RawParamsFile {
+  version: number;
+  parameters: RawParam[];
 }
 
 /**
- * Parse a JSON string into a ParamMetadataFile, with basic validation.
+ * Infer the display type from the raw JSON `type` field and optional `values` array.
+ *
+ * - `"Int32"` with exactly two values at 0 and 1 → `Boolean`
+ * - `"Int32"` with other values → `Discrete`
+ * - `"Int32"` with no values → `Integer`
+ * - `"Float"` → `Float`
  */
-export function parseMetadataFile(json: string): ParamMetadataFile {
+function inferType(rawType: string, values?: ParamValueOption[]): ParamDef['type'] {
+  if (rawType === 'Float') return 'Float';
+
+  // Int32 (or any integer type)
+  if (values && values.length > 0) {
+    if (
+      values.length === 2 &&
+      values.some(v => v.value === 0) &&
+      values.some(v => v.value === 1)
+    ) {
+      return 'Boolean';
+    }
+    return 'Discrete';
+  }
+  return 'Integer';
+}
+
+const ARRAY_PATTERN = /^(.+)\[(\d+)\]$/;
+
+/**
+ * Parse a flat params JSON string into a Map<name, ParamDef>.
+ *
+ * Expects `{ version, parameters: [...] }` format.
+ */
+export function parseMetadata(json: string): Map<string, ParamDef> {
   const parsed: unknown = JSON.parse(json);
-  if (!isRecord(parsed)) {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error('Invalid metadata file: top-level JSON value must be an object');
   }
-  if (parsed.version === undefined || parsed.version === null) {
-    throw new Error('Invalid metadata file: missing version field');
+  const raw = parsed as RawParamsFile;
+  if (!Array.isArray(raw.parameters)) {
+    throw new Error('Invalid metadata file: parameters must be an array');
   }
 
-  return normalizeMetadataBody(parsed);
-}
-
-/**
- * Build a flat lookup from mavlink_id to ParamDef.
- * Array parameters are expanded into individual entries.
- */
-export function flattenToLookup(file: ParamMetadataFile): Map<string, ParamDef> {
   const lookup = new Map<string, ParamDef>();
 
-  for (const group of file.groups) {
-    for (const param of group.parameters) {
-      lookup.set(param.mavlink_id, {
-        ...param,
-        group_name: param.group_name ?? group.name,
-      });
+  // First pass: build all ParamDefs without arrayInfo
+  for (const p of raw.parameters) {
+    const def: ParamDef = {
+      name: p.name,
+      type: inferType(p.type, p.values),
+      group: p.group,
+      default: p.default,
+      min: p.min,
+      max: p.max,
+      shortDesc: p.shortDesc,
+      longDesc: p.longDesc,
+      units: p.units,
+      decimalPlaces: p.decimalPlaces,
+      rebootRequired: p.rebootRequired,
+      values: p.values,
+    };
+    lookup.set(p.name, def);
+  }
+
+  // Second pass: detect array parameters by shortDesc pattern and attach arrayInfo
+  const arrayGroups = new Map<string, ParamDef[]>();
+  for (const def of lookup.values()) {
+    const match = def.shortDesc.match(ARRAY_PATTERN);
+    if (match) {
+      const prefix = match[1];
+      if (!arrayGroups.has(prefix)) arrayGroups.set(prefix, []);
+      arrayGroups.get(prefix)!.push(def);
     }
   }
 
-  for (const arrayParam of file.array_parameters) {
-    for (let i = 0; i < arrayParam.count; i++) {
-      const expanded: ParamDef = {
-        mavlink_id: `${arrayParam.mavlink_prefix}${i}`,
-        config_key: `${arrayParam.config_key}[${i}]`,
-        group_name: arrayParam.group,
-        type: arrayParam.type as ParamDef['type'],
-        default: arrayParam.default[i],
-        min: arrayParam.min,
-        max: arrayParam.max,
-        unit: arrayParam.unit,
-        decimal: arrayParam.decimal,
-        description: arrayParam.description,
-        arrayInfo: { prefix: arrayParam.config_key, index: i, count: arrayParam.count },
+  for (const [prefix, members] of arrayGroups) {
+    const count = members.length;
+    for (const def of members) {
+      const match = def.shortDesc.match(ARRAY_PATTERN)!;
+      def.arrayInfo = {
+        prefix,
+        index: parseInt(match[2], 10),
+        count,
       };
-      lookup.set(expanded.mavlink_id, expanded);
     }
   }
 
   return lookup;
-}
-
-/**
- * Group parameters by config_key prefix (everything before the first ".").
- * Keys without a dot use the full key as the group name.
- * Each group's params are sorted alphabetically by config_key.
- */
-export function groupByConfigKeyPrefix(lookup: Map<string, ParamDef>): Map<string, ParamDef[]> {
-  const groups = new Map<string, ParamDef[]>();
-
-  for (const param of lookup.values()) {
-    const dotIndex = param.config_key.indexOf('.');
-    const prefix = dotIndex === -1 ? param.config_key : param.config_key.substring(0, dotIndex);
-
-    let group = groups.get(prefix);
-    if (!group) {
-      group = [];
-      groups.set(prefix, group);
-    }
-    group.push(param);
-  }
-
-  for (const group of groups.values()) {
-    group.sort((a, b) => a.config_key.localeCompare(b.config_key));
-  }
-
-  return groups;
 }

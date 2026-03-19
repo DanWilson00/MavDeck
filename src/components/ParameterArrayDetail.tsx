@@ -2,7 +2,7 @@ import { createSignal, createEffect, Show, For } from 'solid-js';
 import type { ArrayParamGroup, ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
-import { getArrayDisplayName } from '../services/parameter-display';
+import { getArrayDisplayName, formatValue } from '../services/parameter-display';
 
 interface ParameterArrayDetailProps {
   array: ArrayParamGroup;
@@ -12,15 +12,11 @@ interface ParameterArrayDetailProps {
   lastSetResult: ParamSetResult | null;
 }
 
-function formatValue(value: number, decimal?: number): string {
-  if (decimal !== undefined) return value.toFixed(decimal);
-  return String(value);
-}
 
 function formatArrayValues(elements: ParamWithMeta[], pendingEdits: Map<string, number>, usePending: boolean): string {
   const vals = elements.map(e => {
     const val = usePending ? (pendingEdits.get(e.paramId) ?? e.value) : e.value;
-    return formatValue(val, e.meta?.decimal);
+    return formatValue(val, e.meta?.decimalPlaces);
   });
   return '[' + vals.join(', ') + ']';
 }
@@ -92,6 +88,13 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
           </p>
         </Show>
 
+        {/* Default values pill */}
+        <Show when={props.array.elements[0]?.meta}>
+          <span class="px-2 py-0.5 rounded text-xs mt-1 inline-block" style={{ 'background-color': 'var(--chip-bg)', color: 'var(--text-secondary)' }}>
+            default: [{props.array.elements.map(e => formatValue(e.meta?.default ?? 0, e.meta?.decimalPlaces)).join(', ')}]
+          </span>
+        </Show>
+
         {/* Array-level value comparison */}
         <div class="mt-2 font-mono text-sm flex flex-wrap items-center gap-x-1">
           <Show when={hasPendingEdits()} fallback={
@@ -157,7 +160,7 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
                   <Show when={elem.meta && elem.meta.min !== undefined && elem.meta.max !== undefined} fallback={
                     <input
                       type="number"
-                      prop:value={formatValue(currentValue(), elem.meta?.decimal)}
+                      prop:value={formatValue(currentValue(), elem.meta?.decimalPlaces)}
                       onChange={(e) => {
                         const v = Number(e.currentTarget.value);
                         if (!isNaN(v)) props.onLocalChange(elem.paramId, v);
@@ -181,11 +184,11 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
                   <Show when={isModified()}>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <span class="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>
-                        {formatValue(elem.value, elem.meta?.decimal)}
+                        {formatValue(elem.value, elem.meta?.decimalPlaces)}
                       </span>
                       <span style={{ color: 'var(--text-secondary)' }}>{'\u2192'}</span>
                       <span class="text-xs font-mono font-semibold" style={{ color: 'var(--accent)' }}>
-                        {formatValue(currentValue(), elem.meta?.decimal)}
+                        {formatValue(currentValue(), elem.meta?.decimalPlaces)}
                       </span>
                     </div>
                   </Show>
@@ -196,7 +199,7 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
         </For>
       </div>
 
-      {/* Footer with Save All / Revert All */}
+      {/* Footer with Save All / Revert All / Reset to Default */}
       <div
         class="flex-shrink-0 p-4 border-t flex items-center gap-3"
         style={{ 'border-color': 'var(--border)', 'background-color': 'var(--bg-panel)' }}
@@ -228,6 +231,22 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
             Revert All
           </button>
         </Show>
+        <button
+          onClick={() => {
+            for (const elem of props.array.elements) {
+              if (elem.meta) props.onLocalChange(elem.paramId, elem.meta.default);
+            }
+          }}
+          class="px-4 py-2 rounded text-sm font-medium transition-colors"
+          style={{
+            'background-color': 'var(--bg-hover)',
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border)',
+            cursor: 'pointer',
+          }}
+        >
+          Reset to Default
+        </button>
       </div>
     </div>
   );
@@ -237,8 +256,8 @@ function ElementSlider(props: { meta: ParamDef; value: number; onChange: (v: num
   const step = () =>
     props.meta.type === 'Integer'
       ? 1
-      : props.meta.decimal !== undefined
-        ? Math.pow(10, -props.meta.decimal)
+      : props.meta.decimalPlaces !== undefined
+        ? Math.pow(10, -props.meta.decimalPlaces)
         : 0.01;
 
   return (
@@ -263,7 +282,7 @@ function ElementSlider(props: { meta: ParamDef; value: number; onChange: (v: num
         min={props.meta.min}
         max={props.meta.max}
         step={step()}
-        prop:value={formatValue(props.value, props.meta.decimal)}
+        prop:value={formatValue(props.value, props.meta.decimalPlaces)}
         onChange={(e) => {
           const v = Number(e.currentTarget.value);
           if (!isNaN(v)) props.onChange(v);

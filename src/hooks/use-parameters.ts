@@ -1,8 +1,8 @@
 import { createSignal, createMemo } from 'solid-js';
 import { useWorkerBridge, logDebugError, logDebugEvent, logDebugInfo, logDebugWarn } from '../services';
 import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
-import type { ParamMetadataFile, ParamDef } from '../models/parameter-metadata';
-import { parseMetadataFile, flattenToLookup } from '../services/param-metadata-service';
+import type { ParamDef } from '../models/parameter-metadata';
+import { parseMetadata } from '../services/param-metadata-service';
 import {
   buildParamGroups,
   type ParamWithMeta,
@@ -10,7 +10,6 @@ import {
   type ParamGroup,
 } from '../services/parameter-grouping';
 import { appState } from '../store';
-import { summarizeMetadataShape } from '../services/param-metadata-service';
 
 export type { ParamWithMeta, ArrayParamGroup, ParamGroup } from '../services/parameter-grouping';
 
@@ -27,7 +26,7 @@ export interface MetadataStatus {
 const [paramState, setParamState] = createSignal<ParameterStateSnapshot>({
   params: {}, totalCount: 0, receivedCount: 0, fetchStatus: 'idle', error: null,
 });
-const [metadata, setMetadata] = createSignal<ParamMetadataFile | null>(null);
+const [metadata, setMetadata] = createSignal<Map<string, ParamDef> | null>(null);
 const [lastSetResult, setLastSetResult] = createSignal<ParamSetResult | null>(null);
 const [metadataLoading, setMetadataLoading] = createSignal(false);
 const [metadataStatus, setMetadataStatus] = createSignal<MetadataStatus>({
@@ -78,19 +77,16 @@ function ensureBridge(bridge: ReturnType<typeof useWorkerBridge>) {
   });
 }
 
-// Metadata lookup (flat map by mavlink_id)
+// Metadata lookup (flat map by name) — now just returns the parsed Map directly
 const metadataLookup = createMemo(() => {
-  const meta = metadata();
-  if (!meta) return new Map<string, ParamDef>();
-  return flattenToLookup(meta);
+  return metadata() ?? new Map<string, ParamDef>();
 });
 
-// Grouped params: merge device values with metadata, group by config_key prefix
+// Grouped params: merge device values with metadata, group by shortDesc prefix
 const groupedParams = createMemo((): ParamGroup[] => {
   const state = paramState();
-  const metaFile = metadata();
   const lookup = metadataLookup();
-  return buildParamGroups(state, lookup, metaFile !== null);
+  return buildParamGroups(state, lookup, metadata() !== null);
 });
 
 // Actions
@@ -108,7 +104,7 @@ async function loadMetadataFromUrl(url: string) {
   try {
     const resp = await fetch(url);
     const json = await resp.text();
-    const parsed = parseMetadataFile(json);
+    const parsed = parseMetadata(json);
     setMetadata(parsed);
     setMetadataStatus({ kind: 'success', source: 'file', message: 'Loaded metadata' });
   } catch (e) {
@@ -162,22 +158,7 @@ function downloadMetadataFromDevice(): void {
     unsubError();
     unsubProgress();
     try {
-      const parsedRaw = JSON.parse(json) as unknown;
-      const shape = summarizeMetadataShape(parsedRaw);
-      logProgress('info', 'Parsed metadata JSON top-level shape', {
-        topLevelKeys: shape.topLevelKeys.join(','),
-        hasParametersWrapper: shape.hasParametersWrapper,
-        parametersIsObject: shape.parametersIsObject,
-        parametersIsArray: shape.parametersIsArray,
-        innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
-        groupsIsArray: shape.groupsIsArray,
-        groupsLength: shape.groupsLength,
-        arrayParametersIsArray: shape.arrayParametersIsArray,
-        arrayParametersLength: shape.arrayParametersLength,
-        includesIsArray: shape.includesIsArray,
-        externsIsObject: shape.externsIsObject,
-      });
-      const parsed = parseMetadataFile(json);
+      const parsed = parseMetadata(json);
       setMetadata(parsed);
       if (!crcValid) {
         logProgress('warn', 'Metadata CRC mismatch — file may be corrupted');
@@ -216,21 +197,7 @@ async function loadMetadataFromFile(file: File) {
   setMetadataStatus({ kind: 'loading', source: 'file', message: `Loading metadata from ${file.name}...` });
   try {
     const json = await file.text();
-    const parsedRaw = JSON.parse(json) as unknown;
-    const shape = summarizeMetadataShape(parsedRaw);
-    logDebugInfo('metadata-ftp', 'Loaded metadata file top-level shape', {
-      fileName: file.name,
-      topLevelKeys: shape.topLevelKeys.join(','),
-      hasParametersWrapper: shape.hasParametersWrapper,
-      parametersIsObject: shape.parametersIsObject,
-      parametersIsArray: shape.parametersIsArray,
-      innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
-      groupsIsArray: shape.groupsIsArray,
-      groupsLength: shape.groupsLength,
-      arrayParametersIsArray: shape.arrayParametersIsArray,
-      arrayParametersLength: shape.arrayParametersLength,
-    });
-    const parsed = parseMetadataFile(json);
+    const parsed = parseMetadata(json);
     setMetadata(parsed);
     setMetadataStatus({ kind: 'success', source: 'file', message: `Loaded metadata from ${file.name}` });
   } catch (e) {

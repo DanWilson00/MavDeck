@@ -64,20 +64,10 @@ export default function ParameterGroup(props: ParameterGroupProps) {
               return pv !== undefined && pv !== e.value;
             });
 
-            const formatElemVal = (val: number, idx: number) => {
-              const m = array.elements[idx]?.meta;
-              if (m?.decimal !== undefined) return val.toFixed(m.decimal);
-              return String(val);
-            };
-
-            const currentVals = () =>
-              '[' + array.elements.map((e, i) => formatElemVal(e.value, i)).join(', ') + ']';
-
-            const pendingVals = () =>
-              '[' + array.elements.map((e, i) => {
-                const pv = props.pendingEdits.get(e.paramId);
-                return formatElemVal(pv ?? e.value, i);
-              }).join(', ') + ']';
+            const changedCount = () => array.elements.filter(e => {
+              const pv = props.pendingEdits.get(e.paramId);
+              return pv !== undefined && pv !== e.value;
+            }).length;
 
             return (
               <div
@@ -101,25 +91,15 @@ export default function ParameterGroup(props: ParameterGroupProps) {
                   {array.label}
                 </span>
 
-                {/* Value display */}
+                {/* Element count or edit summary */}
                 <Show when={anyPending()} fallback={
-                  <span class="text-sm font-mono ml-2 flex-shrink-0" style={{ color: 'var(--text-primary)' }}>
-                    {currentVals()}
+                  <span class="text-xs font-mono ml-2 px-1.5 py-0.5 rounded flex-shrink-0"
+                    style={{ 'background-color': 'var(--chip-bg)', color: 'var(--text-secondary)' }}>
+                    {array.elements.length}
                   </span>
                 }>
-                  <span class="text-sm font-mono ml-2 flex-shrink-0" style={{ color: 'var(--text-primary)' }}>
-                    {currentVals()}
-                  </span>
-                  <span class="text-xs mx-1 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{'\u2192'}</span>
-                  <span class="text-sm font-mono flex-shrink-0" style={{ color: 'var(--accent)' }}>
-                    {pendingVals()}
-                  </span>
-                </Show>
-
-                {/* Unit */}
-                <Show when={array.unit}>
-                  <span class="text-xs ml-1.5 w-10 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
-                    {array.unit}
+                  <span class="text-xs font-mono ml-2 flex-shrink-0" style={{ color: 'var(--accent)' }}>
+                    {changedCount()} of {array.elements.length} edited
                   </span>
                 </Show>
               </div>
