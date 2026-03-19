@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { appState } from '../store';
 import {
+  DEBUG_CONSOLE_SOURCES,
+  DEBUG_CONSOLE_SOURCE_LABELS,
   clearDebugConsoleEntries,
   getDebugConsoleEntries,
   onDebugConsoleClear,
@@ -22,11 +24,6 @@ const LEVEL_COLORS: Record<DebugConsoleLevel, string> = {
   info: '#94a3b8',
   warn: '#eab308',
   error: '#f97316',
-};
-
-const SOURCE_LABELS: Record<DebugConsoleSource, string> = {
-  'metadata-ftp': 'Metadata FTP',
-  app: 'App',
 };
 
 const [isExpanded, setIsExpanded] = createSignal(false);
@@ -145,8 +142,11 @@ export default function DebugConsole() {
               onChange={(e) => setSourceFilter(e.currentTarget.value as 'all' | DebugConsoleSource)}
             >
               <option value="all">All Sources</option>
-              <option value="metadata-ftp">Metadata FTP</option>
-              <option value="app">App</option>
+              <For each={DEBUG_CONSOLE_SOURCES}>
+                {(source) => (
+                  <option value={source}>{DEBUG_CONSOLE_SOURCE_LABELS[source]}</option>
+                )}
+              </For>
             </select>
             <select
               class="rounded px-2 py-1 text-xs"
@@ -180,9 +180,25 @@ export default function DebugConsole() {
                     [{LEVEL_LABELS[entry.level]}]
                   </span>
                   <span style={{ 'flex-shrink': '0', color: 'var(--text-secondary)' }}>
-                    [{SOURCE_LABELS[entry.source]}]
+                    [{DEBUG_CONSOLE_SOURCE_LABELS[entry.source]}]
                   </span>
-                  <span>{entry.message}{formatDetails(entry)}</span>
+                  <div style={{ 'min-width': '0', flex: '1 1 auto' }}>
+                    <div>{entry.message}{formatDetails(entry)}</div>
+                    <Show when={entry.body}>
+                      <pre
+                        class="mt-1 rounded px-2 py-1 overflow-x-auto"
+                        style={{
+                          margin: '0.25rem 0 0',
+                          'background-color': 'var(--bg-hover)',
+                          color: 'var(--text-primary)',
+                          'white-space': 'pre-wrap',
+                          'word-break': 'break-word',
+                        }}
+                      >
+                        {entry.body}
+                      </pre>
+                    </Show>
+                  </div>
                 </div>
               )}
             </For>

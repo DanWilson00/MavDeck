@@ -98,9 +98,15 @@ export {
   type StatusTextEntry,
 } from './worker-bridge';
 export {
+  DEBUG_CONSOLE_SOURCES,
+  DEBUG_CONSOLE_SOURCE_LABELS,
   addDebugConsoleEntry,
   clearDebugConsoleEntries,
   getDebugConsoleEntries,
+  logDebugEvent,
+  logDebugInfo,
+  logDebugWarn,
+  logDebugError,
   onDebugConsoleEntry,
   onDebugConsoleClear,
   type DebugConsoleEntry,

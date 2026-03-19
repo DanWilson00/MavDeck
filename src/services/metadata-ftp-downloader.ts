@@ -22,6 +22,7 @@ export interface MetadataFtpProgress {
   level: DebugLogLevel;
   stage: string;
   message: string;
+  body?: string;
   details?: Record<string, string | number | boolean | null>;
 }
 
@@ -171,6 +172,13 @@ export class MetadataFtpDownloader {
       });
 
       const json = new TextDecoder().decode(decompressed);
+      this.report({
+        level: 'debug',
+        stage: 'metadata:json',
+        message: `Decoded metadata payload from ${path}`,
+        body: formatJsonForDebug(json),
+        details: { path, compressed: true },
+      });
       parseMetadataFile(json);
       await putCachedMetadata(paramEntry.fileCrc, json);
       this.report({
@@ -193,6 +201,13 @@ export class MetadataFtpDownloader {
       details: { expected: paramEntry.fileCrc >>> 0, actual: computedCrc >>> 0 },
     });
     const json = new TextDecoder().decode(rawBytes);
+    this.report({
+      level: 'debug',
+      stage: 'metadata:json',
+      message: `Decoded metadata payload from ${path}`,
+      body: formatJsonForDebug(json),
+      details: { path, compressed: false },
+    });
     parseMetadataFile(json);
     await putCachedMetadata(paramEntry.fileCrc, json);
     this.report({
@@ -227,4 +242,12 @@ function parseMftpUri(uri: string): string {
   }
   // mftp:///path → path starts with /
   return match[1];
+}
+
+function formatJsonForDebug(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch {
+    return json;
+  }
 }

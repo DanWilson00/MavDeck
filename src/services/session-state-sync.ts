@@ -1,6 +1,7 @@
 import type { Accessor, Setter } from 'solid-js';
 import { batch } from 'solid-js';
 import { appState, setAppState } from '../store';
+import { logDebugInfo, logDebugWarn } from './debug-console';
 import type { MavDeckSettings } from './settings-service';
 import type { SerialSessionController } from './serial-session-controller';
 
@@ -9,7 +10,18 @@ export function bindSessionState(
   loadedSettings: Accessor<MavDeckSettings>,
   setLoadedSettings: Setter<MavDeckSettings>,
 ): () => void {
+  let lastLoggedStatus = appState.connectionStatus;
   const unsubStatus = controller.onStatusChange(status => {
+    if (status !== lastLoggedStatus) {
+      if (status === 'connected') {
+        logDebugInfo('serial', 'Live connection established');
+      } else if (status === 'disconnected' && lastLoggedStatus !== 'disconnected') {
+        logDebugInfo('serial', 'Live connection disconnected');
+      } else if (status === 'no_data') {
+        logDebugWarn('serial', 'Connection is open but no live telemetry is arriving');
+      }
+      lastLoggedStatus = status;
+    }
     batch(() => {
       setAppState('connectionStatus', status);
       if (status === 'disconnected') {
@@ -36,6 +48,11 @@ export function bindSessionState(
   });
 
   const unsubSerial = controller.onSerialConnected(info => {
+    logDebugInfo('serial', 'Serial link configured', {
+      baudRate: info.baudRate,
+      usbVendorId: info.portIdentity?.usbVendorId ?? null,
+      usbProductId: info.portIdentity?.usbProductId ?? null,
+    });
     batch(() => {
       setAppState('lastPortVendorId', info.portIdentity?.usbVendorId ?? null);
       setAppState('lastPortProductId', info.portIdentity?.usbProductId ?? null);

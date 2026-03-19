@@ -9,7 +9,7 @@ import PlotTabBar from './PlotTabBar';
 import type { PlotConfig, PlotSignalConfig, PlotTab } from '../models';
 import { SIGNAL_COLORS, getThemeColor } from '../models';
 import { createPlotInteractionController } from '../core';
-import { deserializePlotTabs, serializePlotTabs, type PersistedPlotTabV1 } from '../services';
+import { deserializePlotTabs, serializePlotTabs, logDebugError, type PersistedPlotTabV1 } from '../services';
 
 /** Pick the first SIGNAL_COLORS entry not already used by existing signals. */
 function pickNextColor(existingSignals: PlotSignalConfig[]): string {
@@ -77,8 +77,12 @@ export default function TelemetryView() {
   // Persist activeSubTab when user switches tabs (only after layout restore completes).
   createEffect(on(() => appState.activeSubTab, () => {
     if (!layoutRestored()) return;
-    set(ACTIVE_SUBTAB_KEY, appState.activeSubTab).catch(err =>
-      console.error('[TelemetryView] Failed to save active subtab:', err));
+    set(ACTIVE_SUBTAB_KEY, appState.activeSubTab).catch(err => {
+      logDebugError('layout', `Failed to save active telemetry subtab: ${err instanceof Error ? err.message : String(err)}`, {
+        activeSubTab: appState.activeSubTab,
+      });
+      console.error('[TelemetryView] Failed to save active subtab:', err);
+    });
   }));
 
   // Toolbar window selector writes appState.timeWindow -> update all plots.
@@ -109,7 +113,12 @@ export default function TelemetryView() {
         set(LAYOUT_KEY_V2, snapshot),
         set(ACTIVE_SUBTAB_KEY, appState.activeSubTab),
       ]).then(() => {}))
-      .catch(err => console.error('[TelemetryView] Failed to save layout:', err));
+      .catch(err => {
+        logDebugError('layout', `Failed to save telemetry layout: ${err instanceof Error ? err.message : String(err)}`, {
+          tabCount: appState.plotTabs.length,
+        });
+        console.error('[TelemetryView] Failed to save layout:', err);
+      });
   }
 
   function scheduleLayoutSave(): void {

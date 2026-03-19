@@ -14,6 +14,9 @@ import {
   LogViewerService,
   recoverStagedSessions,
   SerialSessionController,
+  logDebugError,
+  logDebugInfo,
+  logDebugWarn,
   type RuntimeServices,
   type MavDeckSettings,
 } from '../services';
@@ -68,12 +71,22 @@ export function useBootstrap(): BootstrapResult {
           await saveDialect(dialectName, json);
         } catch (err) {
           console.warn('[Bootstrap] Remote dialect fetch failed, trying cache:', err);
+          logDebugWarn('bootstrap', 'Remote dialect fetch failed; trying cached dialect', {
+            dialectUrl: settings.dialectUrl,
+            error: err instanceof Error ? err.message : String(err),
+          });
           const cached = await loadDialect();
           if (cached) {
             json = cached.json;
             dialectName = cached.name;
+            logDebugInfo('bootstrap', 'Loaded cached dialect after remote fetch failure', {
+              dialectName,
+            });
           } else {
             console.warn('[Bootstrap] No cached dialect, falling back to bundled');
+            logDebugWarn('bootstrap', 'No cached dialect available; falling back to bundled dialect', {
+              dialectUrl: settings.dialectUrl,
+            });
             dialectName = 'common';
             json = await loadBundledDialect();
           }
@@ -129,6 +142,7 @@ export function useBootstrap(): BootstrapResult {
       setLoading(false);
     } catch (err) {
       console.error('MavDeck initialization failed:', err);
+      logDebugError('bootstrap', `MavDeck initialization failed: ${err instanceof Error ? err.message : String(err)}`);
       setAppState('connectionStatus', 'error');
       setLoading(false);
     }

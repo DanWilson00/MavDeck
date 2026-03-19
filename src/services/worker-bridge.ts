@@ -8,6 +8,7 @@
 import { EventEmitter } from '../core';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
+import { logDebugError } from './debug-console';
 import type {
   WorkerCommand,
   WorkerEvent,
@@ -385,6 +386,7 @@ export class MavlinkWorkerBridge {
       }
 
       case 'error': {
+        logDebugError('worker', msg.message);
         console.error('[MavlinkWorker]', msg.message);
         break;
       }

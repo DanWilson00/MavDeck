@@ -28,6 +28,7 @@ export interface FtpMetadataProgressEvent {
   level: DebugLogLevel;
   stage: string;
   message: string;
+  body?: string;
   details?: Record<string, string | number | boolean | null>;
 }
 

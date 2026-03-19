@@ -1,5 +1,5 @@
 import { createSignal, createMemo } from 'solid-js';
-import { useWorkerBridge, addDebugConsoleEntry } from '../services';
+import { useWorkerBridge, logDebugError, logDebugEvent, logDebugInfo, logDebugWarn } from '../services';
 import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
 import type { ParamMetadataFile, ParamDef } from '../models/parameter-metadata';
 import { parseMetadataFile, flattenToLookup } from '../services/param-metadata-service';
@@ -38,6 +38,8 @@ const [metadataStatus, setMetadataStatus] = createSignal<MetadataStatus>({
 
 let bridgeInitialized = false;
 let bridgeRef: ReturnType<typeof useWorkerBridge> | null = null;
+let lastParamFetchError: string | null = null;
+let lastParamSetFailureKey: string | null = null;
 
 function ensureBridge(bridge: ReturnType<typeof useWorkerBridge>) {
   if (bridgeInitialized) return;
@@ -45,9 +47,33 @@ function ensureBridge(bridge: ReturnType<typeof useWorkerBridge>) {
   bridgeRef = bridge;
 
   // App-lifetime subscriptions — never unsubscribed
-  bridge.onParamState(state => setParamState(state));
+  bridge.onParamState(state => {
+    setParamState(state);
+    if (state.fetchStatus === 'error' && state.error && state.error !== lastParamFetchError) {
+      lastParamFetchError = state.error;
+      logDebugError('parameters', `Parameter fetch failed: ${state.error}`, {
+        receivedCount: state.receivedCount,
+        totalCount: state.totalCount,
+      });
+    } else if (state.fetchStatus !== 'error') {
+      lastParamFetchError = null;
+    }
+  });
   bridge.onParamSetResult(result => {
     setLastSetResult(result);
+    if (!result.success) {
+      const failureKey = `${result.paramId}:${result.error}`;
+      if (failureKey !== lastParamSetFailureKey) {
+        lastParamSetFailureKey = failureKey;
+        logDebugWarn('parameters', `Parameter set failed for ${result.paramId}`, {
+          requestedValue: result.requestedValue,
+          actualValue: result.actualValue,
+          error: result.error ?? null,
+        });
+      }
+    } else {
+      lastParamSetFailureKey = null;
+    }
     setTimeout(() => setLastSetResult(null), 3000);
   });
 }
@@ -87,6 +113,9 @@ async function loadMetadataFromUrl(url: string) {
     setMetadataStatus({ kind: 'success', source: 'file', message: 'Loaded metadata' });
   } catch (e) {
     console.error('Failed to load metadata:', e);
+    logDebugError('parameters', `Metadata load failed: ${e instanceof Error ? e.message : String(e)}`, {
+      url,
+    });
     setMetadataStatus({
       kind: 'error',
       source: 'file',
@@ -103,14 +132,19 @@ function downloadMetadataFromDevice(): void {
   setMetadataStatus({ kind: 'loading', source: 'device', message: 'Loading metadata from device...' });
   let loadedFromCache = false;
 
-  const logProgress = (level: 'debug' | 'info' | 'warn' | 'error', message: string, details?: Record<string, string | number | boolean | null>) => {
-    addDebugConsoleEntry({ source: 'metadata-ftp', level, message, details });
+  const logProgress = (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    details?: Record<string, string | number | boolean | null>,
+    body?: string,
+  ) => {
+    logDebugEvent('metadata-ftp', level, message, details, body);
     if (!appState.debugConsoleEnabled) return;
     const prefix = '[Metadata FTP]';
-    if (level === 'error') console.error(prefix, message, details ?? '');
-    else if (level === 'warn') console.warn(prefix, message, details ?? '');
-    else if (level === 'info') console.info(prefix, message, details ?? '');
-    else console.debug(prefix, message, details ?? '');
+    if (level === 'error') console.error(prefix, message, details ?? '', body ?? '');
+    else if (level === 'warn') console.warn(prefix, message, details ?? '', body ?? '');
+    else if (level === 'info') console.info(prefix, message, details ?? '', body ?? '');
+    else console.debug(prefix, message, details ?? '', body ?? '');
   };
 
   logProgress('info', 'Metadata download requested from Parameters tab');
@@ -120,7 +154,7 @@ function downloadMetadataFromDevice(): void {
       loadedFromCache = true;
       setMetadataStatus({ kind: 'success', source: 'cache', message: 'Loaded metadata from cache' });
     }
-    logProgress(progress.level, `${progress.stage}: ${progress.message}`, progress.details);
+    logProgress(progress.level, `${progress.stage}: ${progress.message}`, progress.details, progress.body);
   });
 
   const unsubResult = bridgeRef.onFtpMetadataResult((json, crcValid) => {
@@ -184,27 +218,24 @@ async function loadMetadataFromFile(file: File) {
     const json = await file.text();
     const parsedRaw = JSON.parse(json) as unknown;
     const shape = summarizeMetadataShape(parsedRaw);
-    addDebugConsoleEntry({
-      source: 'metadata-ftp',
-      level: 'info',
-      message: 'Loaded metadata file top-level shape',
-      details: {
-        topLevelKeys: shape.topLevelKeys.join(','),
-        hasParametersWrapper: shape.hasParametersWrapper,
-        parametersIsObject: shape.parametersIsObject,
-        parametersIsArray: shape.parametersIsArray,
-        innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
-        groupsIsArray: shape.groupsIsArray,
-        groupsLength: shape.groupsLength,
-        arrayParametersIsArray: shape.arrayParametersIsArray,
-        arrayParametersLength: shape.arrayParametersLength,
-      },
+    logDebugInfo('metadata-ftp', 'Loaded metadata file top-level shape', {
+      fileName: file.name,
+      topLevelKeys: shape.topLevelKeys.join(','),
+      hasParametersWrapper: shape.hasParametersWrapper,
+      parametersIsObject: shape.parametersIsObject,
+      parametersIsArray: shape.parametersIsArray,
+      innerTopLevelKeys: shape.innerTopLevelKeys.join(','),
+      groupsIsArray: shape.groupsIsArray,
+      groupsLength: shape.groupsLength,
+      arrayParametersIsArray: shape.arrayParametersIsArray,
+      arrayParametersLength: shape.arrayParametersLength,
     });
     const parsed = parseMetadataFile(json);
     setMetadata(parsed);
     setMetadataStatus({ kind: 'success', source: 'file', message: `Loaded metadata from ${file.name}` });
   } catch (e) {
     console.error('Failed to parse metadata file:', e);
+    logDebugError('parameters', `Metadata parse failed for ${file.name}: ${e instanceof Error ? e.message : String(e)}`);
     setMetadataStatus({
       kind: 'error',
       source: 'file',

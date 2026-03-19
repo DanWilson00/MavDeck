@@ -10,6 +10,7 @@ import {
   readLogFile,
   setLogMetadata,
   type LogLibraryEntry,
+  logDebugError,
   useLogViewerService,
 } from '../services';
 
@@ -44,6 +45,7 @@ export function useLogLibrary() {
     try {
       setEntries(await listLogs());
     } catch (err) {
+      logDebugError('logs', `Failed to list logs: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[LogLibraryPane] Failed to list logs:', err);
       setError('Failed to load logs library.');
     } finally {
@@ -64,6 +66,9 @@ export function useLogLibrary() {
       logViewerService.load(records, fileName);
       setAppState('isPaused', true);
     } catch (err) {
+      logDebugError('logs', `Failed to load log "${fileName}": ${err instanceof Error ? err.message : String(err)}`, {
+        fileName,
+      });
       console.error('[LogLibraryPane] Failed to load log:', err);
       setError(`Failed to load "${fileName}".`);
     } finally {
@@ -97,6 +102,9 @@ export function useLogLibrary() {
       setEditing(null);
       setAppState('logsVersion', value => value + 1);
     } catch (err) {
+      logDebugError('logs', `Failed to save log metadata for "${current.fileName}": ${err instanceof Error ? err.message : String(err)}`, {
+        fileName: current.fileName,
+      });
       console.error('[LogLibraryPane] Failed to save log metadata:', err);
       setError('Failed to save log changes.');
     } finally {
@@ -130,6 +138,9 @@ export function useLogLibrary() {
       setDeleting(null);
       setAppState('logsVersion', value => value + 1);
     } catch (err) {
+      logDebugError('logs', `Failed to delete log "${current.fileName}": ${err instanceof Error ? err.message : String(err)}`, {
+        fileName: current.fileName,
+      });
       console.error('[LogLibraryPane] Failed to delete log:', err);
       setError('Failed to delete log.');
     } finally {
@@ -146,6 +157,7 @@ export function useLogLibrary() {
       setClearingAll(false);
       setAppState('logsVersion', value => value + 1);
     } catch (err) {
+      logDebugError('logs', `Failed to clear all logs: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[LogLibraryPane] Failed to clear all logs:', err);
       setError('Failed to clear all logs.');
       setClearingAll(false);
@@ -163,6 +175,9 @@ export function useLogLibrary() {
       setDeletingSelected(false);
       setAppState('logsVersion', value => value + 1);
     } catch (err) {
+      logDebugError('logs', `Failed to delete selected logs: ${err instanceof Error ? err.message : String(err)}`, {
+        fileCount: files.length,
+      });
       console.error('[LogLibraryPane] Failed to delete selected logs:', err);
       setError('Failed to delete some logs.');
       setDeletingSelected(false);

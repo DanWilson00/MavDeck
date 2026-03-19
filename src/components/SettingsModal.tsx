@@ -6,7 +6,7 @@ import {
   initDialect, resolveIncludes, detectMainDialect, useRegistry,
   useSerialSessionController, useWorkerBridge, isSerialSupported,
   loadRemoteDialect, validateDialectUrl, normalizeGithubUrl,
-  saveSettings, loadSettings,
+  saveSettings, loadSettings, logDebugError,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -105,6 +105,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
       await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
+      logDebugError('settings', `Dialect import failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect import failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to import dialect file.');
     }
@@ -140,6 +141,9 @@ export default function SettingsModal(props: SettingsModalProps) {
       settings.dialectUrl = raw;
       await saveSettings(settings);
     } catch (err) {
+      logDebugError('settings', `Dialect URL save failed: ${err instanceof Error ? err.message : String(err)}`, {
+        dialectUrl: dialectUrl().trim(),
+      });
       console.error('[SettingsModal] Dialect URL save failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to load dialect from URL.');
     } finally {
@@ -164,6 +168,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
+      logDebugError('settings', `Dialect URL clear failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect URL clear failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to clear dialect URL.');
     } finally {
@@ -183,6 +188,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
+      logDebugError('settings', `Dialect refresh failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect refresh failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to refresh dialect.');
     } finally {
