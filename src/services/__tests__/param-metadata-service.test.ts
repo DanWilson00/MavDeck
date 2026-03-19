@@ -4,7 +4,7 @@ import { join } from 'path';
 import { parseMetadata } from '../param-metadata-service';
 
 const jsonContent = readFileSync(
-  join(__dirname, '..', '..', '..', 'params.json'),
+  join(__dirname, '..', '..', '..', 'public', 'params.json'),
   'utf-8'
 );
 

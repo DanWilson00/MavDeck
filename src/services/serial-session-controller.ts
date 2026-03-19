@@ -44,6 +44,7 @@ export interface AutoConnectOptions {
 export interface SessionStateSnapshot {
   sourceType: 'serial' | 'spoof' | null;
   connectedBaudRate: BaudRate | null;
+  pendingSourceType: 'serial' | 'spoof' | null;
 }
 
 interface SuspendedLiveSessionSnapshot {
@@ -97,6 +98,7 @@ export class SerialSessionController {
   private sessionState: SessionStateSnapshot = {
     sourceType: null,
     connectedBaudRate: null,
+    pendingSourceType: null,
   };
   /** Polyfill byte source running on main thread (Android path). */
   private mainThreadSource: WebSerialByteSource | null = null;
@@ -128,7 +130,7 @@ export class SerialSessionController {
     });
 
     this.unsubSerialConnected = this.workerBridge.onSerialConnected(info => {
-      this.pendingLiveSourceType = 'serial';
+      this.setPendingLiveSourceType(null);
       this.setPhase('connected_serial');
       this.setSessionState({ sourceType: 'serial', connectedBaudRate: info.baudRate });
       this.serialConnectedEmitter.emit(info);
@@ -195,7 +197,7 @@ export class SerialSessionController {
   }
 
   disconnectLiveSession(): void {
-    this.pendingLiveSourceType = null;
+    this.setPendingLiveSourceType(null);
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
@@ -207,7 +209,7 @@ export class SerialSessionController {
   enterLogMode(): void {
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
-    this.pendingLiveSourceType = null;
+    this.setPendingLiveSourceType(null);
     this.setPhase('idle');
     this.stopAutoConnectWebUsb();
     this.connectionManager.disconnect();
@@ -237,6 +239,7 @@ export class SerialSessionController {
     }
 
     this.pendingLiveSourceType = this.suspendedLiveSession.pendingLiveSourceType;
+    this.syncPendingSourceType();
     this.setSessionState(this.suspendedLiveSession.sessionState);
     this.setPhase(this.suspendedLiveSession.phase);
     this.isSuspendedForLogPlayback = true;
@@ -277,7 +280,7 @@ export class SerialSessionController {
         return;
       }
 
-      this.pendingLiveSourceType = 'serial';
+      this.setPendingLiveSourceType('serial');
       this.setPhase('connecting_serial');
       this.connectionManager.connect({
         type: 'webserial',
@@ -302,7 +305,7 @@ export class SerialSessionController {
 
       if (options.autoDetectBaud) {
         // Auto-baud: probe for MAVLink frames at each baud rate
-        this.pendingLiveSourceType = 'serial';
+        this.setPendingLiveSourceType('serial');
         this.setPhase('probing');
         const baudList = this.buildBaudList(options.lastBaudRate);
         const abort = new AbortController();
@@ -310,7 +313,7 @@ export class SerialSessionController {
         await this.probeAndConnectWebUsb(port, baudList, abort.signal);
       } else {
         // Fixed baud: connect immediately
-        this.pendingLiveSourceType = 'serial';
+        this.setPendingLiveSourceType('serial');
         this.setPhase('connecting_serial');
         this.setProbeStatus(`Verifying live connection at ${options.baudRate} baud...`);
         const connected = await this.connectWebUsbAtBaud(port, options.baudRate, { verifyBeforeConnect: true });
@@ -331,7 +334,7 @@ export class SerialSessionController {
     if (!backend) return;
 
     this.prepareForLiveConnection(false);
-    this.pendingLiveSourceType = 'serial';
+    this.setPendingLiveSourceType('serial');
     this.manualSerialReconnectInProgress = true;
 
     try {
@@ -398,7 +401,7 @@ export class SerialSessionController {
 
   connectSpoof(options?: { unloadLog?: boolean }): void {
     this.prepareForLiveConnection(options?.unloadLog === true);
-    this.pendingLiveSourceType = 'spoof';
+    this.setPendingLiveSourceType('spoof');
     this.connectionManager.connect({ type: 'spoof' });
   }
 
@@ -432,7 +435,7 @@ export class SerialSessionController {
   }
 
   async forgetAllPorts(): Promise<void> {
-    this.pendingLiveSourceType = null;
+    this.setPendingLiveSourceType(null);
     this.isSuspendedForLogPlayback = false;
     this.suspendedLiveSession = null;
     this.setPhase('idle');
@@ -839,7 +842,7 @@ export class SerialSessionController {
     const shouldRestart = this.webusbAutoConnectOptions?.enabled === true && !this.suppressWebUsbReconnect;
 
     void this.disconnectMainThreadSource();
-    this.pendingLiveSourceType = null;
+    this.setPendingLiveSourceType(null);
     this.connectionManager.disconnect();
 
     if (!shouldRestart) {
@@ -873,11 +876,34 @@ export class SerialSessionController {
     this.setSessionState({ sourceType: null, connectedBaudRate: null });
   }
 
-  private setSessionState(state: SessionStateSnapshot): void {
-    if (this.sessionState.sourceType === state.sourceType && this.sessionState.connectedBaudRate === state.connectedBaudRate) {
+  private setSessionState(state: Omit<SessionStateSnapshot, 'pendingSourceType'>): void {
+    const nextState: SessionStateSnapshot = {
+      ...state,
+      pendingSourceType: this.pendingLiveSourceType,
+    };
+    if (
+      this.sessionState.sourceType === nextState.sourceType
+      && this.sessionState.connectedBaudRate === nextState.connectedBaudRate
+      && this.sessionState.pendingSourceType === nextState.pendingSourceType
+    ) {
       return;
     }
-    this.sessionState = state;
+    this.sessionState = nextState;
+    this.sessionStateEmitter.emit(this.sessionState);
+  }
+
+  private setPendingLiveSourceType(type: 'serial' | 'spoof' | null): void {
+    if (this.pendingLiveSourceType === type) return;
+    this.pendingLiveSourceType = type;
+    this.syncPendingSourceType();
+  }
+
+  private syncPendingSourceType(): void {
+    if (this.sessionState.pendingSourceType === this.pendingLiveSourceType) return;
+    this.sessionState = {
+      ...this.sessionState,
+      pendingSourceType: this.pendingLiveSourceType,
+    };
     this.sessionStateEmitter.emit(this.sessionState);
   }
 
@@ -960,10 +986,12 @@ export class SerialSessionController {
 
     if (status === 'connected') {
       if (this.pendingLiveSourceType === 'serial' && this.sessionState.sourceType === 'serial') {
+        this.setPendingLiveSourceType(null);
         this.setPhase('connected_serial');
       }
       if (this.pendingLiveSourceType === 'spoof') {
         this.setPhase('connected_spoof');
+        this.pendingLiveSourceType = null;
         this.setSessionState({ sourceType: 'spoof', connectedBaudRate: null });
       }
       if (this.sessionState.sourceType === 'serial') {
@@ -985,7 +1013,7 @@ export class SerialSessionController {
     if (status === 'error') {
       this.isSuspendedForLogPlayback = false;
       this.suspendedLiveSession = null;
-      this.pendingLiveSourceType = null;
+      this.setPendingLiveSourceType(null);
       this.setPhase('error');
       this.setSessionState({ sourceType: null, connectedBaudRate: null });
       return;
@@ -997,7 +1025,7 @@ export class SerialSessionController {
       }
       this.isSuspendedForLogPlayback = false;
       this.suspendedLiveSession = null;
-      this.pendingLiveSourceType = null;
+      this.setPendingLiveSourceType(null);
       this.setPhase('idle');
       this.setSessionState({ sourceType: null, connectedBaudRate: null });
     }

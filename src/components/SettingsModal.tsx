@@ -46,6 +46,24 @@ export default function SettingsModal(props: SettingsModalProps) {
   const [urlSaving, setUrlSaving] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
 
+  const simulatorRequested = () =>
+    appState.connectionSourceType === 'spoof' || appState.pendingConnectionSourceType === 'spoof';
+  const simulatorBusyWithOtherSource = () =>
+    appState.connectionStatus === 'connecting'
+      && !simulatorRequested()
+      && (appState.connectionSourceType === 'serial' || appState.pendingConnectionSourceType === 'serial');
+  const simulatorButtonLabel = () => {
+    if (appState.connectionSourceType === 'spoof') {
+      if (appState.connectionStatus === 'disconnected') return 'Stopping Simulator...';
+      if (appState.connectionStatus === 'connecting') return 'Starting Simulator...';
+      return 'Stop Simulator';
+    }
+    if (appState.pendingConnectionSourceType === 'spoof') {
+      return appState.connectionStatus === 'connecting' ? 'Starting Simulator...' : 'Stop Simulator';
+    }
+    return 'Start Simulator';
+  };
+
   // Load current dialectUrl from persisted settings
   onMount(() => {
     void loadSettings().then(s => setDialectUrl(s.dialectUrl));
@@ -561,17 +579,16 @@ export default function SettingsModal(props: SettingsModalProps) {
               <button
                 class="px-3 py-1.5 text-sm rounded border interactive-hover"
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                disabled={!appState.isReady || simulatorBusyWithOtherSource()}
                 onClick={() => {
-                  if ((appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof') {
+                  if (simulatorRequested()) {
                     serialSessionController.disconnectLiveSession();
                   } else {
                     serialSessionController.connectSpoof({ unloadLog: appState.logViewerState.isActive });
                   }
                 }}
               >
-                {(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof'
-                  ? 'Disconnect Simulator'
-                  : 'Connect Simulator'}
+                {simulatorButtonLabel()}
               </button>
             </div>
           </Show>

@@ -44,6 +44,7 @@ export interface AppState {
   logViewerState: LogViewerState;
   dialectName: string;
   connectionSourceType: 'serial' | 'spoof' | null;
+  pendingConnectionSourceType: 'serial' | 'spoof' | null;
   autoConnect: boolean;
   autoDetectBaud: boolean;
   probeStatus: string | null;
@@ -97,6 +98,7 @@ export function createInitialAppState(): AppState {
     },
     dialectName: '',
     connectionSourceType: null,
+    pendingConnectionSourceType: null,
     autoConnect: DEFAULT_SETTINGS.autoConnect,
     autoDetectBaud: DEFAULT_SETTINGS.autoDetectBaud,
     probeStatus: null,

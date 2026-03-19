@@ -112,7 +112,7 @@ export default function PlotTabBar(props: PlotTabBarProps) {
     <div
       class="flex items-center border-b overflow-x-auto"
       style={{
-        'background-color': 'transparent',
+        'background-color': 'var(--bg-panel-2)',
         'border-color': 'var(--border-subtle)',
         height: '34px',
         'min-height': '34px',

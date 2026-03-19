@@ -43,6 +43,7 @@ export function bindSessionState(
   const unsubSession = controller.onSessionStateChange(state => {
     batch(() => {
       setAppState('connectionSourceType', state.sourceType);
+      setAppState('pendingConnectionSourceType', state.pendingSourceType);
       setAppState('connectedBaudRate', state.sourceType === null ? null : state.connectedBaudRate);
     });
   });
