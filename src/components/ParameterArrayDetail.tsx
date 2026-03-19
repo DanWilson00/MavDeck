@@ -259,6 +259,11 @@ function ElementSlider(props: { meta: ParamDef; value: number; onChange: (v: num
       : props.meta.decimalPlaces !== undefined
         ? Math.pow(10, -props.meta.decimalPlaces)
         : 0.01;
+  const fillPercent = () => {
+    const range = props.meta.max - props.meta.min;
+    if (range === 0) return 0;
+    return ((props.value - props.meta.min) / range) * 100;
+  };
 
   return (
     <div class="flex items-center gap-2 flex-1 min-w-0">
@@ -273,6 +278,7 @@ function ElementSlider(props: { meta: ParamDef; value: number; onChange: (v: num
         prop:value={props.value}
         onInput={(e) => props.onChange(Number(e.currentTarget.value))}
         class="flex-1 custom-slider min-w-0"
+        style={{ '--fill': `${fillPercent()}%` }}
       />
       <span class="text-xs font-mono flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
         {props.meta.max}

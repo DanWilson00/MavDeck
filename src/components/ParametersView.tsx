@@ -25,7 +25,7 @@ function toggleGroup(name: string) {
 export default function ParametersView() {
   const {
     paramState, metadata, metadataLoading, metadataStatus, lastSetResult,
-    groupedParams, requestAll, setParam, loadMetadataFromFile, downloadMetadataFromDevice,
+    groupedParams, requestAll, setParam, downloadMetadataFromDevice,
   } = useParameters();
 
   const [searchQuery, setSearchQuery] = createSignal('');
@@ -33,7 +33,6 @@ export default function ParametersView() {
   const [selectedArrayPrefix, setSelectedArrayPrefix] = createSignal<string | null>(null);
   const [pendingEdits, setPendingEdits] = createSignal<Map<string, number>>(new Map());
   const [isSavingAll, setIsSavingAll] = createSignal(false);
-  let fileInputRef: HTMLInputElement | undefined;
 
   const modifiedParamIds = createMemo(() => new Set(pendingEdits().keys()));
 
@@ -158,13 +157,6 @@ export default function ParametersView() {
     return null;
   });
 
-  function handleFileUpload(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (input.files?.[0]) {
-      void loadMetadataFromFile(input.files[0]);
-    }
-  }
-
   const pendingCount = () => pendingEdits().size;
 
   const [leftPanelWidth, setLeftPanelWidth] = createSignal(400);
@@ -205,7 +197,7 @@ export default function ParametersView() {
             style={{ 'background-color': 'var(--bg-panel)', 'border-color': 'var(--border)' }}
           >
             <button
-              onClick={() => requestAll()}
+              onClick={() => { setPendingEdits(new Map()); requestAll(); }}
               disabled={!isConnected()}
               class="px-3 py-1 rounded text-sm font-medium transition-colors"
               style={{
@@ -215,7 +207,7 @@ export default function ParametersView() {
                 cursor: isConnected() ? 'pointer' : 'not-allowed',
               }}
             >
-              Refresh All
+              Read
             </button>
 
             <Show when={pendingCount() > 0}>
@@ -234,33 +226,21 @@ export default function ParametersView() {
               </button>
             </Show>
 
-            <button
-              onClick={() => downloadMetadataFromDevice()}
-              disabled={!isConnected() || metadataLoading()}
-              class="px-2 py-1 rounded text-sm transition-colors"
-              style={{
-                'background-color': 'var(--bg-hover)',
-                color: 'var(--text-secondary)',
-                opacity: isConnected() && !metadataLoading() ? '1' : '0.5',
-                cursor: isConnected() && !metadataLoading() ? 'pointer' : 'not-allowed',
-              }}
-            >
-              {metadataLoading() ? 'Loading...' : 'From Device'}
-            </button>
-            <button
-              onClick={() => fileInputRef?.click()}
-              class="px-2 py-1 rounded text-sm transition-colors"
-              style={{ 'background-color': 'var(--bg-hover)', color: 'var(--text-secondary)' }}
-            >
-              Upload
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              class="hidden"
-              onChange={handleFileUpload}
-            />
+            <Show when={metadataStatus().kind !== 'success'}>
+              <button
+                onClick={() => downloadMetadataFromDevice()}
+                disabled={!isConnected() || metadataLoading()}
+                class="px-2 py-1 rounded text-sm transition-colors"
+                style={{
+                  'background-color': 'var(--bg-hover)',
+                  color: 'var(--text-secondary)',
+                  opacity: isConnected() && !metadataLoading() ? '1' : '0.5',
+                  cursor: isConnected() && !metadataLoading() ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {metadataLoading() ? 'Reading Metadata...' : 'Read Metadata'}
+              </button>
+            </Show>
 
             <div class="flex-1" />
 
@@ -278,27 +258,6 @@ export default function ParametersView() {
               }}
             />
           </div>
-
-          <Show when={metadataStatus().kind !== 'idle' && metadataStatus().message}>
-            <div
-              class="px-3 py-2 text-sm border-b flex-shrink-0"
-              style={{
-                'background-color': metadataStatus().kind === 'error'
-                  ? 'color-mix(in srgb, var(--accent-red) 10%, transparent)'
-                  : metadataStatus().kind === 'success'
-                    ? 'color-mix(in srgb, var(--accent-green) 10%, transparent)'
-                    : 'var(--bg-hover)',
-                color: metadataStatus().kind === 'error'
-                  ? 'var(--accent-red)'
-                  : metadataStatus().kind === 'success'
-                    ? 'var(--accent-green)'
-                    : 'var(--text-secondary)',
-                'border-color': 'var(--border)',
-              }}
-            >
-              {metadataStatus().message}
-            </div>
-          </Show>
 
           {/* Progress bar */}
           <Show when={state().fetchStatus === 'fetching' && state().totalCount > 0}>
@@ -325,8 +284,8 @@ export default function ParametersView() {
               <Show when={filteredGroups().length > 0} fallback={
                 <div class="flex items-center justify-center h-32">
                   <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    {state().fetchStatus === 'idle'
-                      ? 'Click "Refresh All" to load parameters'
+                    {state().fetchStatus === 'idle' || state().fetchStatus === 'fetching'
+                      ? 'Reading parameters...'
                       : 'No parameters match your search'}
                   </span>
                 </div>

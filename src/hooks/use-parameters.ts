@@ -1,6 +1,6 @@
-import { createSignal, createMemo } from 'solid-js';
+import { createSignal, createMemo, createEffect, createRoot } from 'solid-js';
 import { useWorkerBridge, logDebugError, logDebugEvent, logDebugInfo, logDebugWarn } from '../services';
-import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
+import type { ParameterStateSnapshot, ParamSetResult, ParamFetchStatus } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
 import { parseMetadata } from '../services/param-metadata-service';
 import {
@@ -75,6 +75,42 @@ function ensureBridge(bridge: ReturnType<typeof useWorkerBridge>) {
     }
     setTimeout(() => setLastSetResult(null), 3000);
   });
+
+  // Auto-read params on connection, auto-download metadata when done
+  createRoot(() => {
+    let prevConnectionStatus = appState.connectionStatus;
+    let prevFetchStatus: ParamFetchStatus = 'idle';
+
+    createEffect(() => {
+      const status = appState.connectionStatus;
+      const wasConnected = prevConnectionStatus === 'connected' || prevConnectionStatus === 'no_data';
+      const isNowConnected = status === 'connected' || status === 'no_data';
+      prevConnectionStatus = status;
+
+      if (isNowConnected && !wasConnected && !appState.logViewerState.isActive) {
+        resetParamState();
+        bridge.requestAllParams();
+      } else if (!isNowConnected && wasConnected) {
+        resetParamState();
+        setMetadata(null);
+        setMetadataStatus({ kind: 'idle', source: null, message: '' });
+      }
+    });
+
+    createEffect(() => {
+      const fetchStatus = paramState().fetchStatus;
+      const wasDone = prevFetchStatus === 'done';
+      prevFetchStatus = fetchStatus;
+
+      if (fetchStatus === 'done' && !wasDone && metadata() === null && !appState.logViewerState.isActive) {
+        downloadMetadataFromDevice();
+      }
+    });
+  });
+}
+
+function resetParamState() {
+  setParamState({ params: {}, totalCount: 0, receivedCount: 0, fetchStatus: 'idle', error: null });
 }
 
 // Metadata lookup (flat map by name) — now just returns the parsed Map directly

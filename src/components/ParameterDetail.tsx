@@ -254,32 +254,37 @@ function EditControl(props: EditControlProps) {
 }
 
 function BooleanControl(props: { value: number; onChange: (v: number) => void }) {
+  const isOn = () => props.value !== 0;
   return (
     <div class="flex items-center gap-3">
       <button
-        onClick={() => props.onChange(0)}
-        class="flex-1 py-4 rounded-lg text-sm font-medium transition-colors"
+        onClick={() => props.onChange(isOn() ? 0 : 1)}
+        class="relative inline-flex items-center rounded-full transition-colors"
         style={{
-          'min-height': '48px',
-          'background-color': props.value === 0 ? 'var(--accent)' : 'var(--bg-panel)',
-          color: props.value === 0 ? '#000' : 'var(--text-secondary)',
-          border: `2px solid ${props.value === 0 ? 'var(--accent)' : 'var(--border)'}`,
+          width: '80px',
+          height: '42px',
+          'background-color': isOn() ? 'var(--accent)' : 'var(--bg-hover)',
+          border: `2px solid ${isOn() ? 'var(--accent)' : 'var(--border)'}`,
+          cursor: 'pointer',
+          'flex-shrink': '0',
         }}
       >
-        OFF
+        <span
+          class="inline-block rounded-full transition-transform"
+          style={{
+            width: '34px',
+            height: '34px',
+            'background-color': isOn() ? '#000' : 'var(--text-secondary)',
+            transform: isOn() ? 'translateX(40px)' : 'translateX(2px)',
+          }}
+        />
       </button>
-      <button
-        onClick={() => props.onChange(1)}
-        class="flex-1 py-4 rounded-lg text-sm font-medium transition-colors"
-        style={{
-          'min-height': '48px',
-          'background-color': props.value === 1 ? 'var(--accent)' : 'var(--bg-panel)',
-          color: props.value === 1 ? '#000' : 'var(--text-secondary)',
-          border: `2px solid ${props.value === 1 ? 'var(--accent)' : 'var(--border)'}`,
-        }}
+      <span
+        class="text-sm font-medium"
+        style={{ color: isOn() ? 'var(--accent)' : 'var(--text-secondary)' }}
       >
-        ON
-      </button>
+        {isOn() ? 'ON' : 'OFF'}
+      </span>
     </div>
   );
 }
@@ -311,6 +316,11 @@ function DiscreteControl(props: { meta: ParamDef; value: number; onChange: (v: n
 function SliderControl(props: { meta: ParamDef; value: number; onChange: (v: number) => void }) {
   const step = () => props.meta.type === 'Integer' ? 1 : (props.meta.decimalPlaces !== undefined ? Math.pow(10, -props.meta.decimalPlaces) : 0.01);
   const unitLabel = () => props.meta.units && props.meta.units !== 'norm' ? props.meta.units : '';
+  const fillPercent = () => {
+    const range = props.meta.max - props.meta.min;
+    if (range === 0) return 0;
+    return ((props.value - props.meta.min) / range) * 100;
+  };
 
   return (
     <div class="flex items-center gap-3">
@@ -323,6 +333,9 @@ function SliderControl(props: { meta: ParamDef; value: number; onChange: (v: num
         prop:value={props.value}
         onInput={(e) => props.onChange(Number(e.currentTarget.value))}
         class="flex-1 custom-slider"
+        style={{
+          '--fill': `${fillPercent()}%`,
+        }}
       />
       <span class="text-xs font-mono flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>{props.meta.max}</span>
       <input
