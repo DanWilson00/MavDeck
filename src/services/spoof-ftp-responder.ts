@@ -12,8 +12,10 @@ import { crc32 } from '../core/crc32';
 import {
   decodeFtpPayload,
   encodeFtpPayload,
+  FTP_OPCODE_RESET_SESSIONS,
   FTP_OPCODE_OPEN_FILE_RO,
   FTP_OPCODE_READ_FILE,
+  FTP_OPCODE_BURST_READ_FILE,
   FTP_OPCODE_TERMINATE_SESSION,
   FTP_OPCODE_ACK,
   FTP_OPCODE_NAK,
@@ -60,8 +62,10 @@ export class SpoofFtpResponder {
     const ftp = decodeFtpPayload(payloadArr);
 
     switch (ftp.opcode) {
+      case FTP_OPCODE_RESET_SESSIONS: return this.handleResetSessions(ftp);
       case FTP_OPCODE_OPEN_FILE_RO: return this.handleOpenFileRO(ftp);
       case FTP_OPCODE_READ_FILE: return this.handleReadFile(ftp);
+      case FTP_OPCODE_BURST_READ_FILE: return this.handleBurstReadFile(ftp);
       case FTP_OPCODE_TERMINATE_SESSION: return this.handleTerminate(ftp);
       default: return [];
     }
@@ -132,6 +136,62 @@ export class SpoofFtpResponder {
       size: chunk.length,
       offset: ftp.offset,
       data: chunk,
+    })];
+  }
+
+  private handleBurstReadFile(ftp: ReturnType<typeof decodeFtpPayload>): Uint8Array[] {
+    const session = this.sessions.get(ftp.session);
+    if (!session) {
+      return [this.buildResponse(ftp.seq, {
+        session: ftp.session,
+        opcode: FTP_OPCODE_NAK,
+        reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+        size: 1,
+        data: new Uint8Array([FTP_ERR_EOF]),
+      })];
+    }
+
+    if (ftp.offset >= session.fileData.length) {
+      return [this.buildResponse(ftp.seq, {
+        session: ftp.session,
+        opcode: FTP_OPCODE_NAK,
+        reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+        size: 1,
+        data: new Uint8Array([FTP_ERR_EOF]),
+      })];
+    }
+
+    const frames: Uint8Array[] = [];
+    let offset = ftp.offset;
+    let seq = ftp.seq;
+    while (offset < session.fileData.length) {
+      const end = Math.min(offset + FTP_DATA_MAX_SIZE, session.fileData.length);
+      const chunk = session.fileData.slice(offset, end);
+      const burstComplete = end >= session.fileData.length ? 1 : 0;
+      frames.push(this.buildResponse(seq, {
+        session: ftp.session,
+        opcode: FTP_OPCODE_ACK,
+        reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+        offset,
+        burstComplete,
+        size: chunk.length,
+        data: chunk,
+      }));
+      if (burstComplete) {
+        break;
+      }
+      seq++;
+      offset = end;
+    }
+
+    return frames;
+  }
+
+  private handleResetSessions(ftp: ReturnType<typeof decodeFtpPayload>): Uint8Array[] {
+    this.sessions.clear();
+    return [this.buildResponse(ftp.seq, {
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_RESET_SESSIONS,
     })];
   }
 

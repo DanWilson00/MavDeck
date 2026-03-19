@@ -10,8 +10,10 @@
 // ---------------------------------------------------------------------------
 
 export const FTP_OPCODE_TERMINATE_SESSION = 1;
+export const FTP_OPCODE_RESET_SESSIONS = 2;
 export const FTP_OPCODE_OPEN_FILE_RO = 4;
 export const FTP_OPCODE_READ_FILE = 5;
+export const FTP_OPCODE_BURST_READ_FILE = 15;
 export const FTP_OPCODE_ACK = 128;
 export const FTP_OPCODE_NAK = 129;
 
@@ -20,6 +22,7 @@ export const FTP_OPCODE_NAK = 129;
 // ---------------------------------------------------------------------------
 
 export const FTP_ERR_EOF = 6;
+export const FTP_ERR_UNKNOWN_COMMAND = 7;
 export const FTP_ERR_FILENOTFOUND = 10;
 
 // ---------------------------------------------------------------------------

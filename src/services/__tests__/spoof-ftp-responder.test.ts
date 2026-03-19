@@ -8,8 +8,10 @@ import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
 import {
   decodeFtpPayload,
   encodeFtpPayload,
+  FTP_OPCODE_RESET_SESSIONS,
   FTP_OPCODE_OPEN_FILE_RO,
   FTP_OPCODE_READ_FILE,
+  FTP_OPCODE_BURST_READ_FILE,
   FTP_OPCODE_TERMINATE_SESSION,
   FTP_OPCODE_ACK,
   FTP_OPCODE_NAK,
@@ -163,6 +165,39 @@ describe('SpoofFtpResponder', () => {
     const termResp = decodeResponses(responder.handleMessage(termMsg));
     expect(termResp[0].opcode).toBe(FTP_OPCODE_ACK);
     expect(termResp[0].reqOpcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
+  });
+
+  it('streams file data with BURST_READ_FILE and marks the final packet complete', () => {
+    const openMsg = buildFtpMsg({
+      seq: 0,
+      opcode: FTP_OPCODE_OPEN_FILE_RO,
+      size: '/general.json'.length,
+      data: new TextEncoder().encode('/general.json'),
+    });
+    const openResp = decodeResponses(responder.handleMessage(openMsg));
+    const sessionId = openResp[0].session;
+
+    const burstMsg = buildFtpMsg({
+      seq: 1,
+      session: sessionId,
+      opcode: FTP_OPCODE_BURST_READ_FILE,
+      offset: 0,
+      size: 239,
+    });
+    const burstResp = decodeResponses(responder.handleMessage(burstMsg));
+    expect(burstResp[0].opcode).toBe(FTP_OPCODE_ACK);
+    expect(burstResp.at(-1)?.reqOpcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+    expect(burstResp.at(-1)?.burstComplete).toBe(1);
+  });
+
+  it('responds to RESET_SESSIONS with ACK', () => {
+    const resetMsg = buildFtpMsg({
+      seq: 0,
+      opcode: FTP_OPCODE_RESET_SESSIONS,
+    });
+    const resetResp = decodeResponses(responder.handleMessage(resetMsg));
+    expect(resetResp[0].opcode).toBe(FTP_OPCODE_ACK);
+    expect(resetResp[0].reqOpcode).toBe(FTP_OPCODE_RESET_SESSIONS);
   });
 
   it('ignores non-FTP messages', () => {

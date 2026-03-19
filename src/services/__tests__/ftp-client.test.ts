@@ -6,11 +6,13 @@ import {
   decodeFtpPayload,
   FTP_OPCODE_OPEN_FILE_RO,
   FTP_OPCODE_READ_FILE,
+  FTP_OPCODE_BURST_READ_FILE,
   FTP_OPCODE_TERMINATE_SESSION,
   FTP_OPCODE_ACK,
   FTP_OPCODE_NAK,
   FTP_ERR_EOF,
   FTP_ERR_FILENOTFOUND,
+  FTP_ERR_UNKNOWN_COMMAND,
   FTP_DATA_MAX_SIZE,
 } from '../ftp-types';
 
@@ -33,7 +35,6 @@ describe('FtpClient', () => {
     vi.useRealTimers();
   });
 
-  /** Build a mock FILE_TRANSFER_PROTOCOL message from an FTP payload. */
   function makeFtpMsg(payload: number[]): MavlinkMessage {
     return {
       id: 110,
@@ -45,10 +46,23 @@ describe('FtpClient', () => {
     };
   }
 
-  /** Extract FTP payload from the last sent frame. */
   function lastSentFtp() {
     const frame = sentFrames[sentFrames.length - 1];
     return decodeFtpPayload(frame.values.payload as number[]);
+  }
+
+  function ackOpen(fileLength: number, session = 1) {
+    const openFtp = lastSentFtp();
+    const sizeData = new Uint8Array(4);
+    new DataView(sizeData.buffer).setUint32(0, fileLength, true);
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: openFtp.seq + 1,
+      session,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_OPEN_FILE_RO,
+      size: 4,
+      data: sizeData,
+    })));
   }
 
   it('sends OPENFILERO with correct path', () => {
@@ -60,61 +74,33 @@ describe('FtpClient', () => {
     expect(new TextDecoder().decode(ftp.data)).toBe('/general.json');
   });
 
-  it('downloads a small file (single chunk)', async () => {
+  it('downloads a small file through burst mode and terminates the session', async () => {
     const downloadPromise = client.downloadFile('/test.txt');
     const fileContent = new TextEncoder().encode('hello world');
 
-    // Respond to OPENFILERO with ACK containing file size
-    const openFtp = lastSentFtp();
-    const sizeData = new Uint8Array(4);
-    new DataView(sizeData.buffer).setUint32(0, fileContent.length, true);
-    client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: openFtp.seq + 1,
-      session: 1,
-      opcode: FTP_OPCODE_ACK,
-      reqOpcode: FTP_OPCODE_OPEN_FILE_RO,
-      size: 4,
-      data: sizeData,
-    })));
+    ackOpen(fileContent.length, 7);
 
-    // Should now send READFILE
-    expect(sentFrames.length).toBe(2);
-    const readFtp = lastSentFtp();
-    expect(readFtp.opcode).toBe(FTP_OPCODE_READ_FILE);
-    expect(readFtp.offset).toBe(0);
+    const burstFtp = lastSentFtp();
+    expect(burstFtp.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+    expect(burstFtp.offset).toBe(0);
 
-    // Respond with file data
     client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: readFtp.seq + 1,
-      session: 1,
+      seq: burstFtp.seq + 1,
+      session: 7,
       opcode: FTP_OPCODE_ACK,
-      reqOpcode: FTP_OPCODE_READ_FILE,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+      offset: 0,
+      burstComplete: 1,
       size: fileContent.length,
       data: fileContent,
     })));
 
-    // Should request next chunk, respond with EOF
-    const read2Ftp = lastSentFtp();
-    expect(read2Ftp.opcode).toBe(FTP_OPCODE_READ_FILE);
-    expect(read2Ftp.offset).toBe(fileContent.length);
+    const cleanupFtp = lastSentFtp();
+    expect(cleanupFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
 
     client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: read2Ftp.seq + 1,
-      session: 1,
-      opcode: FTP_OPCODE_NAK,
-      reqOpcode: FTP_OPCODE_READ_FILE,
-      size: 1,
-      data: new Uint8Array([FTP_ERR_EOF]),
-    })));
-
-    // Should send TERMINATESESSION
-    const termFtp = lastSentFtp();
-    expect(termFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
-
-    // Respond with ACK
-    client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: termFtp.seq + 1,
-      session: 1,
+      seq: cleanupFtp.seq + 1,
+      session: 7,
       opcode: FTP_OPCODE_ACK,
       reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
     })));
@@ -123,70 +109,123 @@ describe('FtpClient', () => {
     expect(new TextDecoder().decode(result)).toBe('hello world');
   });
 
-  it('downloads a multi-chunk file', async () => {
-    // Create file larger than FTP_DATA_MAX_SIZE
+  it('repairs missing blocks after burst EOF', async () => {
     const fileContent = new Uint8Array(500);
-    for (let i = 0; i < fileContent.length; i++) fileContent[i] = i & 0xFF;
+    for (let i = 0; i < fileContent.length; i++) fileContent[i] = i & 0xff;
 
     const downloadPromise = client.downloadFile('/big.bin');
+    ackOpen(fileContent.length, 2);
 
-    // OPENFILERO ACK
-    const openFtp = lastSentFtp();
-    const sizeData = new Uint8Array(4);
-    new DataView(sizeData.buffer).setUint32(0, fileContent.length, true);
+    const firstBurst = lastSentFtp();
+    expect(firstBurst.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+
     client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: openFtp.seq + 1,
+      seq: firstBurst.seq + 1,
       session: 2,
       opcode: FTP_OPCODE_ACK,
-      reqOpcode: FTP_OPCODE_OPEN_FILE_RO,
-      size: 4,
-      data: sizeData,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+      offset: 0,
+      burstComplete: 0,
+      size: FTP_DATA_MAX_SIZE,
+      data: fileContent.slice(0, FTP_DATA_MAX_SIZE),
     })));
 
-    // Read chunks
-    let offset = 0;
-    while (offset < fileContent.length) {
-      const readFtp = lastSentFtp();
-      expect(readFtp.opcode).toBe(FTP_OPCODE_READ_FILE);
-      expect(readFtp.offset).toBe(offset);
-
-      const chunkSize = Math.min(FTP_DATA_MAX_SIZE, fileContent.length - offset);
-      const chunk = fileContent.slice(offset, offset + chunkSize);
-      offset += chunkSize;
-
-      client.handleMessage(makeFtpMsg(encodeFtpPayload({
-        seq: readFtp.seq + 1,
-        session: 2,
-        opcode: FTP_OPCODE_ACK,
-        reqOpcode: FTP_OPCODE_READ_FILE,
-        size: chunk.length,
-        data: chunk,
-      })));
-    }
-
-    // EOF on next read request
-    const eofFtp = lastSentFtp();
     client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: eofFtp.seq + 1,
+      seq: firstBurst.seq + 2,
+      session: 2,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+      offset: FTP_DATA_MAX_SIZE * 2,
+      burstComplete: 1,
+      size: fileContent.length - (FTP_DATA_MAX_SIZE * 2),
+      data: fileContent.slice(FTP_DATA_MAX_SIZE * 2),
+    })));
+
+    const secondBurst = lastSentFtp();
+    expect(secondBurst.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+    expect(secondBurst.offset).toBe(FTP_DATA_MAX_SIZE);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: secondBurst.seq + 1,
       session: 2,
       opcode: FTP_OPCODE_NAK,
-      reqOpcode: FTP_OPCODE_READ_FILE,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
       size: 1,
       data: new Uint8Array([FTP_ERR_EOF]),
     })));
 
-    // TERMINATE ACK
-    const termFtp = lastSentFtp();
+    const fillFtp = lastSentFtp();
+    expect(fillFtp.opcode).toBe(FTP_OPCODE_READ_FILE);
+    expect(fillFtp.offset).toBe(FTP_DATA_MAX_SIZE);
+
+    const missingChunk = fileContent.slice(FTP_DATA_MAX_SIZE, FTP_DATA_MAX_SIZE * 2);
     client.handleMessage(makeFtpMsg(encodeFtpPayload({
-      seq: termFtp.seq + 1,
+      seq: fillFtp.seq + 1,
+      session: 2,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_READ_FILE,
+      offset: FTP_DATA_MAX_SIZE,
+      size: missingChunk.length,
+      data: missingChunk,
+    })));
+
+    const cleanupFtp = lastSentFtp();
+    expect(cleanupFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: cleanupFtp.seq + 1,
       session: 2,
       opcode: FTP_OPCODE_ACK,
       reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
     })));
 
     const result = await downloadPromise;
-    expect(result.length).toBe(500);
     expect(Array.from(result)).toEqual(Array.from(fileContent));
+  });
+
+  it('falls back to sequential reads when burst mode is unsupported', async () => {
+    const fileContent = new TextEncoder().encode('sequential fallback works');
+    const downloadPromise = client.downloadFile('/fallback.txt');
+    ackOpen(fileContent.length, 3);
+
+    const burstFtp = lastSentFtp();
+    expect(burstFtp.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: burstFtp.seq + 1,
+      session: 3,
+      opcode: FTP_OPCODE_NAK,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+      size: 1,
+      data: new Uint8Array([FTP_ERR_UNKNOWN_COMMAND]),
+    })));
+
+    const readFtp = lastSentFtp();
+    expect(readFtp.opcode).toBe(FTP_OPCODE_READ_FILE);
+    expect(readFtp.offset).toBe(0);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: readFtp.seq + 1,
+      session: 3,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_READ_FILE,
+      offset: 0,
+      size: fileContent.length,
+      data: fileContent,
+    })));
+
+    const cleanupFtp = lastSentFtp();
+    expect(cleanupFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: cleanupFtp.seq + 1,
+      session: 3,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
+    })));
+
+    const result = await downloadPromise;
+    expect(new TextDecoder().decode(result)).toBe('sequential fallback works');
   });
 
   it('rejects on file not found', async () => {
@@ -204,19 +243,126 @@ describe('FtpClient', () => {
     await expect(downloadPromise).rejects.toThrow('FTP NAK');
   });
 
-  it('retries on timeout and eventually rejects', async () => {
-    const downloadPromise = client.downloadFile('/timeout.txt');
+  it('retries burst startup timeouts and falls back to sequential mode', async () => {
+    void client.downloadFile('/timeout.txt');
+    ackOpen(10, 4);
 
-    // Advance time past 5 timeouts (4s each)
-    vi.advanceTimersByTime(4000); // retry 1
-    vi.advanceTimersByTime(4000); // retry 2
-    vi.advanceTimersByTime(4000); // retry 3
-    vi.advanceTimersByTime(4000); // retry 4
-    vi.advanceTimersByTime(4000); // retry 5 → reject
+    expect(lastSentFtp().opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
 
-    await expect(downloadPromise).rejects.toThrow('timeout');
-    // Initial send + 4 resend attempts; the 5th timeout rejects without another send.
-    expect(sentFrames.length).toBe(5);
+    vi.advanceTimersByTime(1000);
+    expect(lastSentFtp().opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+
+    vi.advanceTimersByTime(1000);
+    expect(lastSentFtp().opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+
+    vi.advanceTimersByTime(1000);
+    expect(lastSentFtp().opcode).toBe(FTP_OPCODE_READ_FILE);
+  });
+
+  it('downgrades degenerate burst transfers and reuses sequential mode for the next file', async () => {
+    const fileContent = new Uint8Array(800);
+    for (let i = 0; i < fileContent.length; i++) fileContent[i] = (i * 7) & 0xff;
+
+    const downloadPromise = client.downloadFile('/slow-burst.bin');
+    ackOpen(fileContent.length, 9);
+
+    for (const offset of [0, FTP_DATA_MAX_SIZE, FTP_DATA_MAX_SIZE * 2]) {
+      const burstFtp = lastSentFtp();
+      expect(burstFtp.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+      client.handleMessage(makeFtpMsg(encodeFtpPayload({
+        seq: burstFtp.seq + 1,
+        session: 9,
+        opcode: FTP_OPCODE_ACK,
+        reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+        offset,
+        burstComplete: 1,
+        size: Math.min(FTP_DATA_MAX_SIZE, fileContent.length - offset),
+        data: fileContent.slice(offset, offset + FTP_DATA_MAX_SIZE),
+      })));
+    }
+
+    const fourthBurst = lastSentFtp();
+    expect(fourthBurst.opcode).toBe(FTP_OPCODE_BURST_READ_FILE);
+
+    vi.advanceTimersByTime(1000);
+
+    const fallbackRead = lastSentFtp();
+    expect(fallbackRead.opcode).toBe(FTP_OPCODE_READ_FILE);
+    expect(fallbackRead.offset).toBe(FTP_DATA_MAX_SIZE * 3);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: fallbackRead.seq + 1,
+      session: 9,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_READ_FILE,
+      offset: fallbackRead.offset,
+      size: fileContent.length - fallbackRead.offset,
+      data: fileContent.slice(fallbackRead.offset),
+    })));
+
+    const cleanupFtp = lastSentFtp();
+    expect(cleanupFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: cleanupFtp.seq + 1,
+      session: 9,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
+    })));
+
+    await expect(downloadPromise).resolves.toEqual(fileContent);
+
+    void client.downloadFile('/next.json');
+    ackOpen(20, 10);
+
+    const firstRead = lastSentFtp();
+    expect(firstRead.opcode).toBe(FTP_OPCODE_READ_FILE);
+    expect(firstRead.offset).toBe(0);
+  });
+
+  it('ignores stale cleanup replies with the wrong sequence number', async () => {
+    let resolved = false;
+    const downloadPromise = client.downloadFile('/cleanup.txt').then(() => {
+      resolved = true;
+    });
+    const fileContent = new TextEncoder().encode('cleanup');
+
+    ackOpen(fileContent.length, 11);
+
+    const burstFtp = lastSentFtp();
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: burstFtp.seq + 1,
+      session: 11,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_BURST_READ_FILE,
+      offset: 0,
+      burstComplete: 1,
+      size: fileContent.length,
+      data: fileContent,
+    })));
+
+    const cleanupFtp = lastSentFtp();
+    expect(cleanupFtp.opcode).toBe(FTP_OPCODE_TERMINATE_SESSION);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: cleanupFtp.seq,
+      session: 11,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
+    })));
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    client.handleMessage(makeFtpMsg(encodeFtpPayload({
+      seq: cleanupFtp.seq + 1,
+      session: 11,
+      opcode: FTP_OPCODE_ACK,
+      reqOpcode: FTP_OPCODE_TERMINATE_SESSION,
+    })));
+
+    await downloadPromise;
+    expect(resolved).toBe(true);
   });
 
   it('rejects concurrent downloads', async () => {
