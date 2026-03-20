@@ -81,4 +81,5 @@ export type WorkerEvent =
   | { type: 'paramSetResult'; result: ParamSetResult }
   | { type: 'ftpMetadataProgress'; progress: FtpMetadataProgressEvent }
   | { type: 'ftpMetadataResult'; json: string; crcValid: boolean }
-  | { type: 'ftpMetadataError'; error: string };
+  | { type: 'ftpMetadataError'; error: string }
+  | { type: 'writeBytes'; data: Uint8Array };

@@ -59,6 +59,7 @@ export class MavlinkWorkerBridge {
   private readonly ftpMetadataResultEmitter = new EventEmitter<(json: string, crcValid: boolean) => void>();
   private readonly ftpMetadataErrorEmitter = new EventEmitter<(error: string) => void>();
   private readonly ftpMetadataProgressEmitter = new EventEmitter<(progress: FtpMetadataProgressEvent) => void>();
+  private readonly writeBytesEmitter = new EventEmitter<(data: Uint8Array) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -257,6 +258,11 @@ export class MavlinkWorkerBridge {
     return this.ftpMetadataProgressEmitter.on(callback);
   }
 
+  /** Subscribe to write-back bytes from the worker (for WebUSB write path). */
+  onWriteBytes(callback: (data: Uint8Array) => void): () => void {
+    return this.writeBytesEmitter.on(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -382,6 +388,11 @@ export class MavlinkWorkerBridge {
 
       case 'ftpMetadataError': {
         this.ftpMetadataErrorEmitter.emit(msg.error);
+        break;
+      }
+
+      case 'writeBytes': {
+        this.writeBytesEmitter.emit(msg.data);
         break;
       }
 

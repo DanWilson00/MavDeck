@@ -152,7 +152,7 @@ function sendMavlinkMessage(
   messageName: string,
   values: Record<string, number | string | number[]>,
 ): void {
-  const source = serial.serialSource ?? pipeline.spoofSource;
+  const source = serial.serialSource ?? pipeline.externalSource ?? pipeline.spoofSource;
   if (!source || !frameBuilder) return;
   const frame = frameBuilder.buildFrame({
     messageName,
@@ -720,7 +720,9 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         } catch { /* spoof FTP will serve empty metadata */ }
         source = pipeline.spoofSource = new SpoofByteSource(registry, 1, 1, metadataJson);
       } else {
-        source = pipeline.externalSource = new ExternalByteSource();
+        source = pipeline.externalSource = new ExternalByteSource((data) => {
+          postEvent({ type: 'writeBytes', data });
+        });
       }
 
       setupService(source);

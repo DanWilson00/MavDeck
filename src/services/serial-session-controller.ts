@@ -102,6 +102,8 @@ export class SerialSessionController {
   };
   /** Polyfill byte source running on main thread (Android path). */
   private mainThreadSource: WebSerialByteSource | null = null;
+  /** Unsubscribe handle for worker write-back channel. */
+  private unsubWriteBytes: (() => void) | null = null;
   /** Abort controller for WebUSB auto-connect probing. */
   private webusbAbort: AbortController | null = null;
   /** Last enabled Android WebUSB auto-connect config. */
@@ -476,6 +478,8 @@ export class SerialSessionController {
 
   dispose(): void {
     this.stopAutoConnectWebUsb();
+    this.unsubWriteBytes?.();
+    this.unsubWriteBytes = null;
     void this.disconnectMainThreadSourceSuppressed();
     this.unsubBridgeStatus?.();
     this.unsubProbeStatus?.();
@@ -755,6 +759,10 @@ export class SerialSessionController {
 
     verifier.dispose();
     this.mainThreadSource = source;
+    this.unsubWriteBytes?.();
+    this.unsubWriteBytes = this.workerBridge.onWriteBytes(data => {
+      void source.write(data);
+    });
     const portIdentity = getSerialPortIdentity(port);
     this.setWebUsbAvailability('granted');
     this.setProbeStatus(null);
@@ -816,6 +824,9 @@ export class SerialSessionController {
   }
 
   private async disconnectMainThreadSource(): Promise<void> {
+    this.unsubWriteBytes?.();
+    this.unsubWriteBytes = null;
+
     if (!this.mainThreadSource) {
       return;
     }
