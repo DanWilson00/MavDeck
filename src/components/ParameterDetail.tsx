@@ -174,7 +174,7 @@ export default function ParameterDetail(props: ParameterDetailProps) {
                 cursor: 'pointer',
               }}
             >
-              Reset
+              Restore Default
             </button>
           </Show>
           <Show when={isModified()}>

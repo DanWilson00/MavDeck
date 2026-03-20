@@ -220,6 +220,17 @@ describe('settings-service', () => {
     expect(mockStore.get('mavdeck-settings-v1')).toEqual(latestSettings);
   });
 
+  it('round-trips hybrid map layer setting', async () => {
+    const settings: MavDeckSettings = {
+      ...DEFAULT_SETTINGS,
+      mapLayer: 'hybrid',
+    };
+
+    await saveSettings(settings);
+    const loaded = await loadSettings();
+    expect(loaded.mapLayer).toBe('hybrid');
+  });
+
   it('DEFAULT_SETTINGS has expected default values', () => {
     expect(DEFAULT_SETTINGS.activeTab).toBe('telemetry');
     expect(DEFAULT_SETTINGS.theme).toBe('dark');

@@ -53,7 +53,8 @@ function createVehicleIcon(heading: number): L.DivIcon {
 }
 
 function trailColor(): string {
-  return appState.mapLayer === 'satellite' ? '#00ff88' : cssVar('--accent', '#00d4ff');
+  const layer = appState.mapLayer;
+  return (layer === 'satellite' || layer === 'hybrid') ? '#00ff88' : cssVar('--accent', '#00d4ff');
 }
 
 export default function MapView() {
@@ -63,6 +64,7 @@ export default function MapView() {
   let marker: L.Marker | undefined;
   let trail: L.Polyline | undefined;
   let tileLayer: L.TileLayer | undefined;
+  let overlayLayer: L.TileLayer | undefined;
   let trailPoints: L.LatLng[] = [];
   let rafId: number | undefined;
   let unsubUpdate: (() => void) | undefined;
@@ -330,12 +332,19 @@ export default function MapView() {
   // Switch tile layer
   createEffect(() => {
     if (!map) return;
-    const layerConfig = TILE_LAYERS[appState.mapLayer];
+    const config = TILE_LAYERS[appState.mapLayer];
     if (tileLayer) tileLayer.remove();
-    tileLayer = L.tileLayer(layerConfig.url, {
-      attribution: layerConfig.attribution,
-      maxZoom: layerConfig.maxZoom,
+    if (overlayLayer) { overlayLayer.remove(); overlayLayer = undefined; }
+    tileLayer = L.tileLayer(config.url, {
+      attribution: config.attribution,
+      maxZoom: config.maxZoom,
     }).addTo(map);
+    if ('labelOverlay' in config && config.labelOverlay) {
+      overlayLayer = L.tileLayer(config.labelOverlay.url, {
+        maxZoom: config.labelOverlay.maxZoom,
+        pane: 'overlayPane',
+      }).addTo(map);
+    }
     // Update trail color for visibility on new background
     trail?.setStyle({ color: trailColor() });
   });
@@ -411,10 +420,13 @@ export default function MapView() {
             <button
               class="console-button rounded p-1.5 interactive-hover"
               style={{
-                color: appState.mapLayer === 'satellite' ? 'var(--accent)' : 'var(--text-secondary)',
+                color: appState.mapLayer !== 'street' ? 'var(--accent)' : 'var(--text-secondary)',
               }}
-              onClick={() => setAppState('mapLayer', appState.mapLayer === 'street' ? 'satellite' : 'street')}
-              title={appState.mapLayer === 'street' ? 'Switch to satellite' : 'Switch to street map'}
+              onClick={() => {
+                const idx = LAYER_ORDER.indexOf(appState.mapLayer);
+                setAppState('mapLayer', LAYER_ORDER[(idx + 1) % LAYER_ORDER.length]);
+              }}
+              title={`Map: ${LAYER_LABELS[appState.mapLayer]}`}
             >
               <LayerIcon />
             </button>

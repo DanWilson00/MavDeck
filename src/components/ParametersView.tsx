@@ -34,7 +34,16 @@ export default function ParametersView() {
   const [pendingEdits, setPendingEdits] = createSignal<Map<string, number>>(new Map());
   const [isSavingAll, setIsSavingAll] = createSignal(false);
 
-  const modifiedParamIds = createMemo(() => new Set(pendingEdits().keys()));
+  const modifiedParamIds = createMemo(() => {
+    const modified = new Set<string>();
+    for (const [paramId, pendingVal] of pendingEdits()) {
+      const deviceValue = paramState().params[paramId]?.value;
+      if (deviceValue === undefined || pendingVal !== deviceValue) {
+        modified.add(paramId);
+      }
+    }
+    return modified;
+  });
 
   function updatePendingEdit(paramId: string, value: number | null) {
     setPendingEdits(prev => {
@@ -42,13 +51,7 @@ export default function ParametersView() {
       if (value === null) {
         next.delete(paramId);
       } else {
-        // If value matches device value, remove pending edit (no actual change)
-        const deviceValue = paramState().params[paramId]?.value;
-        if (deviceValue !== undefined && value === deviceValue) {
-          next.delete(paramId);
-        } else {
-          next.set(paramId, value);
-        }
+        next.set(paramId, value);
       }
       return next;
     });
@@ -163,7 +166,7 @@ export default function ParametersView() {
     return null;
   });
 
-  const pendingCount = () => pendingEdits().size;
+  const pendingCount = () => modifiedParamIds().size;
 
   const [leftPanelWidth, setLeftPanelWidth] = createSignal(400);
   let containerRef: HTMLDivElement | undefined;
