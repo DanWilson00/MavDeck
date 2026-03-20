@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For } from 'solid-js';
+import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import type { ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
@@ -44,6 +44,9 @@ export default function ParameterDetail(props: ParameterDetailProps) {
   const isModified = () => props.pendingValue !== null && props.pendingValue !== props.param.value;
 
   // Watch for set results matching this param
+  let flashTimeout: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(flashTimeout));
+
   createEffect(() => {
     const result = props.lastSetResult;
     if (!result || result.paramId !== props.param.paramId) return;
@@ -55,7 +58,8 @@ export default function ParameterDetail(props: ParameterDetailProps) {
       setFlashState('warning');
     }
     setFlashKey(k => k + 1);
-    setTimeout(() => setFlashState('none'), 2000);
+    clearTimeout(flashTimeout);
+    flashTimeout = setTimeout(() => setFlashState('none'), 2000);
   });
 
   // Apply glow animation class to the edit control box
@@ -372,7 +376,7 @@ function SliderControl(props: { meta: ParamDef; value: number; onChange: (v: num
         prop:value={formatValue(props.value, props.meta.decimalPlaces)}
         onChange={(e) => {
           const v = Number(e.currentTarget.value);
-          if (!isNaN(v)) props.onChange(v);
+          if (!isNaN(v)) props.onChange(Math.max(props.meta.min, Math.min(props.meta.max, v)));
         }}
         class="w-24 px-2 py-1.5 rounded text-center text-sm font-mono flex-shrink-0"
         style={{

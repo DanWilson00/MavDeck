@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For } from 'solid-js';
+import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
 import type { ArrayParamGroup, ParamWithMeta } from '../hooks/use-parameters';
 import type { ParamSetResult } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
@@ -33,6 +33,13 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
   const [flashMap, setFlashMap] = createSignal<Map<string, 'success' | 'error'>>(new Map());
   const [flashKeyMap, setFlashKeyMap] = createSignal<Map<string, number>>(new Map());
   const elemRefs = new Map<string, HTMLDivElement>();
+  const flashTimeouts = new Set<ReturnType<typeof setTimeout>>();
+
+  onCleanup(() => {
+    flashTimeouts.forEach(clearTimeout);
+    flashTimeouts.clear();
+    elemRefs.clear();
+  });
 
   // Watch for set results matching elements in this array
   createEffect(() => {
@@ -62,13 +69,15 @@ export default function ParameterArrayDetail(props: ParameterArrayDetailProps) {
     }
 
     const paramId = result.paramId;
-    setTimeout(() => {
+    const tid = setTimeout(() => {
+      flashTimeouts.delete(tid);
       setFlashMap((prev: Map<string, 'success' | 'error'>) => {
         const next = new Map(prev);
         next.delete(paramId);
         return next;
       });
     }, 2000);
+    flashTimeouts.add(tid);
   });
 
   const hasPendingEdits = () => {
@@ -314,7 +323,7 @@ function ElementSlider(props: { meta: ParamDef; value: number; onChange: (v: num
         prop:value={formatValue(props.value, props.meta.decimalPlaces)}
         onChange={(e) => {
           const v = Number(e.currentTarget.value);
-          if (!isNaN(v)) props.onChange(v);
+          if (!isNaN(v)) props.onChange(Math.max(props.meta.min, Math.min(props.meta.max, v)));
         }}
         class="w-20 px-2 py-1 rounded text-center text-xs font-mono flex-shrink-0"
         style={{

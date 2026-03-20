@@ -71,12 +71,16 @@ export default function ParametersView() {
     setIsSavingAll(true);
     for (const [paramId, value] of edits) {
       setParam(paramId, value);
-      // Wait for this param's result before sending next
+      // Wait for this param's result before sending next (with 5s timeout)
       await new Promise<void>(resolve => {
+        let disposeRoot: (() => void) | undefined;
+        const timeout = setTimeout(() => { disposeRoot?.(); resolve(); }, 5000);
         createRoot(dispose => {
+          disposeRoot = dispose;
           createEffect(() => {
             const result = lastSetResult();
             if (result && result.paramId === paramId) {
+              clearTimeout(timeout);
               dispose();
               resolve();
             }
@@ -91,7 +95,7 @@ export default function ParametersView() {
   const state = () => paramState();
 
   // Filter groups by search
-  const filteredGroups = () => {
+  const filteredGroups = createMemo(() => {
     const query = searchQuery().toLowerCase().trim();
     const groups = groupedParams();
     if (!query) return groups;
@@ -130,7 +134,7 @@ export default function ParametersView() {
         }),
       }))
       .filter(g => g.params.length > 0 || g.arrays.length > 0);
-  };
+  });
 
   function handleSelectParam(paramId: string) {
     setSelectedParamId(paramId);
