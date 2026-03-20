@@ -1,0 +1,533 @@
+{
+  "version": 1,
+  "parameters": [
+    {
+      "name": "WMAP_MAX_ROLL",
+      "type": "Float",
+      "group": "wing_mapping",
+      "default": 0.7,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "wing_mapping.max_roll_cmd",
+      "longDesc": "Maximum fraction of roll stick input applied to wing commands",
+      "units": "norm",
+      "decimalPlaces": 2,
+      "rebootRequired": false
+    },
+    {
+      "name": "WMAP_MAX_DIVE",
+      "type": "Float",
+      "group": "wing_mapping",
+      "default": 0.9,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "wing_mapping.max_dive_cmd",
+      "longDesc": "Maximum fraction of dive stick input applied to wing commands",
+      "units": "norm",
+      "decimalPlaces": 2,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_RFADE_EN",
+      "type": "Int32",
+      "group": "scaler",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "scaler.roll_cmd_fade_enabled",
+      "longDesc": "Enable velocity-based roll command scaling (0=disabled, 1=enabled)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": 0,
+          "description": "Disabled"
+        },
+        {
+          "value": 1,
+          "description": "Enabled"
+        }
+      ]
+    },
+    {
+      "name": "SCL_RFADE_VEL",
+      "type": "Float",
+      "group": "scaler",
+      "default": 7.5,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.roll_cmd_fade_start_vel_mps",
+      "longDesc": "Velocity above which roll command begins to fade",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_TFADE_EN",
+      "type": "Int32",
+      "group": "scaler",
+      "default": 0,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "scaler.roll_torque_fade_enabled",
+      "longDesc": "Enable velocity-based roll torque fading (0=disabled, 1=enabled)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": 0,
+          "description": "Disabled"
+        },
+        {
+          "value": 1,
+          "description": "Enabled"
+        }
+      ]
+    },
+    {
+      "name": "SCL_TFADE_STA",
+      "type": "Float",
+      "group": "scaler",
+      "default": 11,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.roll_torque_fade_start_vel_mps",
+      "longDesc": "Velocity above which roll torque begins to fade",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_TFADE_END",
+      "type": "Float",
+      "group": "scaler",
+      "default": 15,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.roll_torque_fade_end_vel_mps",
+      "longDesc": "Velocity above which roll torque is fully faded to zero",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_DIVEROLL",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0.5,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "scaler.max_dive_roll_scale",
+      "longDesc": "Roll command scale factor when dive input is at maximum",
+      "units": "norm",
+      "decimalPlaces": 2,
+      "rebootRequired": false
+    },
+    {
+      "name": "JOY_RATE_LIM",
+      "type": "Float",
+      "group": "joystick",
+      "default": 1,
+      "min": 0.1,
+      "max": 10,
+      "shortDesc": "joystick.thumb_limiter.rate_limit_per_sec",
+      "longDesc": "Rate limit for thumb wheel input in units per second",
+      "units": "1/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "JOY_TRIM_INC",
+      "type": "Float",
+      "group": "joystick",
+      "default": 0.02,
+      "min": 0.001,
+      "max": 0.1,
+      "shortDesc": "joystick.roll_trim_inc_frac",
+      "longDesc": "Amount of roll trim change per button press",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "JOY_TRIM_FRAC",
+      "type": "Float",
+      "group": "joystick",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "joystick.roll_trim_frac",
+      "longDesc": "Current roll trim offset applied to joystick input",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "JOY_DEADBAND",
+      "type": "Float",
+      "group": "joystick",
+      "default": 0.05,
+      "min": 0,
+      "max": 0.2,
+      "shortDesc": "joystick.deadband_frac",
+      "longDesc": "Deadband fraction of full joystick range around center",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "JOY_THUMB_DIR",
+      "type": "Int32",
+      "group": "joystick",
+      "default": 1,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "joystick.thumb_direction",
+      "longDesc": "Thumb wheel direction multiplier (1=normal, -1=reverse)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": -1,
+          "description": "Reverse"
+        },
+        {
+          "value": 1,
+          "description": "Normal"
+        }
+      ]
+    },
+    {
+      "name": "UM_MAX_TORQUE",
+      "type": "Float",
+      "group": "Other",
+      "default": 0.8,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "ultramotion_max_torque",
+      "longDesc": "Maximum torque command sent to all actuators as fraction of hardware limit",
+      "units": "norm",
+      "decimalPlaces": 2,
+      "rebootRequired": false
+    },
+    {
+      "name": "PORT_ACT_MIN",
+      "type": "Float",
+      "group": "port_actuator",
+      "default": 0.2,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "port_actuator.min",
+      "longDesc": "Port actuator minimum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "PORT_ACT_NTRL",
+      "type": "Float",
+      "group": "port_actuator",
+      "default": 0.4,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "port_actuator.neutral",
+      "longDesc": "Port actuator neutral position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "PORT_ACT_MAX",
+      "type": "Float",
+      "group": "port_actuator",
+      "default": 0.6,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "port_actuator.max",
+      "longDesc": "Port actuator maximum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "PORT_ACT_DIR",
+      "type": "Int32",
+      "group": "port_actuator",
+      "default": -1,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "port_actuator.direction",
+      "longDesc": "Port actuator direction multiplier (1=normal, -1=reverse)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": -1,
+          "description": "Reverse"
+        },
+        {
+          "value": 1,
+          "description": "Normal"
+        }
+      ]
+    },
+    {
+      "name": "STBD_ACT_MIN",
+      "type": "Float",
+      "group": "sb_actuator",
+      "default": 0.2,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "sb_actuator.min",
+      "longDesc": "Starboard actuator minimum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "STBD_ACT_NTRL",
+      "type": "Float",
+      "group": "sb_actuator",
+      "default": 0.4,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "sb_actuator.neutral",
+      "longDesc": "Starboard actuator neutral position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "STBD_ACT_MAX",
+      "type": "Float",
+      "group": "sb_actuator",
+      "default": 0.6,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "sb_actuator.max",
+      "longDesc": "Starboard actuator maximum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "STBD_ACT_DIR",
+      "type": "Int32",
+      "group": "sb_actuator",
+      "default": -1,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "sb_actuator.direction",
+      "longDesc": "Starboard actuator direction multiplier (1=normal, -1=reverse)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": -1,
+          "description": "Reverse"
+        },
+        {
+          "value": 1,
+          "description": "Normal"
+        }
+      ]
+    },
+    {
+      "name": "REAR_ACT_MIN",
+      "type": "Float",
+      "group": "rear_actuator",
+      "default": 0.2,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "rear_actuator.min",
+      "longDesc": "Rear actuator minimum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "REAR_ACT_NTRL",
+      "type": "Float",
+      "group": "rear_actuator",
+      "default": 0.5,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "rear_actuator.neutral",
+      "longDesc": "Rear actuator neutral position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "REAR_ACT_MAX",
+      "type": "Float",
+      "group": "rear_actuator",
+      "default": 0.8,
+      "min": 0,
+      "max": 1,
+      "shortDesc": "rear_actuator.max",
+      "longDesc": "Rear actuator maximum position as fraction of stroke",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "REAR_ACT_DIR",
+      "type": "Int32",
+      "group": "rear_actuator",
+      "default": -1,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "rear_actuator.direction",
+      "longDesc": "Rear actuator direction multiplier (1=normal, -1=reverse)",
+      "units": "",
+      "decimalPlaces": 0,
+      "rebootRequired": false,
+      "values": [
+        {
+          "value": -1,
+          "description": "Reverse"
+        },
+        {
+          "value": 1,
+          "description": "Normal"
+        }
+      ]
+    },
+    {
+      "name": "SCL_PFF_V0",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.pitch_ff_vel_mps[0]",
+      "longDesc": "Pitch feed-forward velocity breakpoints for interpolation",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_V1",
+      "type": "Float",
+      "group": "scaler",
+      "default": 5,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.pitch_ff_vel_mps[1]",
+      "longDesc": "Pitch feed-forward velocity breakpoints for interpolation",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_V2",
+      "type": "Float",
+      "group": "scaler",
+      "default": 10,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.pitch_ff_vel_mps[2]",
+      "longDesc": "Pitch feed-forward velocity breakpoints for interpolation",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_V3",
+      "type": "Float",
+      "group": "scaler",
+      "default": 15,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.pitch_ff_vel_mps[3]",
+      "longDesc": "Pitch feed-forward velocity breakpoints for interpolation",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_V4",
+      "type": "Float",
+      "group": "scaler",
+      "default": 20,
+      "min": 0,
+      "max": 100,
+      "shortDesc": "scaler.pitch_ff_vel_mps[4]",
+      "longDesc": "Pitch feed-forward velocity breakpoints for interpolation",
+      "units": "m/s",
+      "decimalPlaces": 1,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_C0",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "scaler.pitch_ff_cmd[0]",
+      "longDesc": "Pitch feed-forward command values at each velocity breakpoint",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_C1",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "scaler.pitch_ff_cmd[1]",
+      "longDesc": "Pitch feed-forward command values at each velocity breakpoint",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_C2",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "scaler.pitch_ff_cmd[2]",
+      "longDesc": "Pitch feed-forward command values at each velocity breakpoint",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_C3",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "scaler.pitch_ff_cmd[3]",
+      "longDesc": "Pitch feed-forward command values at each velocity breakpoint",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    },
+    {
+      "name": "SCL_PFF_C4",
+      "type": "Float",
+      "group": "scaler",
+      "default": 0,
+      "min": -1,
+      "max": 1,
+      "shortDesc": "scaler.pitch_ff_cmd[4]",
+      "longDesc": "Pitch feed-forward command values at each velocity breakpoint",
+      "units": "norm",
+      "decimalPlaces": 3,
+      "rebootRequired": false
+    }
+  ]
+}

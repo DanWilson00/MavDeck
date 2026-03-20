@@ -1,8 +1,11 @@
 import { createSignal, createEffect, onCleanup, For, Show } from 'solid-js';
-import { appState } from '../store';
-import { useWorkerBridge } from '../services';
-
-const MAX_ENTRIES = 100;
+import {
+  clearStatusTextEntries,
+  getStatusTextEntries,
+  onStatusTextClear,
+  onStatusTextEntry,
+  type StatusTextLogEntry,
+} from '../services';
 
 const SEVERITY_LABELS: Record<number, string> = {
   0: 'EMERGENCY',
@@ -26,41 +29,17 @@ const SEVERITY_COLORS: Record<number, string> = {
   7: '#6b7280', // gray
 };
 
-interface LogEntry {
-  id: number;
-  severity: number;
-  text: string;
-  timestamp: number;
-}
-
-let nextId = 0;
-
 export default function StatusTextLog() {
-  const workerBridge = useWorkerBridge();
-  const [entries, setEntries] = createSignal<LogEntry[]>([]);
+  const [entries, setEntries] = createSignal<StatusTextLogEntry[]>(getStatusTextEntries());
   const [isExpanded, setIsExpanded] = createSignal(false);
   const [logHeight, setLogHeight] = createSignal(180);
   let scrollRef: HTMLDivElement | undefined;
   let dragStartY = 0;
   let dragStartHeight = 0;
 
-  // Clear entries when log source changes
   createEffect(() => {
-    appState.logViewerState.sourceName;
-    setEntries([]);
-  });
-
-  // Subscribe to STATUSTEXT messages from worker
-  createEffect(() => {
-    if (!appState.isReady) return;
-    const unsub = workerBridge.onStatusText(entry => {
-      setEntries(prev => {
-        const next = [...prev, { ...entry, id: nextId++ }];
-        if (next.length > MAX_ENTRIES) {
-          return next.slice(next.length - MAX_ENTRIES);
-        }
-        return next;
-      });
+    const unsubEntry = onStatusTextEntry((entry) => {
+      setEntries(prev => [...prev, entry]);
       // Auto-scroll after DOM update
       requestAnimationFrame(() => {
         if (scrollRef && isExpanded()) {
@@ -68,7 +47,13 @@ export default function StatusTextLog() {
         }
       });
     });
-    onCleanup(unsub);
+    const unsubClear = onStatusTextClear(() => {
+      setEntries([]);
+    });
+    onCleanup(() => {
+      unsubEntry();
+      unsubClear();
+    });
   });
 
   function formatTime(timestamp: number): string {
@@ -112,7 +97,7 @@ export default function StatusTextLog() {
               aria-label="Clear status messages"
               onClick={(e) => {
                 e.stopPropagation();
-                setEntries([]);
+                clearStatusTextEntries();
               }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

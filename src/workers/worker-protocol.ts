@@ -9,6 +9,7 @@
 import type { MessageStats } from '../services';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
 import type { BaudRate } from '../services/baud-rates';
+import type { ParameterStateSnapshot, ParamSetResult } from '../services/parameter-types';
 
 // ---------------------------------------------------------------------------
 // Shared types used by both directions
@@ -20,6 +21,16 @@ export type ConnectionConfig =
   | { type: 'webserial'; baudRate: number };
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'no_data' | 'error' | 'probing';
+
+export type DebugLogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface FtpMetadataProgressEvent {
+  level: DebugLogLevel;
+  stage: string;
+  message: string;
+  body?: string;
+  details?: Record<string, string | number | boolean | null>;
+}
 
 // ---------------------------------------------------------------------------
 // Main thread → Worker commands
@@ -41,7 +52,10 @@ export type WorkerCommand =
   | { type: 'connectSerial'; baudRate: BaudRate; autoDetectBaud: boolean; portIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
   | { type: 'startAutoConnect'; autoBaud: boolean; manualBaudRate: BaudRate; lastPortIdentity: SerialPortIdentity | null; lastBaudRate: BaudRate | null }
   | { type: 'stopAutoConnect' }
-  | { type: 'portsChanged' };
+  | { type: 'portsChanged' }
+  | { type: 'paramRequestAll' }
+  | { type: 'paramSet'; paramId: string; value: number }
+  | { type: 'ftpDownloadMetadata' };
 
 // ---------------------------------------------------------------------------
 // Worker → Main thread events
@@ -61,4 +75,11 @@ export type WorkerEvent =
   | { type: 'error'; message: string }
   | { type: 'probeStatus'; status: string | null }
   | { type: 'serialConnected'; baudRate: BaudRate; portIdentity: SerialPortIdentity | null }
-  | { type: 'throughput'; bytesPerSec: number };
+  | { type: 'needPermission' }
+  | { type: 'throughput'; bytesPerSec: number }
+  | { type: 'paramState'; state: ParameterStateSnapshot }
+  | { type: 'paramSetResult'; result: ParamSetResult }
+  | { type: 'ftpMetadataProgress'; progress: FtpMetadataProgressEvent }
+  | { type: 'ftpMetadataResult'; json: string; crcValid: boolean }
+  | { type: 'ftpMetadataError'; error: string }
+  | { type: 'writeBytes'; data: Uint8Array };

@@ -6,7 +6,7 @@ import {
   initDialect, resolveIncludes, detectMainDialect, useRegistry,
   useSerialSessionController, useWorkerBridge, isSerialSupported,
   loadRemoteDialect, validateDialectUrl, normalizeGithubUrl,
-  saveSettings, loadSettings,
+  saveSettings, loadSettings, logDebugError,
 } from '../services';
 import type { BaudRate, UnitProfile } from '../services';
 import { parseFromFileMap } from '../mavlink/xml-parser';
@@ -22,11 +22,12 @@ const TRAIL_LENGTH_MIN = 50;
 const TRAIL_LENGTH_MAX = 5000;
 const TRAIL_LENGTH_STEP = 50;
 
-type SettingsTab = 'general' | 'serial' | 'advanced';
+type SettingsTab = 'general' | 'serial' | 'mavlink' | 'advanced';
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'serial', label: 'Serial' },
+  { id: 'mavlink', label: 'MAVLink' },
   { id: 'advanced', label: 'Advanced' },
 ];
 
@@ -44,6 +45,24 @@ export default function SettingsModal(props: SettingsModalProps) {
   const [dialectUrl, setDialectUrl] = createSignal('');
   const [urlSaving, setUrlSaving] = createSignal(false);
   let fileInputRef: HTMLInputElement | undefined;
+
+  const simulatorRequested = () =>
+    appState.connectionSourceType === 'spoof' || appState.pendingConnectionSourceType === 'spoof';
+  const simulatorBusyWithOtherSource = () =>
+    appState.connectionStatus === 'connecting'
+      && !simulatorRequested()
+      && (appState.connectionSourceType === 'serial' || appState.pendingConnectionSourceType === 'serial');
+  const simulatorButtonLabel = () => {
+    if (appState.connectionSourceType === 'spoof') {
+      if (appState.connectionStatus === 'disconnected') return 'Stopping Simulator...';
+      if (appState.connectionStatus === 'connecting') return 'Starting Simulator...';
+      return 'Stop Simulator';
+    }
+    if (appState.pendingConnectionSourceType === 'spoof') {
+      return appState.connectionStatus === 'connecting' ? 'Starting Simulator...' : 'Stop Simulator';
+    }
+    return 'Start Simulator';
+  };
 
   // Load current dialectUrl from persisted settings
   onMount(() => {
@@ -105,6 +124,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       setAppState('dialectName', mainFile.replace(/\.xml$/i, ''));
       await saveDialect(mainFile.replace(/\.xml$/i, ''), jsonString);
     } catch (err) {
+      logDebugError('settings', `Dialect import failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect import failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to import dialect file.');
     }
@@ -140,6 +160,9 @@ export default function SettingsModal(props: SettingsModalProps) {
       settings.dialectUrl = raw;
       await saveSettings(settings);
     } catch (err) {
+      logDebugError('settings', `Dialect URL save failed: ${err instanceof Error ? err.message : String(err)}`, {
+        dialectUrl: dialectUrl().trim(),
+      });
       console.error('[SettingsModal] Dialect URL save failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to load dialect from URL.');
     } finally {
@@ -164,6 +187,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
+      logDebugError('settings', `Dialect URL clear failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect URL clear failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to clear dialect URL.');
     } finally {
@@ -183,6 +207,7 @@ export default function SettingsModal(props: SettingsModalProps) {
       await initDialect(workerBridge, registry, jsonString);
       setAppState('dialectName', 'common');
     } catch (err) {
+      logDebugError('settings', `Dialect refresh failed: ${err instanceof Error ? err.message : String(err)}`);
       console.error('[SettingsModal] Dialect refresh failed:', err);
       setImportError(err instanceof Error ? err.message : 'Failed to refresh dialect.');
     } finally {
@@ -426,34 +451,9 @@ export default function SettingsModal(props: SettingsModalProps) {
             </div>
           </Show>
 
-          {/* Advanced tab */}
-          <Show when={activeTab() === 'advanced'}>
+          {/* MAVLink tab */}
+          <Show when={activeTab() === 'mavlink'}>
             <div role="tabpanel" class="space-y-4">
-              <SectionLabel>Data</SectionLabel>
-              <div>
-                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
-                  Telemetry Buffer Capacity (samples per field)
-                </label>
-                <input
-                  id="buffer-capacity-input"
-                  type="number"
-                  min={BUFFER_CAPACITY_MIN}
-                  max={BUFFER_CAPACITY_MAX}
-                  step={BUFFER_CAPACITY_STEP}
-                  value={appState.bufferCapacity}
-                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
-                  style={{
-                    'background-color': 'var(--bg-hover)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border)',
-                  }}
-                  onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-                  onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
-                />
-              </div>
-
-              <Divider />
-
               <SectionLabel>Dialect</SectionLabel>
               <p class="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 Current: {appState.dialectName}
@@ -536,21 +536,59 @@ export default function SettingsModal(props: SettingsModalProps) {
 
               <Divider />
 
+              <SectionLabel>Telemetry</SectionLabel>
+              <div>
+                <label class="text-xs font-medium" style={{ color: 'var(--text-secondary)' }} for="buffer-capacity-input">
+                  Buffer Capacity (samples per field)
+                </label>
+                <input
+                  id="buffer-capacity-input"
+                  type="number"
+                  min={BUFFER_CAPACITY_MIN}
+                  max={BUFFER_CAPACITY_MAX}
+                  step={BUFFER_CAPACITY_STEP}
+                  value={appState.bufferCapacity}
+                  class="w-full mt-1 rounded px-2 py-1.5 text-sm"
+                  style={{
+                    'background-color': 'var(--bg-hover)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                  }}
+                  onInput={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                  onBlur={(e) => setBufferCapacity(Number(e.currentTarget.value))}
+                />
+              </div>
+
+            </div>
+          </Show>
+
+          {/* Advanced tab */}
+          <Show when={activeTab() === 'advanced'}>
+            <div role="tabpanel" class="space-y-4">
+              <ToggleSwitch
+                id="debug-console-toggle"
+                label="Enable debug console"
+                description="Shows app-level diagnostics, including metadata FTP download progress, in a dedicated bottom console."
+                checked={appState.debugConsoleEnabled}
+                onChange={(v) => setAppState('debugConsoleEnabled', v)}
+              />
+
+              <Divider />
+
               <SectionLabel>Simulator</SectionLabel>
               <button
                 class="px-3 py-1.5 text-sm rounded border interactive-hover"
                 style={{ 'border-color': 'var(--border)', color: 'var(--text-primary)' }}
+                disabled={!appState.isReady || simulatorBusyWithOtherSource()}
                 onClick={() => {
-                  if ((appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof') {
+                  if (simulatorRequested()) {
                     serialSessionController.disconnectLiveSession();
                   } else {
                     serialSessionController.connectSpoof({ unloadLog: appState.logViewerState.isActive });
                   }
                 }}
               >
-                {(appState.connectionStatus === 'connected' || appState.connectionStatus === 'no_data') && appState.connectionSourceType === 'spoof'
-                  ? 'Disconnect Simulator'
-                  : 'Connect Simulator'}
+                {simulatorButtonLabel()}
               </button>
             </div>
           </Show>
@@ -635,7 +673,7 @@ function ToggleSwitch(props: {
         <span
           class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
           style={{
-            'background-color': props.checked && !isDisabled() ? '#000' : 'var(--text-secondary)',
+            'background-color': props.checked && !isDisabled() ? 'var(--accent-text)' : 'var(--text-secondary)',
             transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
           }}
         />

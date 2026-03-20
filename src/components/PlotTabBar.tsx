@@ -112,10 +112,10 @@ export default function PlotTabBar(props: PlotTabBarProps) {
     <div
       class="flex items-center border-b overflow-x-auto"
       style={{
-        'background-color': 'var(--bg-panel)',
-        'border-color': 'var(--border)',
-        height: '32px',
-        'min-height': '32px',
+        'background-color': 'var(--bg-panel-2)',
+        'border-color': 'var(--border-subtle)',
+        height: '34px',
+        'min-height': '34px',
       }}
     >
       <For each={appState.plotTabs}>
@@ -160,10 +160,10 @@ export default function PlotTabBar(props: PlotTabBarProps) {
               class="group relative flex items-center gap-1 px-3 shrink-0 cursor-pointer select-none"
               style={{
                 height: '100%',
-                'background-color': isActive() ? 'var(--bg-hover)' : 'transparent',
-                color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
+                'background-color': 'transparent',
+                color: isActive() ? 'var(--text-primary)' : 'var(--text-secondary)',
                 'border-bottom': isActive() ? '2px solid var(--accent)' : '2px solid transparent',
-                'border-right': '1px solid var(--border)',
+                'border-right': '1px solid var(--border-subtle)',
               }}
               draggable={!isEditing()}
               onClick={() => handleTabClick(tab.id)}
@@ -200,11 +200,11 @@ export default function PlotTabBar(props: PlotTabBarProps) {
               >
                 <input
                   class="text-xs font-medium bg-transparent outline-none border-b"
-                  style={{
-                    color: 'var(--accent)',
-                    'border-color': 'var(--accent)',
-                    width: `${Math.max(editingValue().length, 3)}ch`,
-                  }}
+                style={{
+                  color: 'var(--text-primary)',
+                  'border-color': 'var(--accent)',
+                  width: `${Math.max(editingValue().length, 3)}ch`,
+                }}
                   value={editingValue()}
                   onInput={(e) => setEditingValue(e.currentTarget.value)}
                   onKeyDown={(e) => handleInputKeyDown(e, tab.id)}

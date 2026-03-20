@@ -3,6 +3,7 @@ import { SpoofByteSource } from '../spoof-byte-source';
 import { MavlinkMetadataRegistry } from '../../mavlink/registry';
 import { MavlinkFrameParser } from '../../mavlink/frame-parser';
 import { MavlinkMessageDecoder, type MavlinkMessage } from '../../mavlink/decoder';
+import { MavlinkFrameBuilder } from '../../mavlink/frame-builder';
 import { loadCommonDialectJson } from '../../test-helpers/load-dialect';
 
 const commonJson = loadCommonDialectJson();
@@ -413,6 +414,130 @@ describe('SpoofByteSource', () => {
 
       expect(parser.crcErrors).toBe(0);
       expect(parser.framesReceived).toBeGreaterThan(0);
+    });
+  });
+
+  describe('parameter loopback', () => {
+    let frameBuilder: MavlinkFrameBuilder;
+
+    beforeEach(() => {
+      frameBuilder = new MavlinkFrameBuilder(registry);
+    });
+
+    it('responds to PARAM_REQUEST_LIST with PARAM_VALUE messages', async () => {
+      const responses: MavlinkMessage[] = [];
+      const responseParser = new MavlinkFrameParser(registry);
+      const responseDecoder = new MavlinkMessageDecoder(registry);
+      responseParser.onFrame(frame => {
+        const msg = responseDecoder.decode(frame);
+        if (msg && msg.name === 'PARAM_VALUE') responses.push(msg);
+      });
+
+      source.onData(data => responseParser.parse(data));
+      await source.connect();
+
+      const requestFrame = frameBuilder.buildFrame({
+        messageName: 'PARAM_REQUEST_LIST',
+        values: { target_system: 1, target_component: 1 },
+        systemId: 255,
+        componentId: 190,
+        sequence: 0,
+      });
+
+      await source.write(requestFrame);
+
+      // Wait for setTimeout(0) responses
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(responses.length).toBeGreaterThan(0);
+      // Each response should have param_count equal to total params
+      expect(responses[0].values.param_count).toBe(responses.length);
+    });
+
+    it('responds to PARAM_SET with updated PARAM_VALUE', async () => {
+      const responses: MavlinkMessage[] = [];
+      const responseParser = new MavlinkFrameParser(registry);
+      const responseDecoder = new MavlinkMessageDecoder(registry);
+      responseParser.onFrame(frame => {
+        const msg = responseDecoder.decode(frame);
+        if (msg && msg.name === 'PARAM_VALUE') responses.push(msg);
+      });
+
+      source.onData(data => responseParser.parse(data));
+      await source.connect();
+
+      const setFrame = frameBuilder.buildFrame({
+        messageName: 'PARAM_SET',
+        values: {
+          target_system: 1,
+          target_component: 1,
+          param_id: 'JS_DEADBAND',
+          param_value: 0.15,
+          param_type: 9,
+        },
+        systemId: 255,
+        componentId: 190,
+        sequence: 0,
+      });
+
+      await source.write(setFrame);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(responses.length).toBe(1);
+      expect(responses[0].values.param_id).toBe('JS_DEADBAND');
+      expect(responses[0].values.param_value as number).toBeCloseTo(0.15, 5);
+    });
+
+    it('does not respond to non-param messages via write', async () => {
+      const responses: MavlinkMessage[] = [];
+      const responseParser = new MavlinkFrameParser(registry);
+      const responseDecoder = new MavlinkMessageDecoder(registry);
+      responseParser.onFrame(frame => {
+        const msg = responseDecoder.decode(frame);
+        if (msg && msg.name === 'PARAM_VALUE') responses.push(msg);
+      });
+
+      source.onData(data => responseParser.parse(data));
+      await source.connect();
+
+      const heartbeatFrame = frameBuilder.buildFrame({
+        messageName: 'HEARTBEAT',
+        values: { type: 2, autopilot: 3, base_mode: 0x81, custom_mode: 0, system_status: 4, mavlink_version: 3 },
+        systemId: 255,
+        componentId: 190,
+        sequence: 0,
+      });
+
+      await source.write(heartbeatFrame);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(responses.length).toBe(0);
+    });
+
+    it('write is a no-op when disconnected', async () => {
+      const responses: MavlinkMessage[] = [];
+      const responseParser = new MavlinkFrameParser(registry);
+      const responseDecoder = new MavlinkMessageDecoder(registry);
+      responseParser.onFrame(frame => {
+        const msg = responseDecoder.decode(frame);
+        if (msg && msg.name === 'PARAM_VALUE') responses.push(msg);
+      });
+
+      source.onData(data => responseParser.parse(data));
+      // Do NOT connect
+
+      const requestFrame = frameBuilder.buildFrame({
+        messageName: 'PARAM_REQUEST_LIST',
+        values: { target_system: 1, target_component: 1 },
+        systemId: 255,
+        componentId: 190,
+        sequence: 0,
+      });
+
+      await source.write(requestFrame);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(responses.length).toBe(0);
     });
   });
 });

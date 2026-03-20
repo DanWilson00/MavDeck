@@ -36,7 +36,8 @@
     "idb-keyval": "^6.2.2",
     "leaflet": "^1.9.4",
     "solid-js": "^1.9.11",
-    "uplot": "^1.6.32"
+    "uplot": "^1.6.32",
+    "xz-decompress": "^0.2.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

@@ -8,7 +8,11 @@
 
 import type { ByteCallback, IByteSource } from './byte-source';
 import { MavlinkFrameBuilder } from '../mavlink/frame-builder';
+import { MavlinkFrameParser } from '../mavlink/frame-parser';
+import { MavlinkMessageDecoder } from '../mavlink/decoder';
 import type { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { SpoofParamResponder } from './spoof-param-responder';
+import { SpoofFtpResponder } from './spoof-ftp-responder';
 
 /** Status text entries with severity levels. */
 const STATUS_MESSAGES: ReadonlyArray<readonly [number, string]> = [
@@ -40,6 +44,10 @@ export class SpoofByteSource implements IByteSource {
   private readonly registry: MavlinkMetadataRegistry;
   private readonly frameBuilder: MavlinkFrameBuilder;
   private readonly callbacks = new Set<ByteCallback>();
+  private readonly inboundParser: MavlinkFrameParser;
+  private readonly inboundDecoder: MavlinkMessageDecoder;
+  private readonly paramResponder: SpoofParamResponder;
+  private readonly ftpResponder: SpoofFtpResponder;
 
   private readonly systemId: number;
   private readonly componentId: number;
@@ -71,11 +79,39 @@ export class SpoofByteSource implements IByteSource {
     registry: MavlinkMetadataRegistry,
     systemId = 1,
     componentId = 1,
+    metadataJson = '',
   ) {
     this.registry = registry;
     this.frameBuilder = new MavlinkFrameBuilder(registry);
     this.systemId = systemId;
     this.componentId = componentId;
+
+    // Loopback pipeline: parse outbound frames, decode, dispatch to responders
+    this.inboundParser = new MavlinkFrameParser(registry);
+    this.inboundDecoder = new MavlinkMessageDecoder(registry);
+    this.paramResponder = new SpoofParamResponder(registry, systemId, componentId);
+    this.ftpResponder = new SpoofFtpResponder(registry, metadataJson, systemId, componentId);
+
+    this.inboundParser.onFrame(frame => {
+      const msg = this.inboundDecoder.decode(frame);
+      if (!msg) return;
+
+      // Collect responses from all responders
+      const responses = [
+        ...this.paramResponder.handleMessage(msg),
+        ...this.ftpResponder.handleMessage(msg),
+      ];
+
+      for (const responseFrame of responses) {
+        // Emit response frames through the normal data path
+        // Use setTimeout to avoid synchronous re-entry
+        setTimeout(() => {
+          for (const cb of this.callbacks) {
+            cb(responseFrame);
+          }
+        }, 0);
+      }
+    });
   }
 
   get isConnected(): boolean {
@@ -116,6 +152,12 @@ export class SpoofByteSource implements IByteSource {
 
     // STATUSTEXT at random 3-8s intervals
     this.scheduleNextStatusText();
+  }
+
+  async write(data: Uint8Array): Promise<void> {
+    if (!this._isConnected) return;
+    // Feed outbound bytes through the inbound parser for loopback
+    this.inboundParser.parse(data);
   }
 
   async disconnect(): Promise<void> {

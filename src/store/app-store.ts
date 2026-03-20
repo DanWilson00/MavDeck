@@ -5,6 +5,7 @@ import type {
   BaudRate,
   UnitProfile,
   LogViewerState,
+  MapLayerType,
 } from '../services';
 import { DEFAULT_BAUD_RATE, DEFAULT_SETTINGS } from '../services';
 import type { PlotTab, TimeWindow } from '../models';
@@ -13,6 +14,7 @@ import { DEFAULT_TIME_WINDOW } from '../models';
 export interface AppState {
   connectionStatus: ConnectionStatus;
   theme: 'dark' | 'light';
+  debugConsoleEnabled: boolean;
   uiScale: number;
   unitProfile: UnitProfile;
   activeTab: string;
@@ -28,8 +30,10 @@ export interface AppState {
   addPlotCounter: number;
   mapShowPath: boolean;
   mapTrailLength: number;
-  mapLayer: 'street' | 'satellite';
+  mapLayer: MapLayerType;
   mapZoom: number;
+  mapCenterLat: number;
+  mapCenterLon: number;
   mapAutoCenter: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -41,6 +45,7 @@ export interface AppState {
   logViewerState: LogViewerState;
   dialectName: string;
   connectionSourceType: 'serial' | 'spoof' | null;
+  pendingConnectionSourceType: 'serial' | 'spoof' | null;
   autoConnect: boolean;
   autoDetectBaud: boolean;
   probeStatus: string | null;
@@ -59,6 +64,7 @@ export function createInitialAppState(): AppState {
     connectionStatus: 'disconnected',
     activeTab: DEFAULT_SETTINGS.activeTab,
     theme: DEFAULT_SETTINGS.theme,
+    debugConsoleEnabled: DEFAULT_SETTINGS.debugConsoleEnabled,
     uiScale: DEFAULT_SETTINGS.uiScale,
     unitProfile: DEFAULT_SETTINGS.unitProfile,
     activeSubTab: 'default',
@@ -75,6 +81,8 @@ export function createInitialAppState(): AppState {
     mapTrailLength: DEFAULT_SETTINGS.mapTrailLength,
     mapLayer: DEFAULT_SETTINGS.mapLayer,
     mapZoom: DEFAULT_SETTINGS.mapZoom,
+    mapCenterLat: DEFAULT_SETTINGS.mapCenterLat,
+    mapCenterLon: DEFAULT_SETTINGS.mapCenterLon,
     mapAutoCenter: DEFAULT_SETTINGS.mapAutoCenter,
     sidebarCollapsed: DEFAULT_SETTINGS.sidebarCollapsed,
     sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
@@ -91,6 +99,7 @@ export function createInitialAppState(): AppState {
     },
     dialectName: '',
     connectionSourceType: null,
+    pendingConnectionSourceType: null,
     autoConnect: DEFAULT_SETTINGS.autoConnect,
     autoDetectBaud: DEFAULT_SETTINGS.autoDetectBaud,
     probeStatus: null,
@@ -110,7 +119,8 @@ export const [appState, setAppState] = createStore<AppState>(createInitialAppSta
 type PersistedSettingsState = Pick<
   AppState,
   'activeTab' | 'theme' | 'uiScale' | 'unitProfile' | 'baudRate' | 'bufferCapacity' | 'mapShowPath' |
-  'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapAutoCenter' | 'sidebarCollapsed' |
+  'debugConsoleEnabled' |
+  'mapTrailLength' | 'mapLayer' | 'mapZoom' | 'mapCenterLat' | 'mapCenterLon' | 'mapAutoCenter' | 'sidebarCollapsed' |
   'sidebarWidth' | 'autoConnect' | 'autoDetectBaud' | 'lastSuccessfulBaudRate'
   | 'lastPortVendorId' | 'lastPortProductId' | 'lastPortSerialNumber'
 >;
@@ -119,6 +129,7 @@ export function applySettingsToAppState(settings: PersistedSettingsState): void 
   batch(() => {
     setAppState('activeTab', settings.activeTab);
     setAppState('theme', settings.theme);
+    setAppState('debugConsoleEnabled', settings.debugConsoleEnabled);
     setAppState('uiScale', settings.uiScale);
     setAppState('unitProfile', settings.unitProfile);
     setAppState('baudRate', settings.baudRate);
@@ -127,6 +138,8 @@ export function applySettingsToAppState(settings: PersistedSettingsState): void 
     setAppState('mapTrailLength', settings.mapTrailLength);
     setAppState('mapLayer', settings.mapLayer);
     setAppState('mapZoom', settings.mapZoom);
+    setAppState('mapCenterLat', settings.mapCenterLat);
+    setAppState('mapCenterLon', settings.mapCenterLon);
     setAppState('mapAutoCenter', settings.mapAutoCenter);
     setAppState('sidebarCollapsed', settings.sidebarCollapsed);
     setAppState('sidebarWidth', settings.sidebarWidth);
@@ -144,6 +157,7 @@ export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): ty
     ...settings,
     activeTab: appState.activeTab,
     theme: appState.theme,
+    debugConsoleEnabled: appState.debugConsoleEnabled,
     uiScale: appState.uiScale,
     unitProfile: appState.unitProfile,
     baudRate: appState.baudRate,
@@ -152,6 +166,8 @@ export function mergeAppStateIntoSettings(settings: typeof DEFAULT_SETTINGS): ty
     mapTrailLength: appState.mapTrailLength,
     mapLayer: appState.mapLayer,
     mapZoom: appState.mapZoom,
+    mapCenterLat: appState.mapCenterLat,
+    mapCenterLon: appState.mapCenterLon,
     mapAutoCenter: appState.mapAutoCenter,
     sidebarCollapsed: appState.sidebarCollapsed,
     sidebarWidth: appState.sidebarWidth,

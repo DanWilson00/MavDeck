@@ -8,12 +8,21 @@
 import { EventEmitter } from '../core';
 import type { MessageStats } from './message-tracker';
 import type { LogSessionChunk, LogSessionEnd, LogSessionStart } from './tlog-service';
-import type { WorkerCommand, WorkerEvent, ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
+import { logDebugError } from './debug-console';
+import type {
+  WorkerCommand,
+  WorkerEvent,
+  ConnectionConfig,
+  ConnectionStatus,
+  FtpMetadataProgressEvent,
+} from '../workers/worker-protocol';
 import type { SerialPortIdentity } from './serial-probe-service';
 import type { BaudRate } from './baud-rates';
+import type { ParameterStateSnapshot, ParamSetResult } from './parameter-types';
 
 // Re-export protocol types so existing consumers don't need to change imports.
 export type { ConnectionConfig, ConnectionStatus } from '../workers/worker-protocol';
+export type { FtpMetadataProgressEvent } from '../workers/worker-protocol';
 
 export interface StatusTextEntry {
   severity: number;
@@ -45,6 +54,12 @@ export class MavlinkWorkerBridge {
   private readonly probeStatusEmitter = new EventEmitter<(status: string | null) => void>();
   private readonly serialConnectedEmitter = new EventEmitter<(info: { baudRate: BaudRate; portIdentity: SerialPortIdentity | null }) => void>();
   private readonly throughputEmitter = new EventEmitter<(bytesPerSec: number) => void>();
+  private readonly paramStateEmitter = new EventEmitter<(state: ParameterStateSnapshot) => void>();
+  private readonly paramSetResultEmitter = new EventEmitter<(result: ParamSetResult) => void>();
+  private readonly ftpMetadataResultEmitter = new EventEmitter<(json: string, crcValid: boolean) => void>();
+  private readonly ftpMetadataErrorEmitter = new EventEmitter<(error: string) => void>();
+  private readonly ftpMetadataProgressEmitter = new EventEmitter<(progress: FtpMetadataProgressEvent) => void>();
+  private readonly writeBytesEmitter = new EventEmitter<(data: Uint8Array) => void>();
   private initResolve: (() => void) | null = null;
   private lastUpdate: Map<string, { timestamps: Float64Array; values: Float64Array }> | null = null;
 
@@ -203,6 +218,51 @@ export class MavlinkWorkerBridge {
     return this.loadCompleteEmitter.on(callback);
   }
 
+  /** Request all parameters from the vehicle. */
+  requestAllParams(): void {
+    this.postCommand({ type: 'paramRequestAll' });
+  }
+
+  /** Set a parameter value on the vehicle. */
+  setParam(paramId: string, value: number): void {
+    this.postCommand({ type: 'paramSet', paramId, value });
+  }
+
+  /** Subscribe to parameter state updates. */
+  onParamState(callback: (state: ParameterStateSnapshot) => void): () => void {
+    return this.paramStateEmitter.on(callback);
+  }
+
+  /** Subscribe to parameter set result events. */
+  onParamSetResult(callback: (result: ParamSetResult) => void): () => void {
+    return this.paramSetResultEmitter.on(callback);
+  }
+
+  /** Request FTP metadata download from the connected device. */
+  downloadFtpMetadata(): void {
+    this.postCommand({ type: 'ftpDownloadMetadata' });
+  }
+
+  /** Subscribe to FTP metadata download result events. */
+  onFtpMetadataResult(callback: (json: string, crcValid: boolean) => void): () => void {
+    return this.ftpMetadataResultEmitter.on(callback);
+  }
+
+  /** Subscribe to FTP metadata download error events. */
+  onFtpMetadataError(callback: (error: string) => void): () => void {
+    return this.ftpMetadataErrorEmitter.on(callback);
+  }
+
+  /** Subscribe to FTP metadata download progress events. */
+  onFtpMetadataProgress(callback: (progress: FtpMetadataProgressEvent) => void): () => void {
+    return this.ftpMetadataProgressEmitter.on(callback);
+  }
+
+  /** Subscribe to write-back bytes from the worker (for WebUSB write path). */
+  onWriteBytes(callback: (data: Uint8Array) => void): () => void {
+    return this.writeBytesEmitter.on(callback);
+  }
+
   /** Terminate the worker. */
   dispose(): void {
     this.worker.terminate();
@@ -306,7 +366,38 @@ export class MavlinkWorkerBridge {
         break;
       }
 
+      case 'paramState': {
+        this.paramStateEmitter.emit(msg.state);
+        break;
+      }
+
+      case 'paramSetResult': {
+        this.paramSetResultEmitter.emit(msg.result);
+        break;
+      }
+
+      case 'ftpMetadataResult': {
+        this.ftpMetadataResultEmitter.emit(msg.json, msg.crcValid);
+        break;
+      }
+
+      case 'ftpMetadataProgress': {
+        this.ftpMetadataProgressEmitter.emit(msg.progress);
+        break;
+      }
+
+      case 'ftpMetadataError': {
+        this.ftpMetadataErrorEmitter.emit(msg.error);
+        break;
+      }
+
+      case 'writeBytes': {
+        this.writeBytesEmitter.emit(msg.data);
+        break;
+      }
+
       case 'error': {
+        logDebugError('worker', msg.message);
         console.error('[MavlinkWorker]', msg.message);
         break;
       }

@@ -36,12 +36,21 @@ export {
   flushSettings,
   DEFAULT_SETTINGS,
   type MavDeckSettings,
+  type MapLayerType,
   saveDialect,
   loadDialect,
   clearDialect,
   type PersistedDialect,
 } from './settings-service';
+export type {
+  ParameterValue,
+  ParamFetchStatus,
+  ParameterStateSnapshot,
+  ParamSetResult,
+} from './parameter-types';
+export { ParameterManager } from './parameter-manager';
 export { SpoofByteSource } from './spoof-byte-source';
+export { SpoofParamResponder } from './spoof-param-responder';
 export { TimeSeriesDataManager, type TimeSeriesManagerOptions } from './timeseries-manager';
 export {
   encodeTlogRecord,
@@ -89,3 +98,33 @@ export {
   type ConnectionStatus,
   type StatusTextEntry,
 } from './worker-bridge';
+export {
+  DEBUG_CONSOLE_SOURCES,
+  DEBUG_CONSOLE_SOURCE_LABELS,
+  addDebugConsoleEntry,
+  clearDebugConsoleEntries,
+  getDebugConsoleEntries,
+  logDebugEvent,
+  logDebugInfo,
+  logDebugWarn,
+  logDebugError,
+  onDebugConsoleEntry,
+  onDebugConsoleClear,
+  type DebugConsoleEntry,
+  type DebugConsoleLevel,
+  type DebugConsoleSource,
+} from './debug-console';
+export {
+  getCachedMetadataByCrc,
+  putCachedMetadata,
+  clearCachedMetadataByCrc,
+  clearMetadataCache,
+} from './metadata-cache';
+export {
+  addStatusTextEntry,
+  clearStatusTextEntries,
+  getStatusTextEntries,
+  onStatusTextEntry,
+  onStatusTextClear,
+  type StatusTextLogEntry,
+} from './status-text-log';

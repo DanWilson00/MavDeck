@@ -318,6 +318,7 @@ describe('serial-session-controller', () => {
     expect(controller.currentSessionState).toEqual({
       sourceType: 'serial',
       connectedBaudRate: 57600,
+      pendingSourceType: null,
     });
   });
 
@@ -333,7 +334,11 @@ describe('serial-session-controller', () => {
 
   it('tracks session state from spoof and serial connection events', () => {
     const controller = createController();
-    const states: Array<{ sourceType: 'serial' | 'spoof' | null; connectedBaudRate: number | null }> = [];
+    const states: Array<{
+      sourceType: 'serial' | 'spoof' | null;
+      connectedBaudRate: number | null;
+      pendingSourceType: 'serial' | 'spoof' | null;
+    }> = [];
     controller.onSessionStateChange(state => {
       states.push(state);
     });
@@ -344,10 +349,11 @@ describe('serial-session-controller', () => {
     statusListener?.('disconnected');
 
     expect(states).toEqual([
-      { sourceType: null, connectedBaudRate: null },
-      { sourceType: 'spoof', connectedBaudRate: null },
-      { sourceType: 'serial', connectedBaudRate: 57600 },
-      { sourceType: null, connectedBaudRate: null },
+      { sourceType: null, connectedBaudRate: null, pendingSourceType: null },
+      { sourceType: null, connectedBaudRate: null, pendingSourceType: 'spoof' },
+      { sourceType: 'spoof', connectedBaudRate: null, pendingSourceType: null },
+      { sourceType: 'serial', connectedBaudRate: 57600, pendingSourceType: null },
+      { sourceType: null, connectedBaudRate: null, pendingSourceType: null },
     ]);
   });
 
@@ -378,6 +384,7 @@ describe('serial-session-controller', () => {
     expect(controller.currentSessionState).toEqual({
       sourceType: 'serial',
       connectedBaudRate: 57600,
+      pendingSourceType: null,
     });
   });
 
@@ -394,6 +401,7 @@ describe('serial-session-controller', () => {
     expect(controller.currentSessionState).toEqual({
       sourceType: null,
       connectedBaudRate: null,
+      pendingSourceType: null,
     });
   });
 
@@ -862,9 +870,16 @@ describe('serial-session-controller', () => {
       lastPortIdentity: { usbVendorId: 11, usbProductId: 22 },
       lastBaudRate: 500000,
     };
-    (controller as unknown as { sessionState: { sourceType: 'serial'; connectedBaudRate: number | null } }).sessionState = {
+    (controller as unknown as {
+      sessionState: {
+        sourceType: 'serial';
+        connectedBaudRate: number | null;
+        pendingSourceType: 'serial' | 'spoof' | null;
+      };
+    }).sessionState = {
       sourceType: 'serial',
       connectedBaudRate: 500000,
+      pendingSourceType: null,
     };
     (controller as unknown as { phase: string }).phase = 'connected_serial';
 

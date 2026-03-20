@@ -10,6 +10,7 @@
 /// <reference lib="webworker" />
 
 import { MavlinkMetadataRegistry } from '../mavlink/registry';
+import { MavlinkFrameBuilder } from '../mavlink/frame-builder';
 import {
   SpoofByteSource,
   ExternalByteSource,
@@ -17,6 +18,8 @@ import {
   TimeSeriesDataManager,
   MavlinkService,
 } from '../services';
+import { ParameterManager } from '../services/parameter-manager';
+import { MetadataFtpDownloader } from '../services/metadata-ftp-downloader';
 import { WorkerSerialByteSource } from '../services/worker-serial-byte-source';
 import { SerialProbeService } from '../services/serial-probe-service';
 import type { SerialPortIdentity } from '../services/serial-probe-service';
@@ -35,9 +38,11 @@ import {
 import {
   batchProcessPackets,
   clearMainThreadTelemetryState,
+  clearStatusTextAssembly,
   forwardStatusText,
   postUpdateFromManager,
   serializeStats,
+  type StatusTextAssemblyState,
 } from './mavlink-worker-pipeline-helpers';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -79,6 +84,10 @@ interface PipelineState {
   updateUnsub: (() => void) | null;
   statustextUnsub: (() => void) | null;
   packetUnsub: (() => void) | null;
+  vehicleTrackUnsub: (() => void) | null;
+  paramMessageUnsub: (() => void) | null;
+  ftpMessageUnsub: (() => void) | null;
+  statusTextAssembly: StatusTextAssemblyState;
 }
 
 interface ResetPipelineOptions {
@@ -104,6 +113,10 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
   updateUnsub: null,
   statustextUnsub: null,
   packetUnsub: null,
+  vehicleTrackUnsub: null,
+  paramMessageUnsub: null,
+  ftpMessageUnsub: null,
+  statusTextAssembly: { partials: new Map() },
 };
 
 // ---------------------------------------------------------------------------
@@ -112,6 +125,44 @@ const INITIAL_PIPELINE_STATE: PipelineState = {
 
 /** Registry is initialized once via 'init' and persists across connections. */
 let registry: MavlinkMetadataRegistry | null = null;
+
+/** Frame builder for outbound messages, initialized alongside registry. */
+let frameBuilder: MavlinkFrameBuilder | null = null;
+
+/** Parameter manager for the MAVLink parameter protocol. */
+let paramManager: ParameterManager | null = null;
+
+/** Metadata FTP downloader for component metadata protocol. */
+let metadataDownloader: MetadataFtpDownloader | null = null;
+
+/** Sequence number for outbound GCS messages. */
+let sendSequence = 0;
+
+/** GCS system ID per MAVLink convention. */
+const GCS_SYSTEM_ID = 255;
+
+/** GCS component ID (MAV_COMP_ID_MISSIONPLANNER). */
+const GCS_COMPONENT_ID = 190;
+
+/**
+ * Build and send a MAVLink message through the active byte source.
+ * Silently returns if no source or frame builder is available.
+ */
+function sendMavlinkMessage(
+  messageName: string,
+  values: Record<string, number | string | number[]>,
+): void {
+  const source = serial.serialSource ?? pipeline.externalSource ?? pipeline.spoofSource;
+  if (!source || !frameBuilder) return;
+  const frame = frameBuilder.buildFrame({
+    messageName,
+    values,
+    systemId: GCS_SYSTEM_ID,
+    componentId: GCS_COMPONENT_ID,
+    sequence: sendSequence++ & 0xFF,
+  });
+  void source.write(frame);
+}
 
 interface SerialState {
   serialSource: WorkerSerialByteSource | null;
@@ -137,6 +188,28 @@ const serial: SerialState = {
 const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
 const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
 
+interface VehicleIdentity {
+  systemId: number;
+  componentId: number;
+  lastHeartbeatMs: number;
+}
+
+let activeVehicle: VehicleIdentity | null = null;
+
+const DEFAULT_VEHICLE_SYSTEM_ID = 1;
+const DEFAULT_VEHICLE_COMPONENT_ID = 1;
+
+function getVehicleTarget(): { systemId: number; componentId: number } {
+  if (activeVehicle) {
+    return { systemId: activeVehicle.systemId, componentId: activeVehicle.componentId };
+  }
+  return { systemId: DEFAULT_VEHICLE_SYSTEM_ID, componentId: DEFAULT_VEHICLE_COMPONENT_ID };
+}
+
+function postFtpMetadataProgress(progress: import('./worker-protocol').FtpMetadataProgressEvent): void {
+  postEvent({ type: 'ftpMetadataProgress', progress });
+}
+
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
 const LOG_GRACE_PERIOD_MS = 30_000;
@@ -158,6 +231,13 @@ function resetPipelineConnection(): void {
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
+  pipeline.vehicleTrackUnsub = null;
+  pipeline.paramMessageUnsub = null;
+  pipeline.ftpMessageUnsub = null;
+  paramManager?.dispose();
+  paramManager = null;
+  metadataDownloader?.dispose();
+  metadataDownloader = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,10 +314,16 @@ function releasePipelineSubscriptions(): void {
   pipeline.updateUnsub?.();
   pipeline.statustextUnsub?.();
   pipeline.packetUnsub?.();
+  pipeline.vehicleTrackUnsub?.();
+  pipeline.paramMessageUnsub?.();
+  pipeline.ftpMessageUnsub?.();
   pipeline.statsUnsub = null;
   pipeline.updateUnsub = null;
   pipeline.statustextUnsub = null;
   pipeline.packetUnsub = null;
+  pipeline.vehicleTrackUnsub = null;
+  pipeline.paramMessageUnsub = null;
+  pipeline.ftpMessageUnsub = null;
 }
 
 async function resetPipeline(options: ResetPipelineOptions = {}): Promise<void> {
@@ -506,6 +592,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   pipeline.tracker = new GenericMessageTracker();
   pipeline.timeseriesManager = new TimeSeriesDataManager({ bufferCapacity: pipeline.bufferCapacity });
   pipeline.service = new MavlinkService(registry!, source, pipeline.tracker, pipeline.timeseriesManager);
+  clearStatusTextAssembly(pipeline.statusTextAssembly);
 
   pipeline.statsUnsub = pipeline.tracker.onStats(stats => {
     postEvent({
@@ -519,12 +606,42 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 
   pipeline.statustextUnsub = pipeline.service.onMessage(msg => {
-    forwardStatusText(msg, Date.now(), postEvent);
+    forwardStatusText(pipeline.statusTextAssembly, msg, Date.now(), postEvent);
+  });
+
+  pipeline.vehicleTrackUnsub = pipeline.service.onMessage(msg => {
+    if (msg.name === 'HEARTBEAT') {
+      activeVehicle = {
+        systemId: msg.systemId,
+        componentId: msg.componentId,
+        lastHeartbeatMs: Date.now(),
+      };
+    }
   });
 
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
     recordPacketActivity();
     appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
+  });
+
+  paramManager = new ParameterManager(sendMavlinkMessage, getVehicleTarget);
+  pipeline.paramMessageUnsub = pipeline.service.onMessage(msg => {
+    paramManager?.handleMessage(msg);
+  });
+  paramManager.onStateChange(state => {
+    postEvent({ type: 'paramState', state });
+  });
+  paramManager.onSetResult(result => {
+    postEvent({ type: 'paramSetResult', result });
+  });
+
+  metadataDownloader = new MetadataFtpDownloader(sendMavlinkMessage, getVehicleTarget, progress => {
+    postEvent({ type: 'ftpMetadataProgress', progress });
+  });
+  pipeline.ftpMessageUnsub = pipeline.service.onMessage(msg => {
+    if (msg.name === 'FILE_TRANSFER_PROTOCOL') {
+      metadataDownloader?.handleMessage(msg);
+    }
   });
 }
 
@@ -575,6 +692,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
     case 'init': {
       registry = new MavlinkMetadataRegistry();
       registry.loadFromJsonString(msg.dialectJson);
+      frameBuilder = new MavlinkFrameBuilder(registry);
       void reconnectWithCurrentSource();
       postEvent({ type: 'initComplete' });
       break;
@@ -592,9 +710,20 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
       const { config } = msg;
 
-      const source = config.type === 'spoof'
-        ? (pipeline.spoofSource = new SpoofByteSource(registry))
-        : (pipeline.externalSource = new ExternalByteSource());
+      let source: SpoofByteSource | ExternalByteSource;
+      if (config.type === 'spoof') {
+        // Load bundled metadata for spoof FTP responder (best-effort)
+        let metadataJson = '';
+        try {
+          const resp = await fetch('/params.json');
+          if (resp.ok) metadataJson = await resp.text();
+        } catch { /* spoof FTP will serve empty metadata */ }
+        source = pipeline.spoofSource = new SpoofByteSource(registry, 1, 1, metadataJson);
+      } else {
+        source = pipeline.externalSource = new ExternalByteSource((data) => {
+          postEvent({ type: 'writeBytes', data });
+        });
+      }
 
       setupService(source);
 
@@ -612,6 +741,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
     case 'disconnect': {
       cancelLogGraceTimer();
+      activeVehicle = null;
       await cleanupService();
       await cleanupSerial();
       clearMainThreadTelemetryState(pipeline, postEvent);
@@ -827,6 +957,44 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
         stopActiveProbe();
         doStartAutoConnect();
       }
+      break;
+    }
+
+    case 'paramRequestAll': {
+      paramManager?.requestAll();
+      break;
+    }
+
+    case 'paramSet': {
+      paramManager?.setValue(msg.paramId, msg.value);
+      break;
+    }
+
+    case 'ftpDownloadMetadata': {
+      if (!metadataDownloader) {
+        postFtpMetadataProgress({
+          level: 'error',
+          stage: 'download:not-connected',
+          message: 'Metadata download requested while no metadata downloader is available',
+        });
+        postEvent({ type: 'ftpMetadataError', error: 'Not connected' });
+        break;
+      }
+      postFtpMetadataProgress({
+        level: 'info',
+        stage: 'download:requested',
+        message: 'Metadata download requested from main thread',
+      });
+      metadataDownloader.download()
+        .then(result => postEvent({ type: 'ftpMetadataResult', json: result.json, crcValid: result.crcValid }))
+        .catch(err => {
+          postFtpMetadataProgress({
+            level: 'error',
+            stage: 'download:error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+          postEvent({ type: 'ftpMetadataError', error: err instanceof Error ? err.message : String(err) });
+        });
       break;
     }
   }

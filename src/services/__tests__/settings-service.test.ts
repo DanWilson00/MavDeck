@@ -40,6 +40,7 @@ describe('settings-service', () => {
     const saved: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: true,
       uiScale: 1.1,
       unitProfile: 'raw',
       baudRate: 57600,
@@ -50,6 +51,8 @@ describe('settings-service', () => {
       mapTrailLength: 200,
       mapLayer: 'satellite',
       mapZoom: 12,
+      mapCenterLat: 47.6062,
+      mapCenterLon: -122.3321,
       mapAutoCenter: false,
       sidebarCollapsed: true,
       sidebarWidth: 400,
@@ -93,6 +96,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: true,
       uiScale: 0.95,
       unitProfile: 'metric',
       baudRate: 230400,
@@ -103,6 +107,8 @@ describe('settings-service', () => {
       mapTrailLength: 500,
       mapLayer: 'street',
       mapZoom: 15,
+      mapCenterLat: 34.0522,
+      mapCenterLon: -118.2437,
       mapAutoCenter: true,
       sidebarCollapsed: false,
       sidebarWidth: 350,
@@ -125,6 +131,7 @@ describe('settings-service', () => {
     const settings: MavDeckSettings = {
       activeTab: 'map',
       theme: 'light',
+      debugConsoleEnabled: false,
       uiScale: 1.2,
       unitProfile: 'aviation',
       baudRate: 921600,
@@ -135,6 +142,8 @@ describe('settings-service', () => {
       mapTrailLength: 1000,
       mapLayer: 'satellite',
       mapZoom: 18,
+      mapCenterLat: 51.5074,
+      mapCenterLon: -0.1278,
       mapAutoCenter: false,
       sidebarCollapsed: true,
       sidebarWidth: 500,
@@ -211,9 +220,21 @@ describe('settings-service', () => {
     expect(mockStore.get('mavdeck-settings-v1')).toEqual(latestSettings);
   });
 
+  it('round-trips hybrid map layer setting', async () => {
+    const settings: MavDeckSettings = {
+      ...DEFAULT_SETTINGS,
+      mapLayer: 'hybrid',
+    };
+
+    await saveSettings(settings);
+    const loaded = await loadSettings();
+    expect(loaded.mapLayer).toBe('hybrid');
+  });
+
   it('DEFAULT_SETTINGS has expected default values', () => {
     expect(DEFAULT_SETTINGS.activeTab).toBe('telemetry');
     expect(DEFAULT_SETTINGS.theme).toBe('dark');
+    expect(DEFAULT_SETTINGS.debugConsoleEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.uiScale).toBe(1);
     expect(DEFAULT_SETTINGS.unitProfile).toBe('raw');
     expect(DEFAULT_SETTINGS.baudRate).toBe(500000);

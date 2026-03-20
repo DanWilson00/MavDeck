@@ -2,23 +2,37 @@ import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { convertDisplayValue, formatDisplayValue, getDisplayUnit, useWorkerBridge } from '../services';
+import type { MapLayerType } from '../services';
 import { appState, setAppState } from '../store';
-
-const INITIAL_LAT = 34.0522;
-const INITIAL_LON = -118.2437;
 
 const TILE_LAYERS = {
   street: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 20,
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
     maxZoom: 19,
   },
+  hybrid: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19,
+    labelOverlay: {
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+      maxZoom: 20,
+    },
+  },
 } as const;
+
+const LAYER_ORDER: MapLayerType[] = ['street', 'satellite', 'hybrid'];
+const LAYER_LABELS: Record<MapLayerType, string> = {
+  street: 'Street',
+  satellite: 'Satellite',
+  hybrid: 'Hybrid',
+};
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -39,7 +53,8 @@ function createVehicleIcon(heading: number): L.DivIcon {
 }
 
 function trailColor(): string {
-  return appState.mapLayer === 'satellite' ? '#00ff88' : cssVar('--accent', '#00d4ff');
+  const layer = appState.mapLayer;
+  return (layer === 'satellite' || layer === 'hybrid') ? '#00ff88' : cssVar('--accent', '#00d4ff');
 }
 
 export default function MapView() {
@@ -49,6 +64,7 @@ export default function MapView() {
   let marker: L.Marker | undefined;
   let trail: L.Polyline | undefined;
   let tileLayer: L.TileLayer | undefined;
+  let overlayLayer: L.TileLayer | undefined;
   let trailPoints: L.LatLng[] = [];
   let rafId: number | undefined;
   let unsubUpdate: (() => void) | undefined;
@@ -58,19 +74,19 @@ export default function MapView() {
   let savedAutoCenter: boolean | undefined;
 
   const [coords, setCoords] = createSignal({
-    lat: INITIAL_LAT,
-    lon: INITIAL_LON,
+    lat: appState.mapCenterLat,
+    lon: appState.mapCenterLon,
     alt: 0,
     hdg: 0,
   });
   const [hasMapData, setHasMapData] = createSignal(false);
 
-  let latestLat = INITIAL_LAT;
-  let latestLon = INITIAL_LON;
+  let latestLat = appState.mapCenterLat;
+  let latestLon = appState.mapCenterLon;
   let latestAlt = 0;
   let latestHdg = 0;
-  let latestLatRaw = INITIAL_LAT * 1e7;
-  let latestLonRaw = INITIAL_LON * 1e7;
+  let latestLatRaw = appState.mapCenterLat * 1e7;
+  let latestLonRaw = appState.mapCenterLon * 1e7;
   let latestAltRaw = 0;
   let latestHdgRaw = 0;
   let prevHdg = -1;
@@ -193,11 +209,22 @@ export default function MapView() {
     }
   }
 
+  function persistViewportCenter(): void {
+    if (!map) return;
+    const center = map.getCenter();
+    if (center.lat !== appState.mapCenterLat) {
+      setAppState('mapCenterLat', center.lat);
+    }
+    if (center.lng !== appState.mapCenterLon) {
+      setAppState('mapCenterLon', center.lng);
+    }
+  }
+
   onMount(() => {
     if (!containerRef) return;
 
     map = L.map(containerRef, {
-      center: [INITIAL_LAT, INITIAL_LON],
+      center: [appState.mapCenterLat, appState.mapCenterLon],
       zoom: appState.mapZoom,
       zoomControl: true,
       fadeAnimation: false,
@@ -206,7 +233,9 @@ export default function MapView() {
     map.on('zoomend', () => {
       const z = map!.getZoom();
       if (z !== appState.mapZoom) setAppState('mapZoom', z);
+      persistViewportCenter();
     });
+    map.on('moveend', persistViewportCenter);
 
     const layerConfig = TILE_LAYERS[appState.mapLayer];
     tileLayer = L.tileLayer(layerConfig.url, {
@@ -214,7 +243,7 @@ export default function MapView() {
       maxZoom: layerConfig.maxZoom,
     }).addTo(map);
 
-    marker = L.marker([INITIAL_LAT, INITIAL_LON], {
+    marker = L.marker([appState.mapCenterLat, appState.mapCenterLon], {
       icon: createVehicleIcon(0),
     }).addTo(map);
 
@@ -303,12 +332,19 @@ export default function MapView() {
   // Switch tile layer
   createEffect(() => {
     if (!map) return;
-    const layerConfig = TILE_LAYERS[appState.mapLayer];
+    const config = TILE_LAYERS[appState.mapLayer];
     if (tileLayer) tileLayer.remove();
-    tileLayer = L.tileLayer(layerConfig.url, {
-      attribution: layerConfig.attribution,
-      maxZoom: layerConfig.maxZoom,
+    if (overlayLayer) { overlayLayer.remove(); overlayLayer = undefined; }
+    tileLayer = L.tileLayer(config.url, {
+      attribution: config.attribution,
+      maxZoom: config.maxZoom,
     }).addTo(map);
+    if ('labelOverlay' in config && config.labelOverlay) {
+      overlayLayer = L.tileLayer(config.labelOverlay.url, {
+        maxZoom: config.labelOverlay.maxZoom,
+        pane: 'overlayPane',
+      }).addTo(map);
+    }
     // Update trail color for visibility on new background
     trail?.setStyle({ color: trailColor() });
   });
@@ -334,6 +370,7 @@ export default function MapView() {
   });
 
   onCleanup(() => {
+    persistViewportCenter();
     if (rafId !== undefined) cancelAnimationFrame(rafId);
     unsubUpdate?.();
     map?.remove();
@@ -341,119 +378,99 @@ export default function MapView() {
 
   return (
     <div class="relative h-full w-full">
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Top-right overlay: telemetry + controls */}
-      <div class="absolute top-2 right-2 z-[1000] flex flex-col items-end gap-1.5">
-        {/* Coordinate readout */}
-        <div
-          class="rounded px-3 py-2 text-xs font-mono"
-          style={{
-            'background-color': 'var(--map-overlay-bg)',
-            color: 'var(--map-overlay-text)',
-            'pointer-events': 'none',
-            border: '1px solid var(--map-overlay-border)',
-          }}
-        >
-          <div>
-            Lat: {formatDisplayValue(
-              convertDisplayValue(latestLatRaw, 'degE7', appState.unitProfile, { fieldName: 'lat' }),
-              getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' }),
-              'map',
-              { fieldName: 'lat' },
-            )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' })}
+        <div class="absolute top-3 right-3 z-[1000] flex flex-col items-end gap-2">
+          <div class="console-overlay rounded-md px-3 py-2 text-xs font-mono" style={{ 'pointer-events': 'none' }}>
+            <div>
+              Lat: {formatDisplayValue(
+                convertDisplayValue(latestLatRaw, 'degE7', appState.unitProfile, { fieldName: 'lat' }),
+                getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' }),
+                'map',
+                { fieldName: 'lat' },
+              )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lat' })}
+            </div>
+            <div>
+              Lon: {formatDisplayValue(
+                convertDisplayValue(latestLonRaw, 'degE7', appState.unitProfile, { fieldName: 'lon' }),
+                getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' }),
+                'map',
+                { fieldName: 'lon' },
+              )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' })}
+            </div>
+            <div>
+              Alt: {formatDisplayValue(
+                convertDisplayValue(latestAltRaw, 'mm', appState.unitProfile, { fieldName: 'alt' }),
+                getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' }),
+                'map',
+                { fieldName: 'alt' },
+              )} {getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' })}
+            </div>
+            <div>
+              Hdg: {formatDisplayValue(
+                convertDisplayValue(latestHdgRaw, 'cdeg', appState.unitProfile, { fieldName: 'hdg' }),
+                getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' }),
+                'map',
+                { fieldName: 'hdg' },
+              )} {getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' })}
+            </div>
           </div>
-          <div>
-            Lon: {formatDisplayValue(
-              convertDisplayValue(latestLonRaw, 'degE7', appState.unitProfile, { fieldName: 'lon' }),
-              getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' }),
-              'map',
-              { fieldName: 'lon' },
-            )} {getDisplayUnit('degE7', appState.unitProfile, { fieldName: 'lon' })}
-          </div>
-          <div>
-            Alt: {formatDisplayValue(
-              convertDisplayValue(latestAltRaw, 'mm', appState.unitProfile, { fieldName: 'alt' }),
-              getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' }),
-              'map',
-              { fieldName: 'alt' },
-            )} {getDisplayUnit('mm', appState.unitProfile, { fieldName: 'alt' })}
-          </div>
-          <div>
-            Hdg: {formatDisplayValue(
-              convertDisplayValue(latestHdgRaw, 'cdeg', appState.unitProfile, { fieldName: 'hdg' }),
-              getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' }),
-              'map',
-              { fieldName: 'hdg' },
-            )} {getDisplayUnit('cdeg', appState.unitProfile, { fieldName: 'hdg' })}
+
+          <div class="console-overlay flex gap-1 rounded-md p-1">
+            <button
+              class="console-button rounded p-1.5 interactive-hover"
+              style={{
+                color: appState.mapLayer !== 'street' ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              onClick={() => {
+                const idx = LAYER_ORDER.indexOf(appState.mapLayer);
+                setAppState('mapLayer', LAYER_ORDER[(idx + 1) % LAYER_ORDER.length]);
+              }}
+              title={`Map: ${LAYER_LABELS[appState.mapLayer]}`}
+            >
+              <LayerIcon />
+            </button>
+            <button
+              class="console-button rounded p-1.5 interactive-hover"
+              style={{
+                color: appState.mapShowPath ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              onClick={() => setAppState('mapShowPath', !appState.mapShowPath)}
+              title={appState.mapShowPath ? 'Hide flight path' : 'Show flight path'}
+            >
+              <PathIcon />
+            </button>
+            <button
+              class="console-button rounded p-1.5 interactive-hover"
+              style={{
+                color: appState.mapAutoCenter ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+              onClick={() => {
+                const newState = !appState.mapAutoCenter;
+                setAppState('mapAutoCenter', newState);
+                if (newState && map) {
+                  map.panTo([latestLat, latestLon], { animate: true });
+                }
+              }}
+              title={appState.mapAutoCenter ? 'Auto-center: ON' : 'Auto-center: OFF'}
+            >
+              <CrosshairIcon />
+            </button>
           </div>
         </div>
 
-        {/* Map control buttons */}
-        <div class="flex gap-1.5">
-          <button
-            class="p-1.5 rounded interactive-hover"
-            style={{
-              'background-color': 'var(--bg-panel)',
-              border: '1px solid var(--border)',
-              color: appState.mapLayer === 'satellite' ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-            onClick={() => setAppState('mapLayer', appState.mapLayer === 'street' ? 'satellite' : 'street')}
-            title={appState.mapLayer === 'street' ? 'Switch to satellite' : 'Switch to street map'}
-          >
-            <LayerIcon />
-          </button>
-          <button
-            class="p-1.5 rounded interactive-hover"
-            style={{
-              'background-color': 'var(--bg-panel)',
-              border: '1px solid var(--border)',
-              color: appState.mapShowPath ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-            onClick={() => setAppState('mapShowPath', !appState.mapShowPath)}
-            title={appState.mapShowPath ? 'Hide flight path' : 'Show flight path'}
-          >
-            <PathIcon />
-          </button>
-          <button
-            class="p-1.5 rounded interactive-hover"
-            style={{
-              'background-color': 'var(--bg-panel)',
-              border: '1px solid var(--border)',
-              color: appState.mapAutoCenter ? 'var(--accent)' : 'var(--text-secondary)',
-            }}
-            onClick={() => {
-              const newState = !appState.mapAutoCenter;
-              setAppState('mapAutoCenter', newState);
-              if (newState && map) {
-                map.panTo([latestLat, latestLon], { animate: true });
-              }
-            }}
-            title={appState.mapAutoCenter ? 'Auto-center: ON' : 'Auto-center: OFF'}
-          >
-            <CrosshairIcon />
-          </button>
-        </div>
-      </div>
-
-      <Show when={!hasMapData()}>
-        <div class="pointer-events-none absolute left-2 top-2 z-[1000] max-w-sm rounded-lg border px-3 py-2 text-sm"
-          style={{
-            'background-color': 'var(--map-overlay-bg)',
-            color: 'var(--map-overlay-text)',
-            border: '1px solid var(--map-overlay-border)',
-          }}
-        >
-          <div class="font-medium">
-            {appState.logViewerState.isActive ? 'No log path yet' : 'No live position yet'}
+        <Show when={!hasMapData()}>
+          <div class="console-overlay pointer-events-none absolute left-3 top-3 z-[1000] max-w-sm rounded-md px-3 py-2 text-sm">
+            <div class="font-medium">
+              {appState.logViewerState.isActive ? 'No log path yet' : 'No live position yet'}
+            </div>
+            <div class="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {appState.logViewerState.isActive
+                ? 'Path appears when the log contains position data.'
+                : 'Connect telemetry to update the map.'}
+            </div>
           </div>
-          <div class="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {appState.logViewerState.isActive
-              ? 'Path appears when the log contains position data.'
-              : 'Connect telemetry to update the map.'}
-          </div>
-        </div>
-      </Show>
+        </Show>
     </div>
   );
 }

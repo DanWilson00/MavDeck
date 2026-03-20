@@ -11,3 +11,11 @@ export {
   setActiveSubTab,
   type AppState,
 } from './app-store';
+export {
+  selectStatusBarModel,
+  formatStatusDuration,
+  formatStatusThroughput,
+  type StatusBarModel,
+  type StatusBadgeModel,
+  type StatusTone,
+} from './session-status';

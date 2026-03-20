@@ -9,7 +9,7 @@ import InstallPrompt from './InstallPrompt';
 const TIME_WINDOW_OPTIONS: TimeWindow[] = [5, 10, 30, 60, 120, 300];
 
 interface ToolbarProps {
-  onSelectTab: (tabId: 'telemetry' | 'map') => void;
+  onSelectTab: (tabId: 'telemetry' | 'map' | 'parameters') => void;
 }
 
 export default function Toolbar(props: ToolbarProps) {
@@ -57,24 +57,25 @@ export default function Toolbar(props: ToolbarProps) {
       class="flex items-center justify-between px-4 h-12 border-b"
       style={{
         'background-color': 'var(--bg-panel)',
-        'border-color': 'var(--border)',
-        'box-shadow': 'var(--shadow-panel)',
+        'border-color': 'var(--border-subtle)',
+        'box-shadow': 'none',
       }}
     >
       {/* Left: Tab navigation */}
-      <div class="flex items-center gap-1">
+      <div class="flex items-center gap-2">
         <div
-          class="flex rounded-md overflow-hidden"
-          style={{ border: '1px solid var(--border)', 'background-color': 'var(--bg-hover)' }}
+          class="flex overflow-hidden"
+          style={{ border: '1px solid var(--border-subtle)', 'background-color': 'transparent' }}
         >
           <SegmentButton id="telemetry" label="Telemetry" onSelect={props.onSelectTab} />
-          <SegmentButton id="map" label="Map" isLast={true} onSelect={props.onSelectTab} />
+          <SegmentButton id="map" label="Map" onSelect={props.onSelectTab} />
+          <SegmentButton id="parameters" label="Parameters" isLast={true} onSelect={props.onSelectTab} />
         </div>
         <ModeToggle />
       </div>
 
       {/* Right: Controls */}
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2.5">
         <InstallPrompt />
 
         {/* Serial connection */}
@@ -85,9 +86,8 @@ export default function Toolbar(props: ToolbarProps) {
               <Show when={shouldShowGrantAccess()}>
                 <button
                   onClick={handleGrantAccess}
-                  class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                  class="console-button px-3 py-1 rounded text-sm font-medium transition-colors"
                   style={{
-                    'background-color': 'var(--bg-button)',
                     color: 'var(--text-primary)',
                   }}
                 >
@@ -105,9 +105,8 @@ export default function Toolbar(props: ToolbarProps) {
             <Show when={!isConnected()} fallback={
               <button
                 onClick={handleDisconnectSerial}
-                class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                class="console-button px-3 py-1 rounded text-sm font-medium transition-colors"
                 style={{
-                  'background-color': 'var(--bg-button)',
                   color: 'var(--text-primary)',
                 }}
               >
@@ -116,9 +115,8 @@ export default function Toolbar(props: ToolbarProps) {
             }>
               <button
                 onClick={handleConnectSerial}
-                class="px-3 py-1 rounded text-sm font-medium transition-colors"
+                class="console-button px-3 py-1 rounded text-sm font-medium transition-colors"
                 style={{
-                  'background-color': 'var(--bg-button)',
                   color: 'var(--text-primary)',
                 }}
               >
@@ -156,8 +154,8 @@ export default function Toolbar(props: ToolbarProps) {
         {/* Unload log button — only when a log is loaded */}
         <Show when={appState.logViewerState.isActive}>
           <button
-            class="px-2 py-1 rounded text-xs interactive-hover"
-            style={{ 'background-color': 'var(--bg-button)', color: 'var(--text-primary)' }}
+            class="console-button px-2 py-1 rounded text-xs interactive-hover"
+            style={{ color: 'var(--text-primary)' }}
             onClick={() => logViewerService.unload()}
           >
             Unload Log
@@ -179,11 +177,9 @@ export default function Toolbar(props: ToolbarProps) {
           <Show when={!appState.logViewerState.isActive}>
             <div class="flex items-center gap-1">
               <select
-                class="text-xs rounded px-1 py-0.5"
+                class="console-input text-xs rounded px-1.5 py-0.5"
                 style={{
-                  'background-color': 'var(--bg-hover)',
                   color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
                 }}
                 value={appState.timeWindow}
                 onChange={(e) => setAppState('timeWindow', Number(e.currentTarget.value) as TimeWindow)}
@@ -204,7 +200,6 @@ export default function Toolbar(props: ToolbarProps) {
           onClick={() => setAppState('isSettingsOpen', true)}
           class="p-1.5 rounded transition-colors interactive-hover"
           style={{
-            'background-color': 'var(--bg-hover)',
             color: 'var(--text-secondary)',
           }}
           title="Open settings"
@@ -221,16 +216,17 @@ export default function Toolbar(props: ToolbarProps) {
   );
 }
 
-function SegmentButton(props: { id: 'telemetry' | 'map'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map') => void }) {
+function SegmentButton(props: { id: 'telemetry' | 'map' | 'parameters'; label: string; isLast?: boolean; onSelect: (tabId: 'telemetry' | 'map' | 'parameters') => void }) {
   const isActive = () => appState.activeTab === props.id;
   return (
     <button
       onClick={() => props.onSelect(props.id)}
       class="px-3 py-1 text-sm font-medium transition-colors"
       style={{
-        'background-color': isActive() ? 'var(--bg-panel)' : 'transparent',
-        color: isActive() ? 'var(--accent)' : 'var(--text-secondary)',
-        'border-right': props.isLast ? 'none' : '1px solid var(--border)',
+        'background-color': 'transparent',
+        color: isActive() ? 'var(--text-primary)' : 'var(--text-secondary)',
+        'border-bottom': isActive() ? '1px solid var(--accent)' : '1px solid transparent',
+        'border-right': props.isLast ? 'none' : '1px solid var(--border-subtle)',
       }}
     >
       {props.label}
@@ -241,7 +237,13 @@ function SegmentButton(props: { id: 'telemetry' | 'map'; label: string; isLast?:
 function ModeToggle() {
   return (
     <Show when={appState.logViewerState.isActive}>
-      <span class="ml-2 px-2 py-0.5 text-xs rounded" style={{ 'background-color': 'var(--accent)', color: '#000' }}>
+      <span
+        class="ml-1 text-[11px]"
+        style={{
+          color: 'var(--text-quiet)',
+          'font-family': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+        }}
+      >
         Log: {appState.logViewerState.sourceName}
       </span>
     </Show>

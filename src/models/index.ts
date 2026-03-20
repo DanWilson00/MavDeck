@@ -19,3 +19,8 @@ export {
   type PlotConfig,
   type PlotTab,
 } from './plot-config';
+
+export type {
+  ParamDef,
+  ParamValueOption,
+} from './parameter-metadata';

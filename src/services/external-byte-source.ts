@@ -10,6 +10,11 @@ import type { ByteCallback, IByteSource } from './byte-source';
 export class ExternalByteSource implements IByteSource {
   private readonly callbacks = new Set<ByteCallback>();
   private _isConnected = false;
+  private readonly writeCb: ((data: Uint8Array) => void) | null;
+
+  constructor(writeCb?: (data: Uint8Array) => void) {
+    this.writeCb = writeCb ?? null;
+  }
 
   get isConnected(): boolean {
     return this._isConnected;
@@ -27,6 +32,11 @@ export class ExternalByteSource implements IByteSource {
   async disconnect(): Promise<void> {
     this._isConnected = false;
     this.callbacks.clear();
+  }
+
+  async write(data: Uint8Array): Promise<void> {
+    if (!this.writeCb) throw new Error('ExternalByteSource does not support write');
+    this.writeCb(data);
   }
 
   /** Feed bytes from outside (called by worker message handler). */

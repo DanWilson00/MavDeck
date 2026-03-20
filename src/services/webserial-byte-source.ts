@@ -48,6 +48,17 @@ export class WebSerialByteSource {
     this.readLoop();
   }
 
+  /** Write bytes to the serial port. */
+  async write(data: Uint8Array): Promise<void> {
+    if (!this.port?.writable) throw new Error('Serial port not writable');
+    const writer = this.port.writable.getWriter();
+    try {
+      await writer.write(data);
+    } finally {
+      writer.releaseLock();
+    }
+  }
+
   /** Disconnect and clean up. */
   async disconnect(): Promise<void> {
     this._isConnected = false;

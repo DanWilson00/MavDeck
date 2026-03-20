@@ -12,9 +12,12 @@ import type { UnitProfile } from './unit-display';
 
 const SETTINGS_KEY = 'mavdeck-settings-v1';
 
+export type MapLayerType = 'street' | 'satellite' | 'hybrid';
+
 export interface MavDeckSettings {
   activeTab: string;
   theme: 'dark' | 'light';
+  debugConsoleEnabled: boolean;
   uiScale: number;
   unitProfile: UnitProfile;
   baudRate: BaudRate;
@@ -23,8 +26,10 @@ export interface MavDeckSettings {
   updateIntervalMs: number;
   mapShowPath: boolean;
   mapTrailLength: number;
-  mapLayer: 'street' | 'satellite';
+  mapLayer: MapLayerType;
   mapZoom: number;
+  mapCenterLat: number;
+  mapCenterLon: number;
   mapAutoCenter: boolean;
   sidebarCollapsed: boolean;
   sidebarWidth: number;
@@ -40,6 +45,7 @@ export interface MavDeckSettings {
 export const DEFAULT_SETTINGS: MavDeckSettings = {
   activeTab: 'telemetry',
   theme: 'dark',
+  debugConsoleEnabled: false,
   uiScale: 1,
   unitProfile: 'raw',
   baudRate: DEFAULT_BAUD_RATE,
@@ -50,6 +56,8 @@ export const DEFAULT_SETTINGS: MavDeckSettings = {
   mapTrailLength: 500,
   mapLayer: 'street',
   mapZoom: 15,
+  mapCenterLat: 34.0522,
+  mapCenterLon: -118.2437,
   mapAutoCenter: true,
   sidebarCollapsed: false,
   sidebarWidth: 350,
