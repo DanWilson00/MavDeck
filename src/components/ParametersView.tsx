@@ -42,7 +42,13 @@ export default function ParametersView() {
       if (value === null) {
         next.delete(paramId);
       } else {
-        next.set(paramId, value);
+        // If value matches device value, remove pending edit (no actual change)
+        const deviceValue = paramState().params[paramId]?.value;
+        if (deviceValue !== undefined && value === deviceValue) {
+          next.delete(paramId);
+        } else {
+          next.set(paramId, value);
+        }
       }
       return next;
     });

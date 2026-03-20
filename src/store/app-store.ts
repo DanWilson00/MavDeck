@@ -5,6 +5,7 @@ import type {
   BaudRate,
   UnitProfile,
   LogViewerState,
+  MapLayerType,
 } from '../services';
 import { DEFAULT_BAUD_RATE, DEFAULT_SETTINGS } from '../services';
 import type { PlotTab, TimeWindow } from '../models';
@@ -29,7 +30,7 @@ export interface AppState {
   addPlotCounter: number;
   mapShowPath: boolean;
   mapTrailLength: number;
-  mapLayer: 'street' | 'satellite';
+  mapLayer: MapLayerType;
   mapZoom: number;
   mapCenterLat: number;
   mapCenterLon: number;

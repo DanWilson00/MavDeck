@@ -39,7 +39,7 @@ export default function ParameterRow(props: ParameterRowProps) {
   return (
     <div
       onClick={() => props.onClick()}
-      class="flex items-center px-4 py-2.5 cursor-pointer transition-colors"
+      class="flex items-center px-4 py-2 cursor-pointer transition-colors"
       style={{
         'background-color': props.selected ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent',
         'border-left': props.selected ? '2px solid var(--accent)' : '2px solid transparent',
@@ -63,7 +63,7 @@ export default function ParameterRow(props: ParameterRowProps) {
       </Show>
 
       {/* Field name */}
-      <span class="flex-1 text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+      <span class="flex-1 text-sm font-normal truncate" style={{ color: 'var(--text-primary)' }}>
         {fieldName()}
       </span>
 

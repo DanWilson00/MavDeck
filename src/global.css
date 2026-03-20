@@ -113,8 +113,8 @@ input:focus-visible {
 }
 
 .custom-slider::-webkit-slider-runnable-track {
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: linear-gradient(
     to right,
     var(--accent) 0%,
@@ -127,36 +127,36 @@ input:focus-visible {
 .custom-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
   border: 2px solid var(--bg-panel);
-  box-shadow: 0 0 0 1px var(--border);
-  margin-top: -8px;
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.25);
+  margin-top: -6px;
 }
 
 .custom-slider::-moz-range-track {
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: var(--border);
 }
 
 .custom-slider::-moz-range-progress {
-  height: 8px;
-  border-radius: 4px;
+  height: 6px;
+  border-radius: 3px;
   background: var(--accent);
 }
 
 .custom-slider::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
   border: 2px solid var(--bg-panel);
-  box-shadow: 0 0 0 1px var(--border);
+  box-shadow: 0 0 6px rgba(0, 212, 255, 0.25);
 }
 
 /* uPlot drag-select box */

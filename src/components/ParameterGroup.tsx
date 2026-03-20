@@ -37,7 +37,7 @@ export default function ParameterGroup(props: ParameterGroupProps) {
         <span class="text-sm font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
           {props.group.name}
         </span>
-        <span class="text-sm" style={{ color: 'var(--text-secondary)' }}>
+        <span class="text-xs font-normal" style={{ color: 'var(--text-secondary)', opacity: '0.6' }}>
           ({props.group.params.length + props.group.arrays.reduce((sum, a) => sum + a.elements.length, 0)})
         </span>
       </button>

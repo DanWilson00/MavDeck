@@ -95,7 +95,7 @@ export default function ParameterDetail(props: ParameterDetailProps) {
   };
 
   return (
-    <div class="h-full overflow-y-auto p-6">
+    <div class="h-full overflow-y-auto p-5">
       {/* Header */}
       <h2 class="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
         {fieldName()}
@@ -134,8 +134,8 @@ export default function ParameterDetail(props: ParameterDetailProps) {
         <div class="flex items-baseline gap-2 mb-3">
           <Show when={isModified()} fallback={
             <>
-              <span class="text-xs uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Value</span>
-              <span class="text-lg font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+              <span class="text-xs uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>Current Value</span>
+              <span class="text-xl font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
                 {formatDisplayValue(props.param.value, meta())}
               </span>
               <Show when={!isDiscreteLike(meta()) && meta()?.units && meta()!.units !== 'norm'}>
@@ -147,11 +147,11 @@ export default function ParameterDetail(props: ParameterDetailProps) {
             </>
           }>
             <span class="text-xs uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>On vehicle</span>
-            <span class="text-lg font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
+            <span class="text-xl font-mono font-semibold" style={{ color: 'var(--text-primary)' }}>
               {formatDisplayValue(props.param.value, meta())}
             </span>
             <span style={{ color: 'var(--text-secondary)' }}>{'\u2192'}</span>
-            <span class="text-lg font-mono font-semibold" style={{ color: 'var(--accent)' }}>
+            <span class="text-xl font-mono font-semibold" style={{ color: 'var(--accent)' }}>
               {formatDisplayValue(currentValue(), meta())}
             </span>
             <Show when={!isDiscreteLike(meta()) && meta()?.units && meta()!.units !== 'norm'}>
@@ -161,6 +161,50 @@ export default function ParameterDetail(props: ParameterDetailProps) {
         </div>
 
         <EditControl param={props.param} value={currentValue()} onChange={handleLocalChange} />
+
+        {/* Actions — inside the edit card */}
+        <div class="mt-3 flex items-center justify-end gap-2">
+          <Show when={meta() && !isAtDefault(currentValue(), meta()!)}>
+            <button
+              onClick={() => handleLocalChange(meta()!.default)}
+              class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              style={{
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer',
+              }}
+            >
+              Reset
+            </button>
+          </Show>
+          <Show when={isModified()}>
+            <button
+              onClick={handleRevert}
+              class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+              style={{
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border)',
+                cursor: 'pointer',
+              }}
+            >
+              Revert
+            </button>
+          </Show>
+          <button
+            onClick={handleSave}
+            disabled={!isModified()}
+            class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+            style={{
+              'background-color': isModified() ? 'var(--accent)' : 'transparent',
+              color: isModified() ? '#000' : 'var(--text-secondary)',
+              border: isModified() ? '1px solid var(--accent)' : '1px solid var(--border)',
+              opacity: isModified() ? '1' : '0.5',
+              cursor: isModified() ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Save
+          </button>
+        </div>
       </div>
 
       {/* Status toast — keyed by flashKey to restart animation on consecutive writes */}
@@ -175,51 +219,6 @@ export default function ParameterDetail(props: ParameterDetailProps) {
           </div>
         )}
       </Show>
-
-      {/* Actions */}
-      <div class="mt-6 flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={!isModified()}
-          class="px-4 py-2 rounded text-sm font-medium transition-colors"
-          style={{
-            'background-color': isModified() ? 'var(--accent)' : 'var(--bg-hover)',
-            color: isModified() ? '#000' : 'var(--text-secondary)',
-            opacity: isModified() ? '1' : '0.5',
-            cursor: isModified() ? 'pointer' : 'not-allowed',
-          }}
-        >
-          Save
-        </button>
-        <Show when={isModified()}>
-          <button
-            onClick={handleRevert}
-            class="px-4 py-2 rounded text-sm font-medium transition-colors"
-            style={{
-              'background-color': 'var(--bg-hover)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border)',
-              cursor: 'pointer',
-            }}
-          >
-            Revert
-          </button>
-        </Show>
-        <Show when={meta() && !isAtDefault(currentValue(), meta()!)}>
-          <button
-            onClick={() => handleLocalChange(meta()!.default)}
-            class="px-4 py-2 rounded text-sm font-medium transition-colors"
-            style={{
-              'background-color': 'var(--bg-hover)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border)',
-              cursor: 'pointer',
-            }}
-          >
-            Reset to Default
-          </button>
-        </Show>
-      </div>
 
       {/* Badges */}
       <Show when={meta()?.rebootRequired}>
@@ -324,9 +323,9 @@ function DiscreteControl(props: { meta: ParamDef; value: number; onChange: (v: n
         {(opt) => (
           <button
             onClick={() => props.onChange(opt.value)}
-            class="px-5 py-4 rounded-lg text-sm font-medium transition-colors"
+            class="px-4 py-3 rounded-lg text-sm font-medium transition-colors"
             style={{
-              'min-height': '48px',
+              'min-height': '44px',
               'background-color': props.value === opt.value ? 'var(--accent)' : 'var(--bg-panel)',
               color: props.value === opt.value ? '#000' : 'var(--text-secondary)',
               border: `2px solid ${props.value === opt.value ? 'var(--accent)' : 'var(--border)'}`,

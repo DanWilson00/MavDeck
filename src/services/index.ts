@@ -36,6 +36,7 @@ export {
   flushSettings,
   DEFAULT_SETTINGS,
   type MavDeckSettings,
+  type MapLayerType,
   saveDialect,
   loadDialect,
   clearDialect,

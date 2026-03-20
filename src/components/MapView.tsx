@@ -2,20 +2,37 @@ import { onMount, onCleanup, createSignal, createEffect, Show } from 'solid-js';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { convertDisplayValue, formatDisplayValue, getDisplayUnit, useWorkerBridge } from '../services';
+import type { MapLayerType } from '../services';
 import { appState, setAppState } from '../store';
 
 const TILE_LAYERS = {
   street: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 20,
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
     maxZoom: 19,
   },
+  hybrid: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19,
+    labelOverlay: {
+      url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',
+      maxZoom: 20,
+    },
+  },
 } as const;
+
+const LAYER_ORDER: MapLayerType[] = ['street', 'satellite', 'hybrid'];
+const LAYER_LABELS: Record<MapLayerType, string> = {
+  street: 'Street',
+  satellite: 'Satellite',
+  hybrid: 'Hybrid',
+};
 
 function cssVar(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();

@@ -12,6 +12,8 @@ import type { UnitProfile } from './unit-display';
 
 const SETTINGS_KEY = 'mavdeck-settings-v1';
 
+export type MapLayerType = 'street' | 'satellite' | 'hybrid';
+
 export interface MavDeckSettings {
   activeTab: string;
   theme: 'dark' | 'light';
@@ -24,7 +26,7 @@ export interface MavDeckSettings {
   updateIntervalMs: number;
   mapShowPath: boolean;
   mapTrailLength: number;
-  mapLayer: 'street' | 'satellite';
+  mapLayer: MapLayerType;
   mapZoom: number;
   mapCenterLat: number;
   mapCenterLon: number;

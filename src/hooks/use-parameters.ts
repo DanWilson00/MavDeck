@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, createRoot } from 'solid-js';
-import { useWorkerBridge, logDebugError, logDebugEvent, logDebugInfo, logDebugWarn } from '../services';
+import { useWorkerBridge, logDebugError, logDebugEvent, logDebugInfo, logDebugWarn, type ConnectionStatus } from '../services';
 import type { ParameterStateSnapshot, ParamSetResult, ParamFetchStatus } from '../services/parameter-types';
 import type { ParamDef } from '../models/parameter-metadata';
 import { parseMetadata } from '../services/param-metadata-service';
@@ -78,7 +78,7 @@ function ensureBridge(bridge: ReturnType<typeof useWorkerBridge>) {
 
   // Auto-read params on connection, auto-download metadata when done
   createRoot(() => {
-    let prevConnectionStatus = appState.connectionStatus;
+    let prevConnectionStatus: ConnectionStatus = 'disconnected';
     let prevFetchStatus: ParamFetchStatus = 'idle';
 
     createEffect(() => {
