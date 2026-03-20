@@ -294,27 +294,8 @@ export default function TelemetryView() {
     return map;
   });
 
-  function handleResizeStart(e: MouseEvent) {
-    const startX = e.clientX;
-    const startWidth = appState.sidebarWidth;
-
-    function onMove(ev: MouseEvent) {
-      const newWidth = Math.min(600, Math.max(200, startWidth + (ev.clientX - startX)));
-      setAppState('sidebarWidth', newWidth);
-    }
-
-    function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }
+  let dragStartX = 0;
+  let dragStartWidth = 0;
 
   return (
     <div class="flex h-full">
@@ -399,8 +380,25 @@ export default function TelemetryView() {
                 width: '4px',
                 height: '100%',
                 cursor: 'col-resize',
+                'touch-action': 'none',
               }}
-              onMouseDown={handleResizeStart}
+              onPointerDown={(e) => {
+                dragStartX = e.clientX;
+                dragStartWidth = appState.sidebarWidth;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+              }}
+              onPointerMove={(e) => {
+                if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                const newWidth = Math.min(600, Math.max(200, dragStartWidth + (e.clientX - dragStartX)));
+                setAppState('sidebarWidth', newWidth);
+              }}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+              }}
             />
           </div>
         </Show>

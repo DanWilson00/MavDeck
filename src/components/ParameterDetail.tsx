@@ -167,40 +167,42 @@ export default function ParameterDetail(props: ParameterDetailProps) {
         <EditControl param={props.param} value={currentValue()} onChange={handleLocalChange} />
 
         {/* Actions — inside the edit card */}
-        <div class="mt-3 flex items-center justify-end gap-2">
-          <Show when={meta() && !isAtDefault(currentValue(), meta()!)}>
-            <button
-              onClick={() => handleLocalChange(meta()!.default)}
-              class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
-              style={{
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-                cursor: 'pointer',
-              }}
-            >
-              Restore Default
-            </button>
-          </Show>
-          <Show when={isModified()}>
-            <button
-              onClick={handleRevert}
-              class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
-              style={{
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border)',
-                cursor: 'pointer',
-              }}
-            >
-              Revert
-            </button>
-          </Show>
+        <div class="mt-3 flex items-center gap-2">
+          <div class="flex gap-2 mr-auto">
+            <Show when={meta() && !isAtDefault(currentValue(), meta()!)}>
+              <button
+                onClick={() => handleLocalChange(meta()!.default)}
+                class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                style={{
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                Restore Default
+              </button>
+            </Show>
+            <Show when={isModified()}>
+              <button
+                onClick={handleRevert}
+                class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                style={{
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer',
+                }}
+              >
+                Revert
+              </button>
+            </Show>
+          </div>
           <button
             onClick={handleSave}
             disabled={!isModified()}
             class="px-3 py-1.5 rounded text-xs font-medium transition-colors"
             style={{
               'background-color': isModified() ? 'var(--accent)' : 'transparent',
-              color: isModified() ? '#000' : 'var(--text-secondary)',
+              color: isModified() ? 'var(--accent-text)' : 'var(--text-secondary)',
               border: isModified() ? '1px solid var(--accent)' : '1px solid var(--border)',
               opacity: isModified() ? '1' : '0.5',
               cursor: isModified() ? 'pointer' : 'not-allowed',
@@ -304,7 +306,7 @@ function BooleanControl(props: { value: number; onChange: (v: number) => void })
           style={{
             width: '34px',
             height: '34px',
-            'background-color': isOn() ? '#000' : 'var(--text-secondary)',
+            'background-color': isOn() ? 'var(--accent-text)' : 'var(--text-secondary)',
             transform: isOn() ? 'translateX(40px)' : 'translateX(2px)',
           }}
         />
@@ -331,7 +333,7 @@ function DiscreteControl(props: { meta: ParamDef; value: number; onChange: (v: n
             style={{
               'min-height': '44px',
               'background-color': props.value === opt.value ? 'var(--accent)' : 'var(--bg-panel)',
-              color: props.value === opt.value ? '#000' : 'var(--text-secondary)',
+              color: props.value === opt.value ? 'var(--accent-text)' : 'var(--text-secondary)',
               border: `2px solid ${props.value === opt.value ? 'var(--accent)' : 'var(--border)'}`,
             }}
           >

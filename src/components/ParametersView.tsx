@@ -175,25 +175,8 @@ export default function ParametersView() {
   const [leftPanelWidth, setLeftPanelWidth] = createSignal(400);
   let containerRef: HTMLDivElement | undefined;
 
-  function startResize(e: MouseEvent) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = leftPanelWidth();
-
-    function onMouseMove(e: MouseEvent) {
-      const maxWidth = containerRef ? containerRef.clientWidth * 0.7 : 800;
-      const newWidth = Math.max(250, Math.min(maxWidth, startWidth + e.clientX - startX));
-      setLeftPanelWidth(newWidth);
-    }
-
-    function onMouseUp() {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    }
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }
+  let dragStartX = 0;
+  let dragStartWidth = 0;
 
   return (
     <div class="h-full flex flex-col" style={{ 'background-color': 'var(--bg-primary)' }}>
@@ -315,12 +298,25 @@ export default function ParametersView() {
 
         {/* Resize handle */}
         <div
-          onMouseDown={startResize}
           class="flex-shrink-0 hover:bg-[var(--accent)] transition-colors"
           style={{
             width: '4px',
             cursor: 'col-resize',
             'background-color': 'var(--border-subtle)',
+            'touch-action': 'none',
+          }}
+          onPointerDown={(e) => {
+            dragStartX = e.clientX;
+            dragStartWidth = leftPanelWidth();
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+            const maxWidth = containerRef ? containerRef.clientWidth * 0.7 : 800;
+            setLeftPanelWidth(Math.max(250, Math.min(maxWidth, dragStartWidth + e.clientX - dragStartX)));
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture(e.pointerId);
           }}
         />
 

@@ -11,6 +11,7 @@
   --text-secondary: #a1a1aa;
   --text-quiet: #7f8793;
   --accent: #00d4ff;
+  --accent-text: #000;
   --accent-green: #00ff88;
   --accent-red: #ff4466;
   --accent-yellow: #f59e0b;
@@ -45,6 +46,7 @@ html {
   --text-secondary: #6b7280;
   --text-quiet: #8b95a3;
   --accent: #0077cc;
+  --accent-text: #fff;
   --accent-green: #059669;
   --accent-red: #dc2626;
   --accent-yellow: #d97706;

@@ -673,7 +673,7 @@ function ToggleSwitch(props: {
         <span
           class="inline-block h-3.5 w-3.5 rounded-full transition-transform mt-[2px]"
           style={{
-            'background-color': props.checked && !isDisabled() ? '#000' : 'var(--text-secondary)',
+            'background-color': props.checked && !isDisabled() ? 'var(--accent-text)' : 'var(--text-secondary)',
             transform: props.checked ? 'translateX(17px)' : 'translateX(2px)',
           }}
         />
