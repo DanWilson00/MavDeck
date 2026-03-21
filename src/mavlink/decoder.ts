@@ -21,7 +21,10 @@ export interface MavlinkMessage {
 
 export class MavlinkMessageDecoder {
   private readonly registry: MavlinkMetadataRegistry;
-  /** Pre-allocated buffer for zero-padding truncated v2 payloads. Avoids allocation per message. */
+  /**
+   * Pre-allocated buffer for zero-padding truncated v2 payloads. Avoids allocation per message.
+   * Safe to share across calls because decoding is synchronous (no concurrent access).
+   */
   private readonly paddingBuffer = new Uint8Array(MAVLINK_MAX_PAYLOAD_LEN);
 
   constructor(registry: MavlinkMetadataRegistry) {

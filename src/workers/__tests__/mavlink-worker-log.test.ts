@@ -98,9 +98,8 @@ describe('mavlink-worker-log', () => {
       const endEvent = events.find(e => e.type === 'logSessionEnded');
       expect(chunkEvent).toBeDefined();
       expect(endEvent).toBeDefined();
-      if (endEvent?.type === 'logSessionEnded') {
-        expect(endEvent.packetCount).toBe(1);
-      }
+      expect(endEvent!.type).toBe('logSessionEnded');
+      expect((endEvent as Extract<WorkerEvent, { type: 'logSessionEnded' }>).packetCount).toBe(1);
       expect(log.sessionId).toBeNull();
     });
 
@@ -183,12 +182,10 @@ describe('mavlink-worker-log', () => {
       appendPacketToLog(log, new Uint8Array(20), 1000, 10, 1000, postEvent);
       appendPacketToLog(log, new Uint8Array(20), 2000, 10, 1000, postEvent);
 
-      const chunks = events.filter(e => e.type === 'logChunk');
+      const chunks = events.filter((e): e is Extract<WorkerEvent, { type: 'logChunk' }> => e.type === 'logChunk');
       expect(chunks.length).toBe(2);
-      if (chunks[0].type === 'logChunk' && chunks[1].type === 'logChunk') {
-        expect(chunks[0].seq).toBe(0);
-        expect(chunks[1].seq).toBe(1);
-      }
+      expect(chunks[0].seq).toBe(0);
+      expect(chunks[1].seq).toBe(1);
     });
 
     it('tracks session-wide packet count across chunks', () => {
@@ -200,10 +197,9 @@ describe('mavlink-worker-log', () => {
       appendPacketToLog(log, new Uint8Array(20), 2000, 10, 1000, postEvent);
       appendPacketToLog(log, new Uint8Array(20), 3000, 10, 1000, postEvent);
 
-      const lastChunk = events.filter(e => e.type === 'logChunk').pop();
-      if (lastChunk?.type === 'logChunk') {
-        expect(lastChunk.sessionPacketCount).toBe(3);
-      }
+      const chunks = events.filter((e): e is Extract<WorkerEvent, { type: 'logChunk' }> => e.type === 'logChunk');
+      expect(chunks.length).toBeGreaterThan(0);
+      expect(chunks[chunks.length - 1].sessionPacketCount).toBe(3);
     });
   });
 });

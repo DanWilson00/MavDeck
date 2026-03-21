@@ -346,13 +346,16 @@ export class WorkerController {
         postUpdateFromManager(this.pipeline, this.pipeline.timeseriesManager, this.postEvent);
 
         const statsMap = this.pipeline.tracker.getStats();
+        // Override real-time frequency with log-based frequency.
+        // Build a new map to avoid mutating the tracker's cached snapshot.
+        const overriddenStats = new Map(statsMap);
         if (durationSec > 0) {
-          for (const [, stat] of statsMap) {
-            stat.frequency = stat.count / durationSec;
+          for (const [name, stat] of overriddenStats) {
+            overriddenStats.set(name, { ...stat, frequency: stat.count / durationSec });
           }
         }
 
-        const stats = serializeStats(statsMap);
+        const stats = serializeStats(overriddenStats);
         this.postEvent({ type: 'stats', stats });
         this.postEvent({ type: 'loadComplete', stats, durationSec });
         break;
