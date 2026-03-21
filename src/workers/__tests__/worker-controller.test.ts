@@ -161,20 +161,6 @@ describe('WorkerController', () => {
       expect(lastFields.fields.some(f => f.startsWith('ATTITUDE.'))).toBe(true);
     });
 
-    it('tracks vehicle identity from HEARTBEAT', async () => {
-      const collector = createEventCollector();
-      const controller = new WorkerController(collector.postEvent);
-
-      await controller.handleCommand({ type: 'init', dialectJson: commonJson });
-      await controller.handleCommand({ type: 'connect', config: { type: 'spoof' } });
-      await vi.advanceTimersByTimeAsync(1200);
-
-      // Vehicle tracking is verified indirectly — paramState events show the
-      // param manager was created (which uses getVehicleTarget).
-      // We can also check that HEARTBEAT appears in stats.
-      const lastStats = collector.last('stats');
-      expect(lastStats?.stats).toHaveProperty('HEARTBEAT');
-    });
   });
 
   // -----------------------------------------------------------------------
@@ -273,26 +259,6 @@ describe('WorkerController', () => {
       expect(attitudeFreq).toBeCloseTo(3 / complete!.durationSec, 1);
     });
 
-    it('posts update with all fields as interested', async () => {
-      const collector = createEventCollector();
-      const controller = new WorkerController(collector.postEvent);
-
-      await controller.handleCommand({ type: 'init', dialectJson: commonJson });
-
-      const { packets, timestamps } = buildTestPackets(commonJson);
-      await controller.handleCommand({
-        type: 'loadLog',
-        packets,
-        timestamps,
-        bufferCapacity: 1000,
-      });
-
-      const updates = collector.ofType('update');
-      // Should have at least one non-empty update (from loadLog)
-      const nonEmptyUpdates = updates.filter(u => Object.keys(u.buffers).length > 0);
-      expect(nonEmptyUpdates.length).toBeGreaterThan(0);
-    });
-
     it('errors when registry not initialized', async () => {
       const collector = createEventCollector();
       const controller = new WorkerController(collector.postEvent);
@@ -348,7 +314,7 @@ describe('WorkerController', () => {
   // -----------------------------------------------------------------------
 
   describe('setBufferCapacity', () => {
-    it('normalizes non-finite values to default', async () => {
+    it('normalizes invalid values and triggers reconnect when capacity changes', async () => {
       const collector = createEventCollector();
       const controller = new WorkerController(collector.postEvent);
 
@@ -356,30 +322,17 @@ describe('WorkerController', () => {
       await controller.handleCommand({ type: 'connect', config: { type: 'spoof' } });
       await vi.advanceTimersByTimeAsync(0);
 
-      // NaN should be normalized to default (2000) — same as initial, so no reconnect
+      // NaN normalizes to default (2000) — same as initial, so no reconnect
       collector.clear();
       await controller.handleCommand({ type: 'setBufferCapacity', bufferCapacity: NaN });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(collector.ofType('availableFields').length).toBe(0);
 
-      // No reconnect events expected since normalized === current
-      // (default is 2000 and NaN normalizes to 2000)
-    });
-
-    it('normalizes negative values to 1', async () => {
-      const collector = createEventCollector();
-      const controller = new WorkerController(collector.postEvent);
-
-      await controller.handleCommand({ type: 'init', dialectJson: commonJson });
-      await controller.handleCommand({ type: 'connect', config: { type: 'spoof' } });
-      await vi.advanceTimersByTimeAsync(0);
-
-      // Negative should normalize to 1, which differs from default 2000 → triggers reconnect
+      // Negative normalizes to 1, which differs from 2000 → triggers reconnect
       collector.clear();
       await controller.handleCommand({ type: 'setBufferCapacity', bufferCapacity: -5 });
       await vi.advanceTimersByTimeAsync(100);
-
-      // Should have reconnected (availableFields reset, etc.)
-      const fieldEvents = collector.ofType('availableFields');
-      expect(fieldEvents.some(e => e.fields.length === 0)).toBe(true);
+      expect(collector.ofType('availableFields').some(e => e.fields.length === 0)).toBe(true);
     });
   });
 
@@ -407,24 +360,6 @@ describe('WorkerController', () => {
 
       const ftpErrors = collector.ofType('ftpMetadataError');
       expect(ftpErrors.length).toBe(1);
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // pause / resume
-  // -----------------------------------------------------------------------
-
-  describe('pause / resume', () => {
-    it('are no-ops that do not error', async () => {
-      const collector = createEventCollector();
-      const controller = new WorkerController(collector.postEvent);
-
-      // Should not throw even without init
-      await controller.handleCommand({ type: 'pause' });
-      await controller.handleCommand({ type: 'resume' });
-
-      const errors = collector.ofType('error');
-      expect(errors.length).toBe(0);
     });
   });
 

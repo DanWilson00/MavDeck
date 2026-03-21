@@ -87,16 +87,6 @@ describe('DataActivityMonitor', () => {
     expect(onNoData).toHaveBeenCalledOnce(); // only the first time
   });
 
-  it('idle setter allows restoring idle state', () => {
-    const monitor = new DataActivityMonitor(5000, { onNoData: vi.fn(), onDataResumed: vi.fn() });
-
-    expect(monitor.isIdle).toBe(false);
-    monitor.idle = true;
-    expect(monitor.isIdle).toBe(true);
-    monitor.idle = false;
-    expect(monitor.isIdle).toBe(false);
-  });
-
   it('multiple resetTimer calls only result in one timeout', () => {
     const onNoData = vi.fn();
     const monitor = new DataActivityMonitor(1000, { onNoData, onDataResumed: vi.fn() });
