@@ -44,6 +44,8 @@ import {
   serializeStats,
   type StatusTextAssemblyState,
 } from './mavlink-worker-pipeline-helpers';
+import { ThroughputMonitor } from './throughput-monitor';
+import { DataActivityMonitor } from './data-activity-monitor';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -59,17 +61,6 @@ function postEvent(event: WorkerEvent, transfer?: Transferable[]): void {
 // ---------------------------------------------------------------------------
 // State interfaces
 // ---------------------------------------------------------------------------
-
-interface ThroughputState {
-  bytes: number;
-  timer: ReturnType<typeof setInterval> | null;
-  unsub: (() => void) | null;
-}
-
-interface DataActivityState {
-  noDataTimer: ReturnType<typeof setTimeout> | null;
-  noDataActive: boolean;
-}
 
 interface PipelineState {
   service: MavlinkService | null;
@@ -99,6 +90,7 @@ interface ResetPipelineOptions {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_BUFFER_CAPACITY = 2000;
+const NO_DATA_TIMEOUT_MS = 30_000;
 
 const INITIAL_PIPELINE_STATE: PipelineState = {
   service: null,
@@ -185,8 +177,21 @@ const serial: SerialState = {
   suspendedForLog: false,
   suspendedStatus: null,
 };
-const throughput: ThroughputState = { bytes: 0, timer: null, unsub: null };
-const dataActivity: DataActivityState = { noDataTimer: null, noDataActive: false };
+const throughputMonitor = new ThroughputMonitor(bytesPerSec => {
+  postEvent({ type: 'throughput', bytesPerSec });
+});
+
+const dataActivityMonitor = new DataActivityMonitor(NO_DATA_TIMEOUT_MS, {
+  onNoData: () => {
+    if (!serial.serialSource?.isConnected) return;
+    throughputMonitor.stop();
+    stopLogSession(log, postEvent);
+    postEvent({ type: 'statusChange', status: 'no_data' });
+  },
+  onDataResumed: () => {
+    postEvent({ type: 'statusChange', status: 'connected' });
+  },
+});
 
 interface VehicleIdentity {
   systemId: number;
@@ -214,7 +219,6 @@ function postFtpMetadataProgress(progress: import('./worker-protocol').FtpMetada
 const LOG_FLUSH_INTERVAL_MS = 1000;
 const LOG_FLUSH_BYTES = 256 * 1024;
 const LOG_GRACE_PERIOD_MS = 30_000;
-const NO_DATA_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -245,68 +249,9 @@ function resetPipelineConnection(): void {
 // Service lifecycle
 // ---------------------------------------------------------------------------
 
-function startThroughputCounter(source: SpoofByteSource | ExternalByteSource | WorkerSerialByteSource): void {
-  stopThroughputCounter();
-  throughput.bytes = 0;
-  throughput.unsub = source.onData(data => { throughput.bytes += data.byteLength; });
-  throughput.timer = setInterval(() => {
-    postEvent({ type: 'throughput', bytesPerSec: throughput.bytes });
-    throughput.bytes = 0;
-  }, 1000);
-}
-
-function stopThroughputCounter(): void {
-  throughput.unsub?.();
-  throughput.unsub = null;
-  if (throughput.timer !== null) {
-    clearInterval(throughput.timer);
-    throughput.timer = null;
-  }
-  throughput.bytes = 0;
-  postEvent({ type: 'throughput', bytesPerSec: 0 });
-}
-
-function clearNoDataTimer(): void {
-  if (dataActivity.noDataTimer !== null) {
-    clearTimeout(dataActivity.noDataTimer);
-    dataActivity.noDataTimer = null;
-  }
-}
-
-function handleNoDataTimeout(): void {
-  dataActivity.noDataTimer = null;
-  if (!serial.serialSource?.isConnected) {
-    dataActivity.noDataActive = false;
-    return;
-  }
-
-  dataActivity.noDataActive = true;
-  stopThroughputCounter();
-  stopLogSession(log, postEvent);
-  postEvent({ type: 'statusChange', status: 'no_data' });
-}
-
-function resetNoDataTimer(): void {
-  if (!serial.serialSource?.isConnected) return;
-  clearNoDataTimer();
-  dataActivity.noDataTimer = setTimeout(() => {
-    handleNoDataTimeout();
-  }, NO_DATA_TIMEOUT_MS);
-}
-
-function recordPacketActivity(): void {
-  if (!serial.serialSource) return;
-  resetNoDataTimer();
-  if (dataActivity.noDataActive) {
-    dataActivity.noDataActive = false;
-    postEvent({ type: 'statusChange', status: 'connected' });
-  }
-}
-
 async function cleanupService(): Promise<void> {
-  clearNoDataTimer();
-  dataActivity.noDataActive = false;
-  stopThroughputCounter();
+  dataActivityMonitor.reset();
+  throughputMonitor.stop();
   await resetPipeline({ disconnectSource: true });
 }
 
@@ -364,8 +309,7 @@ async function cleanupSerial(options?: { preserveAutoConnect?: boolean }): Promi
   await serial.serialSource?.disconnect();
   serial.serialSource = null;
   stopActiveProbe();
-  clearNoDataTimer();
-  dataActivity.noDataActive = false;
+  dataActivityMonitor.reset();
   serial.suspendedForLog = false;
   serial.suspendedStatus = null;
   if (!options?.preserveAutoConnect) {
@@ -398,10 +342,9 @@ async function suspendLiveSerialForLog(): Promise<void> {
   }
 
   serial.suspendedForLog = true;
-  serial.suspendedStatus = dataActivity.noDataActive ? 'no_data' : 'connected';
-  clearNoDataTimer();
-  dataActivity.noDataActive = false;
-  stopThroughputCounter();
+  serial.suspendedStatus = dataActivityMonitor.isIdle ? 'no_data' : 'connected';
+  dataActivityMonitor.reset();
+  throughputMonitor.stop();
   pipeline.service.detach();
   await serial.serialSource.suspend();
   releasePipelineSubscriptions();
@@ -418,19 +361,19 @@ async function resumeSuspendedLiveSerial(): Promise<void> {
   clearMainThreadTelemetryState(pipeline, postEvent);
 
   serial.suspendedForLog = false;
-  dataActivity.noDataActive = serial.suspendedStatus === 'no_data';
+  dataActivityMonitor.idle = serial.suspendedStatus === 'no_data';
   const resumeStatus = serial.suspendedStatus ?? 'connected';
   serial.suspendedStatus = null;
 
   setupService(serial.serialSource);
   serial.serialSource.resumeAttached();
   pipeline.service!.attach();
-  startThroughputCounter(serial.serialSource);
+  throughputMonitor.start(serial.serialSource);
 
   if (resumeStatus === 'connected') {
-    resetNoDataTimer();
+    dataActivityMonitor.resetTimer();
   } else {
-    clearNoDataTimer();
+    dataActivityMonitor.clearTimer();
   }
 
   postEvent({ type: 'statusChange', status: resumeStatus });
@@ -495,14 +438,13 @@ async function completeSerialConnect(
   options?: { clearProbeStatus?: boolean },
 ): Promise<void> {
   stopActiveProbe();
-  clearNoDataTimer();
-  dataActivity.noDataActive = false;
+  dataActivityMonitor.reset();
   serial.serialSource = new WorkerSerialByteSource(port, baudRate, handleSerialDisconnect);
   setupService(serial.serialSource);
   await pipeline.service!.connect();
-  startThroughputCounter(serial.serialSource);
+  throughputMonitor.start(serial.serialSource);
   await waitForFirstDecodedMessage();
-  resetNoDataTimer();
+  dataActivityMonitor.resetTimer();
   postEvent({ type: 'statusChange', status: 'connected' });
   postEvent({ type: 'serialConnected', baudRate, portIdentity: getSerialPortIdentity(port) });
   if (options?.clearProbeStatus) {
@@ -621,7 +563,7 @@ function setupService(source: SpoofByteSource | ExternalByteSource | WorkerSeria
   });
 
   pipeline.packetUnsub = pipeline.service.onPacket((packet, timestampUs) => {
-    recordPacketActivity();
+    if (serial.serialSource) dataActivityMonitor.recordActivity();
     appendPacketToLog(log, packet, timestampUs, LOG_FLUSH_BYTES, LOG_FLUSH_INTERVAL_MS, postEvent);
   });
 
@@ -651,8 +593,8 @@ async function reconnectWithCurrentSource(): Promise<void> {
   const source = pipeline.spoofSource ?? pipeline.externalSource ?? serial.serialSource;
   if (!source) return;
 
-  clearNoDataTimer();
-  stopThroughputCounter();
+  dataActivityMonitor.clearTimer();
+  throughputMonitor.stop();
   await resetPipeline({ disconnectSource: false });
   clearMainThreadTelemetryState(pipeline, postEvent);
 
@@ -661,18 +603,18 @@ async function reconnectWithCurrentSource(): Promise<void> {
   try {
     if (source === serial.serialSource) {
       pipeline.service?.attach();
-      startThroughputCounter(source);
-      if (!dataActivity.noDataActive) {
-        resetNoDataTimer();
+      throughputMonitor.start(source);
+      if (!dataActivityMonitor.isIdle) {
+        dataActivityMonitor.resetTimer();
       }
-      postEvent({ type: 'statusChange', status: dataActivity.noDataActive ? 'no_data' : 'connected' });
+      postEvent({ type: 'statusChange', status: dataActivityMonitor.isIdle ? 'no_data' : 'connected' });
     } else {
       if (source.isConnected) {
         pipeline.service?.attach();
-        startThroughputCounter(source);
+        throughputMonitor.start(source);
       } else {
         await pipeline.service?.connect();
-        startThroughputCounter(source);
+        throughputMonitor.start(source);
       }
     }
   } catch (err) {
@@ -730,7 +672,7 @@ self.onmessage = async (e: MessageEvent<WorkerCommand>) => {
 
       postEvent({ type: 'statusChange', status: 'connecting' });
       pipeline.service!.connect().then(() => {
-        startThroughputCounter(source);
+        throughputMonitor.start(source);
         postEvent({ type: 'statusChange', status: 'connected' });
       }).catch((err: Error) => {
         void cleanupService();
