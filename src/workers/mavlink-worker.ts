@@ -203,6 +203,7 @@ function getVehicleTarget(): { systemId: number; componentId: number } {
   if (activeVehicle) {
     return { systemId: activeVehicle.systemId, componentId: activeVehicle.componentId };
   }
+  console.warn('[worker] No HEARTBEAT received yet — using default vehicle target (sysid=1, compid=1)');
   return { systemId: DEFAULT_VEHICLE_SYSTEM_ID, componentId: DEFAULT_VEHICLE_COMPONENT_ID };
 }
 

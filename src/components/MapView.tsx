@@ -54,7 +54,7 @@ function createVehicleIcon(heading: number): L.DivIcon {
 
 function trailColor(): string {
   const layer = appState.mapLayer;
-  return (layer === 'satellite' || layer === 'hybrid') ? '#00ff88' : cssVar('--accent', '#00d4ff');
+  return (layer === 'satellite' || layer === 'hybrid') ? cssVar('--accent-green', '#00ff88') : cssVar('--accent', '#00d4ff');
 }
 
 export default function MapView() {
@@ -163,8 +163,8 @@ export default function MapView() {
     // Add start marker (green)
     startMarker = L.circleMarker(fullPath[0], {
       radius: 6,
-      color: '#00cc00',
-      fillColor: '#00ff00',
+      color: cssVar('--map-start-color', '#00cc00'),
+      fillColor: cssVar('--map-start-fill', '#00ff00'),
       fillOpacity: 0.8,
       weight: 2,
     }).addTo(map);
@@ -172,8 +172,8 @@ export default function MapView() {
     // Add end marker (red)
     endMarker = L.circleMarker(fullPath[fullPath.length - 1], {
       radius: 6,
-      color: '#cc0000',
-      fillColor: '#ff0000',
+      color: cssVar('--map-end-color', '#cc0000'),
+      fillColor: cssVar('--map-end-fill', '#ff0000'),
       fillOpacity: 0.8,
       weight: 2,
     }).addTo(map);
