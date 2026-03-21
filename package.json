@@ -29,7 +29,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run build && npm run test"
+    "verify": "npm run typecheck && npm run build && npm run test",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "gridstack": "^12.4.2",
@@ -40,6 +42,7 @@
     "xz-decompress": "^0.2.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.2.1",
     "@types/leaflet": "^1.9.21",
     "@types/w3c-web-serial": "^1.0.8",

@@ -47,5 +47,6 @@ export default defineConfig({
   base: process.env.GITHUB_ACTIONS ? '/MavDeck/' : '/',
   test: {
     environment: 'happy-dom',
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 });

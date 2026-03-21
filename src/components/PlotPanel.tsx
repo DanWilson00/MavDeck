@@ -112,6 +112,7 @@ export default function PlotPanel(props: PlotPanelProps) {
   return (
     <div
       class="flex flex-col h-full rounded"
+      data-testid={`plot-${props.config.id}`}
       style={{
         'background-color': 'var(--bg-panel)',
         border: '1px solid var(--border)',

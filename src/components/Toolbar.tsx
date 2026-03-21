@@ -134,6 +134,7 @@ export default function Toolbar(props: ToolbarProps) {
         {/* Status dot */}
         <div
           class="w-2.5 h-2.5 rounded-full transition-colors"
+          data-testid="connection-status"
           title={appState.connectionStatus}
           style={{ 'background-color': STATUS_COLORS[appState.connectionStatus] }}
         />

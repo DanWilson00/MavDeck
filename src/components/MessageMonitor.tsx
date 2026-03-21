@@ -71,7 +71,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
   }
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full" data-testid="message-monitor">
       {/* Message list */}
       <div class="flex-1 overflow-y-auto">
         <Show when={knownMessageNames().length === 0}>
@@ -89,6 +89,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
               <div
                 class="border-b"
                 style={{ 'border-color': 'var(--border)' }}
+                data-testid={`msg-${name}`}
               >
                 {/* Collapsed header */}
                 <button
