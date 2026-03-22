@@ -47,11 +47,11 @@ test.describe('Parameters', () => {
     await mavdeck.page.getByRole('button', { name: 'Read', exact: true }).click();
     await expect(mavdeck.page.locator('[data-testid^="param-group-"]').first()).toBeVisible({ timeout: 15_000 });
 
-    // Expand first group and click a parameter
+    // Expand first group
     await mavdeck.page.locator('[data-testid^="param-group-"]').first().locator('button').first().click();
 
-    // Click the first parameter row within the expanded group
-    const paramRow = mavdeck.page.locator('[data-testid^="param-group-"]').first().locator('button').nth(1);
+    // Click the first parameter row (ParameterRow renders as a clickable div, not a button)
+    const paramRow = mavdeck.page.locator('[data-testid^="param-group-"]').first().locator('.cursor-pointer').first();
     await paramRow.click();
 
     // Detail panel should show (right side) — look for an input field

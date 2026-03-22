@@ -9,11 +9,21 @@ import { expect, type Page } from '@playwright/test';
 export class MavDeckPage {
   constructor(public readonly page: Page) {}
 
-  /** Navigate to the app and wait for it to be fully initialized. */
+  /** Navigate to the app, disable auto-connect, and wait for it to be fully initialized. */
   async goto() {
     await this.page.goto('/');
     // The status bar footer appears once the app is ready (dialect loaded, services wired)
     await this.page.locator('footer').waitFor({ state: 'visible', timeout: 15_000 });
+
+    // Disable auto-connect so tests start from a clean "disconnected" state
+    await this.page.getByLabel('Open settings').click();
+    await this.page.getByRole('tab', { name: 'Serial' }).click();
+    const toggle = this.page.getByRole('switch', { name: 'Auto-connect serial' });
+    if (await toggle.getAttribute('aria-checked') === 'true') {
+      await toggle.click();
+    }
+    await this.page.getByLabel('Close settings').click();
+    await expect(this.page.locator('[title="disconnected"]')).toBeVisible({ timeout: 10_000 });
   }
 
   /** Open Settings → Advanced → click "Start Simulator" → close → wait for connected. */

@@ -22,10 +22,10 @@ test.describe('Telemetry Display', () => {
     // Click the ATTITUDE message row to expand it
     await mavdeck.page.getByTestId('msg-ATTITUDE').locator('button').first().click();
 
-    // Field names should be visible
-    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('roll')).toBeVisible({ timeout: 3_000 });
-    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('pitch')).toBeVisible();
-    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('yaw')).toBeVisible();
+    // Field names should be visible (exact match to avoid e.g. "roll" matching "rollspeed")
+    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('roll', { exact: true })).toBeVisible({ timeout: 3_000 });
+    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('pitch', { exact: true })).toBeVisible();
+    await expect(mavdeck.page.getByTestId('msg-ATTITUDE').getByText('yaw', { exact: true })).toBeVisible();
   });
 
   test('frequency badges appear with Hz values', async () => {
