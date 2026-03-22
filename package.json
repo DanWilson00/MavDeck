@@ -34,6 +34,7 @@
     "e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "chromium": "^3.0.3",
     "gridstack": "^12.4.2",
     "idb-keyval": "^6.2.2",
     "leaflet": "^1.9.4",
