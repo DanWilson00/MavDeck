@@ -41,6 +41,8 @@ export class GenericMessageTracker {
   private readonly stats = new Map<string, MessageStats>();
   private readonly statsEmitter = new EventEmitter<StatsCallback>();
   private timerId: ReturnType<typeof setInterval> | null = null;
+  private dirty = false;
+  private cachedSnapshot: Map<string, MessageStats> | null = null;
 
   /** Record an incoming message. Call this for every decoded MAVLink message. */
   trackMessage(msg: MavlinkMessage): void {
@@ -63,6 +65,7 @@ export class GenericMessageTracker {
       lastMessage: msg,
       lastReceived: now,
     });
+    this.dirty = true;
   }
 
   /** Start the periodic stats update timer (100ms interval). */
@@ -87,8 +90,10 @@ export class GenericMessageTracker {
     return this.statsEmitter.on(callback);
   }
 
-  /** Returns a snapshot of current stats (deep copy to prevent mutation). */
+  /** Returns a snapshot of current stats (deep copy, cached until dirty). */
   getStats(): Map<string, MessageStats> {
+    if (!this.dirty && this.cachedSnapshot) return this.cachedSnapshot;
+
     const snapshot = new Map<string, MessageStats>();
     for (const [name, entry] of this.stats) {
       snapshot.set(name, {
@@ -96,6 +101,8 @@ export class GenericMessageTracker {
         lastMessage: { ...entry.lastMessage, values: { ...entry.lastMessage.values } },
       });
     }
+    this.cachedSnapshot = snapshot;
+    this.dirty = false;
     return snapshot;
   }
 
@@ -148,12 +155,14 @@ export class GenericMessageTracker {
       }
 
       entry.frequency = frequency;
+      this.dirty = true;
     }
 
     // Remove stale entries
     for (const name of staleNames) {
       this.recentTimestamps.delete(name);
       this.stats.delete(name);
+      this.dirty = true;
     }
 
     // Notify subscribers with a snapshot

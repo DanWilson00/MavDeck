@@ -1,3 +1,4 @@
+import { EventEmitter } from '../core';
 import type { MavlinkWorkerBridge } from './worker-bridge';
 import type { SerialSessionController } from './serial-session-controller';
 import type { TlogRecord } from './tlog-codec';
@@ -11,16 +12,18 @@ export interface LogViewerState {
 
 type LogViewerStateCallback = (state: LogViewerState) => void;
 
+const INITIAL_STATE: LogViewerState = {
+  isActive: false,
+  sourceName: '',
+  durationSec: 0,
+  recordCount: 0,
+};
+
 export class LogViewerService {
   private readonly bridge: MavlinkWorkerBridge;
   private readonly serialSessionController: SerialSessionController;
-  private readonly callbacks = new Set<LogViewerStateCallback>();
-  private state: LogViewerState = {
-    isActive: false,
-    sourceName: '',
-    durationSec: 0,
-    recordCount: 0,
-  };
+  private readonly stateEmitter = new EventEmitter<LogViewerStateCallback>();
+  private state: LogViewerState = { ...INITIAL_STATE };
   private suspendedLiveSession = false;
 
   constructor(bridge: MavlinkWorkerBridge, serialSessionController: SerialSessionController) {
@@ -29,13 +32,13 @@ export class LogViewerService {
   }
 
   subscribe(cb: LogViewerStateCallback): () => void {
-    this.callbacks.add(cb);
+    const unsub = this.stateEmitter.on(cb);
     cb(this.state);
-    return () => this.callbacks.delete(cb);
+    return unsub;
   }
 
   private emitState(): void {
-    for (const cb of this.callbacks) cb(this.state);
+    this.stateEmitter.emit(this.state);
   }
 
   load(records: TlogRecord[], sourceName: string): void {
@@ -57,20 +60,14 @@ export class LogViewerService {
   }
 
   unload(): void {
+    this.bridge.unloadLog();
+
     if (this.suspendedLiveSession) {
-      this.bridge.unloadLog();
       this.serialSessionController.resumeAfterLogPlayback();
       this.suspendedLiveSession = false;
-    } else {
-      this.bridge.unloadLog();
     }
 
-    this.state = {
-      isActive: false,
-      sourceName: '',
-      durationSec: 0,
-      recordCount: 0,
-    };
+    this.state = { ...INITIAL_STATE };
     this.emitState();
   }
 }

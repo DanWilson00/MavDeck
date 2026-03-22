@@ -54,7 +54,7 @@ MavDeck — a high-performance, web-only PWA for real-time MAVLink telemetry vis
 | Layout | gridstack.js (12-column snap grid) |
 | Map | Leaflet + OpenStreetMap |
 | Storage | idb-keyval (IndexedDB) |
-| Testing | Vitest + Playwright MCP |
+| Testing | Vitest (unit/integration) + Playwright (e2e) |
 | XML Parse | DOMParser (browser-native) |
 
 ---
@@ -66,8 +66,11 @@ npm install          # Install dependencies
 npm run dev          # Vite dev server (default: http://localhost:5173)
 npm run build        # Production build
 npm run preview      # Preview production build
-npx vitest run       # Run all tests
+npx vitest run       # Run all unit/integration tests
 npx vitest run src/mavlink/  # Run MAVLink engine tests only
+npx vitest run src/workers/  # Run Web Worker tests only
+npm run e2e          # Run Playwright e2e tests (requires: npx playwright install chromium)
+npm run e2e:headed   # Run Playwright e2e tests with visible browser
 ```
 
 ---
@@ -146,33 +149,45 @@ Do NOT gitignore: `public/dialects/common.xml`, `public/dialects/standard.xml`, 
 ### Key Decisions
 
 1. **Web Worker for MAVLink engine** — All parsing, CRC validation, decoding, and ring buffer writes run in a background Web Worker. The main thread is exclusively for rendering. Data is transferred via `postMessage` with Transferable `ArrayBuffer`s to avoid copies.
-2. **Typed worker protocol** — Discriminated unions (`WorkerCommand`/`WorkerEvent`) for type-safe worker communication (`src/workers/worker-protocol.ts`)
-3. **Gridstack for layout** — 12-column Grafana-style grid with snap
-4. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
-5. **EventEmitter-based services** — `EventEmitter<T>` utility in `src/core/event-emitter.ts` for typed pub/sub; SolidJS signals consume them
-6. **Interested-fields optimization** — Worker only streams ring buffer data for fields the UI currently needs
-7. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
-8. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
-9. **Tlog recording to OPFS** — Binary MAVLink session recording via Origin Private File System with crash recovery (`src/services/tlog-service.ts`)
+2. **WorkerController pattern** — All worker state and logic lives in `WorkerController` class (`src/workers/worker-controller.ts`), testable without a real Worker environment. The worker file itself (`mavlink-worker.ts`) is a thin shell that only wires `postMessage`/`onmessage`. Dedicated monitors (`ThroughputMonitor`, `DataActivityMonitor`) are injected via constructor for testability.
+3. **Typed worker protocol** — Discriminated unions (`WorkerCommand`/`WorkerEvent`) for type-safe worker communication (`src/workers/worker-protocol.ts`)
+4. **Gridstack for layout** — 12-column Grafana-style grid with snap
+5. **Float64Array ring buffers** — Struct-of-arrays `[timestamps, values]` for zero-GC and direct uPlot compatibility
+6. **EventEmitter-based services** — `EventEmitter<T>` utility in `src/core/event-emitter.ts` for typed pub/sub; SolidJS signals consume them
+7. **Interested-fields optimization** — Worker only streams ring buffer data for fields the UI currently needs
+8. **uPlot sync** — All time-series charts share cursor via `uPlot.sync()`
+9. **Leaflet map** — Vehicle position tracking with OpenStreetMap tiles
+10. **Tlog recording to OPFS** — Binary MAVLink session recording via Origin Private File System with crash recovery (`src/services/tlog-service.ts`)
 
 ### Module Structure
 
 - `src/mavlink/` — MAVLink engine (CRC, XML parser, frame parser, decoder, registry)
 - `src/services/` — Data pipeline (byte sources, connection manager, message tracker, timeseries manager, tlog recording, log viewer)
-- `src/workers/` — Web Worker (MAVLink pipeline) + typed message protocol
-- `src/core/` — Shared utilities (ring buffer, event emitter)
+- `src/workers/` — Web Worker infrastructure:
+  - `worker-controller.ts` — All state and command dispatch (testable without Worker env)
+  - `mavlink-worker.ts` — Thin shell (postMessage/onmessage wiring only)
+  - `throughput-monitor.ts` — 1Hz byte throughput measurement
+  - `data-activity-monitor.ts` — Serial idle timeout detection and recovery
+  - `mavlink-worker-log.ts` — Tlog session management helpers
+  - `mavlink-worker-pipeline-helpers.ts` — Pipeline helper functions (stats, status text, batch processing)
+  - `worker-protocol.ts` — Typed discriminated union message protocol
+- `src/core/` — Shared utilities (ring buffer, event emitter, CRC32, plot interactions)
 - `src/components/` — SolidJS UI components
+- `src/hooks/` — SolidJS hooks (bootstrap, auto-connect, parameters, settings sync)
 - `src/store/` — Application state (SolidJS createStore)
 - `src/models/` — TypeScript type definitions
+- `src/test-helpers/` — Shared test utilities (dialect loading)
 - `public/dialects/` — MAVLink dialect XML files (parsed to JSON on first load)
 
 ### Data Flow
 
 ```
-┌─── Web Worker ──────────────────────────────────────────────┐
-│ ByteSource → FrameParser → Decoder → Tracker → RingBuffers  │
-│                                    ↘ TlogEncoder → chunks    │
-└──────────────────────────┬─────────────────┬────────────────┘
+┌─── Web Worker (WorkerController) ────────────────────────────┐
+│ ByteSource ─┬→ ThroughputMonitor → throughput events          │
+│             └→ FrameParser → Decoder → Tracker → RingBuffers │
+│                                      ↘ TlogEncoder → chunks  │
+│             DataActivityMonitor → idle/resume status          │
+└──────────────────────────┬─────────────────┬─────────────────┘
                            │                 │ postMessage
                            ↓                 ↓
 ┌─── Main Thread ──────────────────────────────────────────────┐
@@ -221,8 +236,22 @@ Tests that verify multi-module data flow without a browser.
 |-------------|-----|
 | Spoof → Parser → Decoder | Create SpoofByteSource, connect to FrameParser + Decoder, verify decoded messages have correct names and field types |
 | TimeSeriesManager | Feed decoded messages, verify ring buffers are populated with correct `MessageName.FieldName` keys |
+| WorkerController | Create controller with mock `postEvent`, send commands (init, connect, loadLog, etc.), verify posted events match expected state transitions |
+| Serial handlers | Mock `WorkerSerialByteSource` and `SerialProbeService` via `vi.mock()`, verify connect/disconnect/reconnect lifecycle |
 
-**Tier 3 — Playwright MCP Visual Verification (targeted, UI work only)**
+**Tier 3 — Playwright E2E Tests (slow, run before merge)**
+Automated browser tests that exercise the full user journey via the built-in spoof simulator. No real hardware needed.
+
+| What to test | How |
+|-------------|-----|
+| Connection lifecycle | Start/stop simulator via Settings → Advanced, verify status transitions |
+| Telemetry display | Verify message monitor populates, fields expand, frequency badges appear |
+| Plot management | Add plot, open signal selector, add signals, verify canvas renders, clear/remove |
+| Parameters | Read params, search/filter, select and set a parameter value |
+
+Run with `npm run e2e`. Requires one-time `npx playwright install chromium`.
+
+**Tier 4 — Playwright MCP Visual Verification (targeted, UI work only)**
 Use the Playwright MCP tools to autonomously verify UI behavior in the running dev server. This is NOT a test suite — it's an agent-driven verification loop.
 
 ### Playwright MCP Autonomous Iteration
@@ -245,10 +274,19 @@ For UI work, use the Playwright MCP tools in an edit→verify loop when Playwrig
 ```
 src/
   mavlink/__tests__/     crc, decoder, frame-parser, registry, xml-parser
-  core/__tests__/        ring-buffer, event-emitter
+  core/__tests__/        ring-buffer, event-emitter, crc32, plot-interactions
   services/__tests__/    spoof-byte-source, message-tracker, timeseries-manager,
-                         mavlink-service, external-byte-source, settings-service, tlog-codec
-  store/__tests__/       app-store
+                         mavlink-service, external-byte-source, settings-service, tlog-codec,
+                         parameter-manager, serial-session-controller, log-viewer-service,
+                         ftp-client, serial-probe-service, and others
+  workers/__tests__/     worker-controller, worker-controller-serial, throughput-monitor,
+                         data-activity-monitor, mavlink-worker-log,
+                         mavlink-worker-pipeline-helpers
+  components/__tests__/  DebugConsole, SettingsModal, StatusBar, Toolbar
+  hooks/__tests__/       use-auto-connect, use-parameters, use-settings-sync
+  store/__tests__/       app-store, session-status
+
+e2e/                     connection, telemetry, plots, parameters (Playwright specs)
 ```
 
 Tests import from the module under test. Use `describe`/`it` blocks. Prefer `expect` assertions over manual checks. Use `beforeEach` for setup, not shared mutable state.
@@ -281,6 +319,15 @@ Check browser console for HMR errors. SolidJS HMR requires `vite-plugin-solid`. 
 ### Playwright snapshot shows empty page
 Dev server may not be running. Check with `browser_console_messages(level="error")`. Ensure `npm run dev` is running in background.
 
+### Worker controller tests failing
+Verify `WorkerController` is instantiated with a `postEvent` callback. Check that command types match the discriminated union in `worker-protocol.ts`. Async handlers must `await` pipeline operations; use `vi.advanceTimersByTimeAsync()` for spoof data flow.
+
+### E2E tests timing out
+Ensure `npx playwright install chromium` has been run. Check that dev server is reachable at `localhost:5173`. Increase timeout in `playwright.config.ts` for slow CI. Verify the spoof simulator starts (Settings → Advanced → Start Simulator).
+
+### Throughput or activity indicators stuck
+Check `ThroughputMonitor.start()` was called with the correct byte source. Verify `DataActivityMonitor.resetTimer()` is called on each packet. Check that `onNoData`/`onDataResumed` callbacks are wired correctly in `WorkerController` constructor.
+
 ---
 
 ## Git Workflow
@@ -292,11 +339,13 @@ Write clear, concise commit messages that describe the change. Commit after each
 ## Verification Commands
 
 ```bash
-npx vitest run                        # All tests
+npx vitest run                        # All unit/integration tests
 npx vitest run src/mavlink/           # MAVLink engine tests
 npx vitest run src/core/              # Core utility tests
 npx vitest run src/services/          # Service layer tests
+npx vitest run src/workers/           # Web Worker tests
 npm run build                         # Production build (catches type errors)
+npm run e2e                           # Playwright e2e tests
 npm run dev                           # Dev server for manual/Playwright verification
 ```
 
@@ -306,9 +355,13 @@ npm run dev                           # Dev server for manual/Playwright verific
 1. `npx vitest run` — all tests must pass
 2. `npm run build` — no type errors
 
+**For worker/service changes:**
+1. `npx vitest run src/workers/` — worker tests
+2. `npx vitest run` — full unit suite
+3. `npm run build` — no type errors
+
 **For UI changes:**
-1. `npx vitest run` — all tests must pass
+1. `npx vitest run` — all unit tests must pass
 2. `npm run build` — no type errors
-3. Start dev server → Playwright MCP: `browser_navigate` → `browser_snapshot` → verify
-4. `browser_console_messages(level="error")` — no JS errors
-5. `browser_take_screenshot` — visual check if needed
+3. `npm run e2e` — all e2e tests pass
+4. OR for visual verification: Start dev server → Playwright MCP: `browser_navigate` → `browser_snapshot` → verify

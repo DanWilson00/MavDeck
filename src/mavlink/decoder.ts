@@ -6,6 +6,7 @@
  */
 
 import type { MavlinkFrame } from './frame';
+import { MAVLINK_MAX_PAYLOAD_LEN } from './frame';
 import type { MavlinkFieldMetadata, MavlinkMessageMetadata } from './metadata';
 import type { MavlinkMetadataRegistry } from './registry';
 
@@ -20,6 +21,11 @@ export interface MavlinkMessage {
 
 export class MavlinkMessageDecoder {
   private readonly registry: MavlinkMetadataRegistry;
+  /**
+   * Pre-allocated buffer for zero-padding truncated v2 payloads. Avoids allocation per message.
+   * Safe to share across calls because decoding is synchronous (no concurrent access).
+   */
+  private readonly paddingBuffer = new Uint8Array(MAVLINK_MAX_PAYLOAD_LEN);
 
   constructor(registry: MavlinkMetadataRegistry) {
     this.registry = registry;
@@ -46,11 +52,12 @@ export class MavlinkMessageDecoder {
     payload: Uint8Array,
     metadata: MavlinkMessageMetadata,
   ): Record<string, number | string | number[]> {
-    // MAVLink v2 zero-trimming: pad payload to expected length
+    // MAVLink v2 zero-trimming: pad payload to expected length using pre-allocated buffer
     let paddedPayload: Uint8Array;
     if (payload.length < metadata.encodedLength) {
-      paddedPayload = new Uint8Array(metadata.encodedLength);
-      paddedPayload.set(payload);
+      this.paddingBuffer.fill(0, payload.length, metadata.encodedLength);
+      this.paddingBuffer.set(payload);
+      paddedPayload = this.paddingBuffer.subarray(0, metadata.encodedLength);
     } else {
       paddedPayload = payload;
     }
@@ -120,12 +127,15 @@ export class MavlinkMessageDecoder {
       return String.fromCharCode(...bytes);
     }
 
-    // Numeric arrays
-    const values: number[] = [];
+    // Numeric arrays — always return declared length, zero-padding truncated elements
+    const values: number[] = new Array<number>(field.arrayLength);
     for (let i = 0; i < field.arrayLength; i++) {
       const offset = field.offset + (i * field.size);
-      if (offset + field.size > payloadLength) break;
-      values.push(this.decodeScalar(data, offset, field.baseType));
+      if (offset + field.size > payloadLength) {
+        values[i] = 0;
+      } else {
+        values[i] = this.decodeScalar(data, offset, field.baseType);
+      }
     }
     return values;
   }

@@ -23,6 +23,10 @@
   --map-overlay-text: #e4e4e7;
   --map-overlay-border: rgba(255, 255, 255, 0.2);
   --map-marker-stroke: #000;
+  --map-start-color: #00cc00;
+  --map-start-fill: #00ff00;
+  --map-end-color: #cc0000;
+  --map-end-fill: #ff0000;
   --shadow-panel: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
   --tooltip-bg: rgba(0, 0, 0, 0.82);
   --tooltip-text: #e4e4e7;
@@ -58,6 +62,10 @@ html {
   --map-overlay-text: #18181b;
   --map-overlay-border: rgba(0, 0, 0, 0.2);
   --map-marker-stroke: #0f172a;
+  --map-start-color: #059669;
+  --map-start-fill: #34d399;
+  --map-end-color: #dc2626;
+  --map-end-fill: #f87171;
   --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
   --tooltip-bg: rgba(255, 255, 255, 0.92);
   --tooltip-text: #18181b;

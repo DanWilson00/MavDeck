@@ -16,7 +16,7 @@ interface ParameterGroupProps {
 
 export default function ParameterGroup(props: ParameterGroupProps) {
   return (
-    <div class="mt-0.5">
+    <div class="mt-0.5" data-testid={`param-group-${props.group.name}`}>
       {/* Group header */}
       <button
         onClick={() => props.onToggle()}

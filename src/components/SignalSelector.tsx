@@ -96,6 +96,7 @@ export default function SignalSelector(props: SignalSelectorProps) {
                 <button
                   class="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left transition-colors interactive-hover"
                   style={{ color: 'var(--text-primary)' }}
+                  data-testid={`signal-group-${msgType}`}
                   onClick={() => toggleGroup(msgType)}
                 >
                   <svg
