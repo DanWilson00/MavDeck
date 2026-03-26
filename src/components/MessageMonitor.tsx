@@ -10,6 +10,7 @@ import {
   type MessageStats,
 } from '../services';
 import type { MavlinkFieldMetadata } from '../mavlink/metadata';
+import { formatAutopilotVersionField } from '../services/autopilot-version-format';
 import StatusTextLog from './StatusTextLog';
 import { toggleSetItem } from './hooks';
 
@@ -44,7 +45,12 @@ export default function MessageMonitor(props: MessageMonitorProps) {
     toggleSetItem(setExpandedMessages, name);
   }
 
-  function formatValue(value: number | string | number[], field: MavlinkFieldMetadata): string {
+  function formatValue(value: number | string | number[], field: MavlinkFieldMetadata, messageName: string): string {
+    // AUTOPILOT_VERSION special formatting
+    if (messageName === 'AUTOPILOT_VERSION') {
+      const special = formatAutopilotVersionField(field.name, value);
+      if (special !== null) return special;
+    }
     // Enum resolution
     if (field.enumType && typeof value === 'number') {
       const resolved = registry.resolveEnumValue(field.enumType, value);
@@ -174,7 +180,7 @@ export default function MessageMonitor(props: MessageMonitorProps) {
                               class="font-mono ml-2 text-right"
                               style={{ color: 'var(--text-primary)' }}
                             >
-                              {value() !== undefined ? formatValue(value()!, field) : '—'}
+                              {value() !== undefined ? formatValue(value()!, field, name) : '—'}
                               <Show when={field.units && !field.enumType}>
                                 <span style={{ color: 'var(--text-secondary)' }}>
                                   {' '}{getDisplayUnit(field.units, appState.unitProfile, { fieldName: field.name })}
